@@ -1,8 +1,13 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.exceptions import HTTPException
+from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
+from starlette.types import Scope
 
 from server.config import get_settings
 from server.db.session import get_engine, init_db
@@ -10,6 +15,24 @@ from server.db.session import get_engine, init_db
 logger = logging.getLogger(__name__)
 
 _app = None
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles that serves the SPA index for client-side routes.
+
+    A request for a real file that is missing (e.g. ``/admin/assets/x.js``)
+    must still 404; only extension-less paths (client-side routes such as
+    ``/admin/avatars``) fall back to ``index.html`` so a refresh or deep link
+    under the ``/admin`` mount does not break.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != 404 or os.path.splitext(path)[1]:
+                raise
+            return await super().get_response("index.html", scope)
 
 
 async def _sweep_loop(manager, interval: float, session_factory) -> None:
@@ -80,11 +103,9 @@ def create_app() -> FastAPI:
 
     from pathlib import Path
 
-    from fastapi.staticfiles import StaticFiles
-
     dist = Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
     if dist.exists():
-        app.mount("/admin", StaticFiles(directory=str(dist), html=True), name="admin")
+        app.mount("/admin", SPAStaticFiles(directory=str(dist), html=True), name="admin")
 
     _app = app
     return app
