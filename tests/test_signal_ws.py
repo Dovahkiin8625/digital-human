@@ -1,0 +1,65 @@
+import io
+
+import pytest
+from PIL import Image
+from starlette.websockets import WebSocketDisconnect
+
+from server.api.deps import hash_api_key
+
+
+def _seed(client):
+    """Create a tenant + a ready avatar; return (api_key, avatar_id)."""
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Tenant
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    db.add(Tenant(name="t1", api_key_hash=hash_api_key("key-1")))
+    db.commit()
+    db.close()
+    headers = {"X-API-Key": "key-1"}
+    buf = io.BytesIO()
+    Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
+    resp = client.post(
+        "/api/v1/avatars", headers=headers, data={"name": "a"},
+        files={"file": ("a.png", buf.getvalue(), "image/png")},
+    )
+    return "key-1", resp.json()["avatar_id"]
+
+
+def _new_session(client, api_key, avatar_id):
+    return client.post(
+        "/api/v1/sessions", headers={"X-API-Key": api_key}, json={"avatar_id": avatar_id}
+    ).json()["session_id"]
+
+
+def test_signal_ws_rejects_invalid_api_key(client):
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/api/v1/ws/signal/whatever?api_key=nope"):
+            pass
+    assert exc.value.code == 4401
+
+
+def test_signal_ws_unknown_session_closes_4404(client):
+    api_key, _ = _seed(client)
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/api/v1/ws/signal/missing?api_key={api_key}") as ws:
+            ws.receive_text()
+    assert exc.value.code == 4404
+
+
+def test_signal_ws_bye_restores_null_sink(client):
+    from server.core.stream_sink import NullSink
+
+    api_key, avatar_id = _seed(client)
+    sid = _new_session(client, api_key, avatar_id)
+    manager = client.app.state.session_manager
+
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+        ws.send_text('{"type": "bye"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+    # Teardown restored the session's sink so audio ingest no longer feeds a dead track.
+    assert isinstance(manager.get_render(sid).sink, NullSink)

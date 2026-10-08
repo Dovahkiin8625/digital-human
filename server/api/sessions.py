@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy import select
 from starlette.responses import Response
 
-from server.api.deps import get_tenant
+from server.api.deps import get_tenant, hash_api_key
 from server.core.errors import AppError
 from server.db.models import Avatar, StreamSession, Tenant
 from server.db.session import get_db
@@ -91,3 +91,28 @@ async def delete_session(session_id: str, tenant: Tenant = Depends(get_tenant), 
         raise AppError("not_found", f"session {session_id} not found", 404)
     await _manager().close(db, session_id)
     return Response(status_code=204)
+
+
+def _ws_auth(api_key: str) -> bool:
+    """WebSocket auth: REST uses the X-API-Key header, WS uses ?api_key=."""
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Tenant
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        tenant = db.query(Tenant).filter(Tenant.api_key_hash == hash_api_key(api_key)).first()
+        return tenant is not None
+    finally:
+        db.close()
+
+
+@router.websocket("/api/v1/ws/signal/{session_id}")
+async def signal_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> None:
+    if not _ws_auth(api_key):
+        await websocket.close(code=4401)
+        return
+    from server.core.webrtc import handle_signal_websocket
+
+    await handle_signal_websocket(websocket, _manager(), session_id)
