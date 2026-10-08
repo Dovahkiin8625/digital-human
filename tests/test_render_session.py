@@ -20,14 +20,41 @@ def test_audio_ingest_blocks():
     assert len(flushed) == 1 and flushed[0].shape == (2400,)
 
 
-def _session(tmp_path):
+def test_audio_ingest_flush_odd_residual():
+    ingest = AudioIngest(sample_rate=48000, block_ms=100)
+    ingest.push_pcm(b"\x00" * 201)  # 100 whole samples + 1 stray byte
+    flushed = ingest.flush()
+    assert len(flushed) == 1 and flushed[0].shape == (100,)
+    assert ingest.flush() == []  # stray byte dropped, not retained
+
+    lone = AudioIngest(sample_rate=48000, block_ms=100)
+    lone.push_pcm(b"\x7f")  # half a sample only
+    assert lone.flush() == []
+
+
+class _RecordingSink(FrameBufferSink):
+    def __init__(self):
+        super().__init__()
+        self.pts_list: list[float] = []
+
+    async def push(self, image: np.ndarray, pts: float) -> None:
+        self.pts_list.append(pts)
+        await super().push(image, pts)
+
+
+class _BoomEngine(MockEngine):
+    async def drive(self, pack, audio, sample_rate):
+        raise RuntimeError("engine exploded")
+
+
+def _session(tmp_path, engine=None, sink=None):
     from PIL import Image
 
     img = tmp_path / "src.png"
     Image.new("RGB", (720, 1280), (10, 10, 10)).save(img)
     pack = AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img, config={})
-    sink = FrameBufferSink()
-    return RenderSession("s1", pack, MockEngine(), sink), sink
+    sink = sink if sink is not None else FrameBufferSink()
+    return RenderSession("s1", pack, engine or MockEngine(), sink), sink
 
 
 @pytest.mark.asyncio
@@ -45,6 +72,22 @@ async def test_push_pcm_drives_frames_and_metrics(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_pts_tracks_audio_time(tmp_path):
+    sink = _RecordingSink()
+    session, _ = _session(tmp_path, sink=sink)
+    await session.start()
+    await session.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())  # 0.5s → 10 frames
+    pts = sink.pts_list
+    assert len(pts) == 10
+    assert pts[0] == pytest.approx(0.0)
+    # frames distributed across each 100ms block: last pts = 0.4 + 0.1/2
+    assert pts[-1] == pytest.approx(0.45)
+    assert pts[-1] < 0.5
+    assert all(b > a for a, b in zip(pts, pts[1:]))  # monotonic
+    await session.close()
+
+
+@pytest.mark.asyncio
 async def test_push_after_close_raises(tmp_path):
     from server.core.errors import AppError
 
@@ -57,10 +100,36 @@ async def test_push_after_close_raises(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_engine_error_marks_session_and_reraises(tmp_path):
+    session, _ = _session(tmp_path, engine=_BoomEngine())
+    await session.start()
+    with pytest.raises(RuntimeError, match="engine exploded"):
+        await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())
+    assert session.state == SessionState.ERROR
+    assert session.error is not None and "engine exploded" in session.error
+
+
+@pytest.mark.asyncio
 async def test_maybe_idle_transitions(tmp_path):
     session, _ = _session(tmp_path)
     await session.start()
-    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())
-    session.maybe_idle(now=session.last_audio_at + 3.0)
     assert session.state == SessionState.LISTENING
+    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())
+    assert session.state == SessionState.SPEAKING
+    session.maybe_idle(now=session.last_audio_at + 3.0)
+    assert session.state == SessionState.IDLE
+    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())  # IDLE → SPEAKING
+    assert session.state == SessionState.SPEAKING
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_close_flushes_audio_tail(tmp_path):
+    session, _ = _session(tmp_path)
+    await session.start()
+    await session.push_pcm(np.zeros(2400, dtype=np.int16).tobytes())  # 50ms tail, no full block
+    assert session.metrics["frames_out"] == 0
+    await session.close()
+    assert session.state == SessionState.CLOSED
+    # tail driven on close: max(1, round(0.05 * 25)) = 1 frame
+    assert session.metrics["frames_out"] == 1

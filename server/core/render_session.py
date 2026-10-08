@@ -39,7 +39,7 @@ class RenderSession:
         self.error: str | None = None
         self.last_audio_at = time.monotonic()
         self._ingest = AudioIngest(sample_rate=sample_rate, block_ms=100)
-        self._pts = 0.0
+        self._audio_pts = 0.0
         self._metrics = {"frames_out": 0, "dropped_frames": 0, "fps": 0.0, "avg_latency_ms": 0.0}
 
     @property
@@ -53,7 +53,7 @@ class RenderSession:
     def maybe_idle(self, now: float | None = None) -> None:
         now = now if now is not None else time.monotonic()
         if self.state == SessionState.SPEAKING and now - self.last_audio_at > IDLE_AFTER:
-            self.state = SessionState.LISTENING
+            self.state = SessionState.IDLE
 
     async def push_pcm(self, data: bytes) -> None:
         if self.state in (SessionState.CLOSED, SessionState.ERROR):
@@ -65,10 +65,16 @@ class RenderSession:
 
     async def _drive_block(self, block: np.ndarray) -> None:
         t0 = time.perf_counter()
-        frames = await self.engine.drive(self.pack, block, self.sample_rate)
-        for frame in frames:
-            frame.pts = self._pts
-            self._pts += 1.0 / self.fps
+        block_duration = len(block) / self.sample_rate
+        block_start = self._audio_pts
+        self._audio_pts += block_duration
+        try:
+            frames = await self.engine.drive(self.pack, block, self.sample_rate)
+        except Exception as exc:
+            self.mark_error(str(exc))
+            raise
+        for j, frame in enumerate(frames):
+            frame.pts = block_start + j * block_duration / len(frames)
             try:
                 await self.sink.push(frame.image, frame.pts)
                 self._metrics["frames_out"] += 1
@@ -85,6 +91,8 @@ class RenderSession:
         self.error = message[:1024]
 
     async def close(self) -> None:
+        for block in self._ingest.flush():
+            await self._drive_block(block)
         await self.engine.close()
         await self.sink.close()
         self.state = SessionState.CLOSED

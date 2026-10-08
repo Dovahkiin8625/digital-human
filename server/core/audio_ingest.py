@@ -21,8 +21,10 @@ class AudioIngest:
 
     def flush(self) -> list[np.ndarray]:
         blocks = self._drain_blocks()
-        if len(self._buf) >= 2:
-            raw = bytes(self._buf)
-            self._buf.clear()
-            blocks.append(np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0)
+        if self._buf:
+            usable = len(self._buf) - (len(self._buf) % 2)  # whole 16-bit samples only
+            if usable:
+                raw = bytes(self._buf[:usable])
+                blocks.append(np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0)
+            self._buf.clear()  # drop any odd trailing byte
         return blocks
