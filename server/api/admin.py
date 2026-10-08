@@ -13,12 +13,12 @@ from sqlalchemy import select
 from starlette.responses import Response
 
 from server.api.deps import get_admin, hash_api_key
-from server.avatar.pipeline import create_pipeline, run_avatar_job
+from server.avatar.pipeline import run_job_in_new_session
 from server.avatar.store import AvatarStore
 from server.config import get_settings
 from server.core.errors import AppError
 from server.db.models import Avatar, AvatarJob, StreamSession, Tenant
-from server.db.session import get_db, get_engine
+from server.db.session import get_db
 
 # Split routers: login is the auth entry point and must NOT sit behind get_admin;
 # every other admin endpoint does (controller ruling #2).
@@ -109,16 +109,6 @@ def admin_list_avatars(tenant_id: str = "", db=Depends(get_db)) -> list[dict]:
     return out
 
 
-def _admin_run_job(job_id: str) -> None:
-    from sqlalchemy.orm import sessionmaker
-
-    db = sessionmaker(bind=get_engine())()
-    try:
-        run_avatar_job(db, AvatarStore(get_settings().data_dir), create_pipeline("mock"), job_id)
-    finally:
-        db.close()
-
-
 @admin_router.post("/avatars/{avatar_id}/retry", status_code=202)
 def retry_avatar(avatar_id: str, background: BackgroundTasks, db=Depends(get_db)) -> dict:
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
@@ -128,7 +118,7 @@ def retry_avatar(avatar_id: str, background: BackgroundTasks, db=Depends(get_db)
     db.add(job)
     avatar.status = "pending"
     db.commit()
-    background.add_task(_admin_run_job, job.id)
+    background.add_task(run_job_in_new_session, job.id, AvatarStore(get_settings().data_dir))
     return {"job_id": job.id}
 
 

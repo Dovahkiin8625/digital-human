@@ -2,8 +2,12 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PIL import Image
+
+if TYPE_CHECKING:
+    from server.avatar.store import AvatarStore
 
 
 class PipelineError(Exception):
@@ -73,3 +77,21 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
         avatar.status = "failed"
         job.error = str(exc)[:1024]
         db.commit()
+
+
+def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
+    """Run an avatar job to completion in its own DB session.
+
+    Shared by the FastAPI BackgroundTasks call sites in api/avatars.py (tenant
+    upload) and api/admin.py (admin retry); both previously carried a private,
+    near-identical copy of this runner.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        run_avatar_job(db, store, create_pipeline("mock"), job_id)
+    finally:
+        db.close()

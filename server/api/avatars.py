@@ -7,12 +7,12 @@ from sqlalchemy import select
 from starlette.responses import Response
 
 from server.api.deps import get_tenant
-from server.avatar.pipeline import create_pipeline, run_avatar_job
+from server.avatar.pipeline import run_job_in_new_session
 from server.avatar.store import AvatarStore
 from server.config import get_settings
 from server.core.errors import AppError
 from server.db.models import Avatar, AvatarJob, Tenant
-from server.db.session import get_db, get_engine
+from server.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/avatars", tags=["avatars"])
 
@@ -92,18 +92,8 @@ def create_avatar(
     db.add(avatar)
     db.add(job)
     db.commit()
-    background.add_task(_run_job, job.id)
+    background.add_task(run_job_in_new_session, job.id, _store())
     return {"avatar_id": avatar_id, "status": "pending"}
-
-
-def _run_job(job_id: str) -> None:
-    from sqlalchemy.orm import sessionmaker
-
-    db = sessionmaker(bind=get_engine())()
-    try:
-        run_avatar_job(db, _store(), create_pipeline("mock"), job_id)
-    finally:
-        db.close()
 
 
 @router.get("")
