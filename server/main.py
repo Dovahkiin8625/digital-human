@@ -77,6 +77,15 @@ def create_app() -> FastAPI:
     app.state.session_manager = SessionManager(
         create_engine(), AvatarStore(settings.data_dir), settings.session_idle_timeout
     )
+
+    from pathlib import Path
+
+    from fastapi.staticfiles import StaticFiles
+
+    dist = Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
+    if dist.exists():
+        app.mount("/admin", StaticFiles(directory=str(dist), html=True), name="admin")
+
     _app = app
     return app
 
