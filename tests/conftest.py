@@ -9,10 +9,12 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DRIVE_ENGINE", "mock")
     from server.config import get_settings
     get_settings.cache_clear()
+    from server.db.session import init_db, get_engine, reset_engine
+    reset_engine()
     from server.main import create_app
-    from server.db.session import init_db, get_engine
     app = create_app()
     init_db(get_engine())
     with TestClient(app) as c:
         yield c
+    reset_engine()
     get_settings.cache_clear()
