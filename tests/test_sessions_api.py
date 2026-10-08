@@ -1,8 +1,12 @@
 import asyncio
 import io
+import time
 
 import numpy as np
+from fastapi.testclient import TestClient
 from PIL import Image
+
+from server.engine.mock_engine import MockEngine
 
 
 def _seed(client):
@@ -103,3 +107,87 @@ def test_attach_sink_receives_frames(client):
     asyncio.run(render.push_pcm(np.zeros(4800, dtype=np.int16).tobytes()))  # 100ms -> 2 frames
     assert sink.latest is not None
     assert render.metrics["frames_out"] == 2
+
+
+class _CloseTrackingEngine(MockEngine):
+    def __init__(self):
+        super().__init__()
+        self.close_calls = 0
+
+    async def close(self):
+        self.close_calls += 1
+
+
+def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path):
+    from server.avatar.store import AvatarStore
+    from server.core.render_session import RenderSession
+    from server.core.session_manager import SessionManager
+    from server.core.stream_sink import NullSink
+    from server.engine.base import AvatarPack
+
+    img = tmp_path / "src.png"
+    Image.new("RGB", (64, 64), (10, 20, 30)).save(img)
+    pack = AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img, config={})
+    engine = _CloseTrackingEngine()
+
+    # A RenderSession close must NOT tear down the shared engine.
+    render = RenderSession("s1", pack, engine, NullSink())
+    asyncio.run(render.start())
+    asyncio.run(render.close())
+    assert engine.close_calls == 0
+
+    # SessionManager owns the engine; shutdown closes it exactly once (idempotent).
+    manager = SessionManager(engine, AvatarStore(tmp_path), idle_timeout=60.0)
+    asyncio.run(manager.shutdown())
+    asyncio.run(manager.shutdown())
+    assert engine.close_calls == 1
+
+
+def _build_app(tmp_path, monkeypatch, **env):
+    monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    monkeypatch.setenv("DH_DRIVE_ENGINE", "mock")
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    from server.config import get_settings
+    from server.db.session import get_engine, init_db, reset_engine
+    from server.main import create_app
+
+    get_settings.cache_clear()
+    reset_engine()
+    app = create_app()
+    init_db(get_engine())
+    return app
+
+
+def test_lifespan_sweeper_reclaims_idle_and_stops_cleanly(tmp_path, monkeypatch):
+    app = _build_app(
+        tmp_path, monkeypatch,
+        DH_SESSION_IDLE_TIMEOUT="0.05", DH_SESSION_SWEEP_INTERVAL="0.02",
+    )
+    from server.config import get_settings
+    from server.db.session import reset_engine
+
+    try:
+        with TestClient(app) as c:
+            task = app.state.sweep_task
+            assert task is not None and not task.done()
+
+            headers, avatar_id = _seed(c)
+            sid = c.post(
+                "/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}
+            ).json()["session_id"]
+
+            status = None
+            deadline = time.time() + 5.0
+            while time.time() < deadline:
+                status = c.get(f"/api/v1/sessions/{sid}", headers=headers).json()["status"]
+                if status == "closed":
+                    break
+                time.sleep(0.02)
+            assert status == "closed", f"background sweeper never reclaimed idle session ({status})"
+        # Leaving the context ran lifespan shutdown: the sweep task was cancelled/awaited.
+        assert task.done()
+    finally:
+        reset_engine()
+        get_settings.cache_clear()

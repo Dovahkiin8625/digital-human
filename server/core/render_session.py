@@ -93,6 +93,7 @@ class RenderSession:
     async def close(self) -> None:
         for block in self._ingest.flush():
             await self._drive_block(block)
-        await self.engine.close()
+        # The DriveEngine is shared across sessions and owned by SessionManager
+        # (closed once via SessionManager.shutdown); a session only closes its sink.
         await self.sink.close()
         self.state = SessionState.CLOSED

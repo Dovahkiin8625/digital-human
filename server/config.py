@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     admin_token: str = "dev-admin-token"
     session_idle_timeout: float = 60.0
+    session_sweep_interval: float = 10.0
     frame_width: int = 720
     frame_height: int = 1280
     fps: int = 25

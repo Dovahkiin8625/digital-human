@@ -18,6 +18,7 @@ class SessionManager:
         self.store = store
         self.idle_timeout = idle_timeout
         self._renders: dict[str, RenderSession] = {}
+        self._engine_closed = False
 
     async def create(self, db: Session, tenant_id: str, avatar: Avatar) -> StreamSession:
         row = StreamSession(tenant_id=tenant_id, avatar_id=avatar.id, status="idle")
@@ -58,3 +59,15 @@ class SessionManager:
                 await self.close(db, sid)
                 closed += 1
         return closed
+
+    async def shutdown(self) -> None:
+        """Close the shared engine once. Idempotent and safe to call repeatedly.
+
+        RenderSession.close() no longer touches the engine, so this is the single
+        place the process-wide DriveEngine is torn down (wired to app lifespan
+        shutdown). A second call is a no-op.
+        """
+        if self._engine_closed:
+            return
+        self._engine_closed = True
+        await self.engine.close()
