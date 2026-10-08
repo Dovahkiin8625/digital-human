@@ -39,12 +39,39 @@ def test_pipeline_produces_pack(tmp_path, monkeypatch):
     db.refresh(avatar)
     assert avatar.status == "ready"
     pack_dir = store.avatar_dir(avatar.id)
+    assert avatar.pack_path == str(pack_dir / "pack.json")
     assert (pack_dir / "normalized.png").exists()
     cfg = json.loads((pack_dir / "pack.json").read_text())
     assert cfg["mouth_scale"] == 1.0
     pack = store.load_pack(avatar)
     assert pack.avatar_id == avatar.id
     assert pack.source_image_path.exists()
+
+
+def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeypatch):
+    db = _make_db(tmp_path, monkeypatch)
+    store = AvatarStore(tmp_path / "data")
+    src = tmp_path / "photo.png"
+    Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
+
+    avatar = Avatar(name="a", tenant_id="t", status="processing", source_image_path=str(src))
+    db.add(avatar)
+    db.flush()
+    job = AvatarJob(avatar_id=avatar.id, stage="queued")
+    db.add(job)
+    db.commit()
+
+    def raise_disk_full(self, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.write_text", raise_disk_full)
+
+    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+
+    db.refresh(avatar)
+    db.refresh(job)
+    assert avatar.status == "failed"
+    assert "disk full" in job.error
 
 
 def test_pipeline_rejects_tiny_image(tmp_path, monkeypatch):

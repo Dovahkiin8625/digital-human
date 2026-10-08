@@ -50,8 +50,6 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
 
     job = db.get(AvatarJob, job_id)
     avatar = db.get(Avatar, job.avatar_id)
-    avatar.status = "processing"
-    db.commit()
 
     def progress(stage: str, pct: int) -> None:
         job.stage = stage
@@ -59,18 +57,19 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
         db.commit()
 
     try:
+        avatar.status = "processing"
+        db.commit()
         config = pipeline.process(
             avatar.id, Path(avatar.source_image_path), store.avatar_dir(avatar.id), progress
         )
+        pack_json = store.avatar_dir(avatar.id) / "pack.json"
+        pack_json.write_text(json.dumps(config))
+        avatar.pack_path = str(pack_json)
+        avatar.config_json = config
+        avatar.status = "ready"
+        db.commit()
     except Exception as exc:  # noqa: BLE001 — 失败必须落库可见
+        db.rollback()
         avatar.status = "failed"
         job.error = str(exc)[:1024]
         db.commit()
-        return
-
-    pack_json = store.avatar_dir(avatar.id) / "pack.json"
-    pack_json.write_text(json.dumps(config))
-    avatar.pack_path = str(pack_json)
-    avatar.config_json = config
-    avatar.status = "ready"
-    db.commit()
