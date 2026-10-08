@@ -15,6 +15,6 @@ class LoginIn(BaseModel):
 
 @router.post("/login")
 def login(body: LoginIn) -> dict:
-    if not hmac.compare_digest(body.password, get_settings().admin_password):
+    if not hmac.compare_digest(body.password.encode("utf-8"), get_settings().admin_password.encode("utf-8")):
         raise AppError("unauthorized", "missing or invalid admin token", 401)
     return {"token": get_settings().admin_token}

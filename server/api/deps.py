@@ -24,5 +24,5 @@ def get_tenant(x_api_key: str = Header(default=""), db=Depends(get_db)) -> Tenan
 
 def get_admin(x_admin_token: str = Header(default="")) -> None:
     expected = get_settings().admin_token
-    if not hmac.compare_digest(x_admin_token, expected):
+    if not hmac.compare_digest(x_admin_token.encode("utf-8"), expected.encode("utf-8")):
         raise AppError("unauthorized", "missing or invalid admin token", 401)
