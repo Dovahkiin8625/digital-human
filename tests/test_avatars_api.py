@@ -139,6 +139,32 @@ def test_require_uuid_hex_rejects_non_hex():
         assert ei.value.code == "not_found"
 
 
+def test_avatar_job_id_fits_pk_column_contract(client):
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import AvatarJob
+    from server.db.session import get_engine
+
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Alice"},
+        files={"file": ("alice.png", _png_bytes(), "image/png")},
+    )
+    assert resp.status_code == 201
+    avatar_id = resp.json()["avatar_id"]
+    db = sessionmaker(bind=get_engine())()
+    try:
+        job = db.execute(select(AvatarJob).where(AvatarJob.avatar_id == avatar_id)).scalars().one()
+    finally:
+        db.close()
+    col_len = AvatarJob.__table__.c.id.type.length
+    assert col_len == 32
+    assert len(job.id) <= col_len
+
+
 def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
     headers = _seed_tenant(client)
     called = []

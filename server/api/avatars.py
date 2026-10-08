@@ -88,7 +88,7 @@ def create_avatar(
         status="pending",
         source_image_path=str(source_path),
     )
-    job = AvatarJob(id=avatar_id + "-job", avatar_id=avatar_id, stage="queued")
+    job = AvatarJob(avatar_id=avatar_id, stage="queued")
     db.add(avatar)
     db.add(job)
     db.commit()
