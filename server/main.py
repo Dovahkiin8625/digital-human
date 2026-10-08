@@ -60,6 +60,7 @@ def create_app() -> FastAPI:
     def healthz() -> dict:
         return {"status": "ok", "engine": settings.drive_engine, "gpu": False}
 
+    from server.api.admin import admin_router as admin_api_router
     from server.api.admin import router as admin_router
     from server.api.avatars import router as avatars_router
     from server.api.sessions import router as sessions_router
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
 
     register_handlers(app)
     app.include_router(admin_router)
+    app.include_router(admin_api_router)
     app.include_router(avatars_router)
     app.include_router(sessions_router)
     app.state.session_manager = SessionManager(
