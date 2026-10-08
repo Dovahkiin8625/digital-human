@@ -4,6 +4,7 @@ import av
 import numpy as np
 import pytest
 from PIL import Image
+from starlette.websockets import WebSocketDisconnect
 
 from server.core.webrtc import consume_audio_track
 
@@ -47,11 +48,12 @@ def test_ws_audio_channel_drives_frames(client):
 
 def test_ws_audio_rejects_bad_key(client):
     sid = _setup(client)
-    try:
+    # Assert the required close code, not merely "some disconnect": an
+    # auth-boundary test that swallows every exception proves nothing.
+    with pytest.raises(WebSocketDisconnect) as exc:
         with client.websocket_connect(f"/api/v1/ws/audio/{sid}?api_key=bad") as ws:
             ws.receive()
-    except Exception:
-        pass  # 服务端 close(4401) 导致的断开即为通过
+    assert exc.value.code == 4401
 
 
 class _FakeTrack:
