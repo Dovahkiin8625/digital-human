@@ -12,6 +12,34 @@ def _png():
     return buf.getvalue()
 
 
+def _new_tenant(client, name):
+    return client.post("/api/admin/tenants", headers=ADMIN, json={"name": name}).json()["api_key"]
+
+
+def _upload_avatar(client, api_key, name):
+    return client.post(
+        "/api/v1/avatars", headers={"X-API-Key": api_key}, data={"name": name},
+        files={"file": ("a.png", _png(), "image/png")},
+    ).json()["avatar_id"]
+
+
+def _set_status(avatar_id, status):
+    """Force an avatar's status so retry can be exercised from every allowed state."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Avatar
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one()
+        avatar.status = status
+        db.commit()
+    finally:
+        db.close()
+
+
 def test_admin_requires_token(client):
     assert client.get("/api/admin/system").status_code == 401
 
@@ -50,11 +78,25 @@ def test_avatar_config_and_preview(client):
     assert len(resp.content) > 100
 
 
-def test_jobs_listing_and_retry(client):
-    api_key = client.post("/api/admin/tenants", headers=ADMIN, json={"name": "t"}).json()["api_key"]
-    client.post(
-        "/api/v1/avatars", headers={"X-API-Key": api_key}, data={"name": "bad"},
-        files={"file": ("bad.png", io.BytesIO(b"not an image"), "image/png")},
-    )
+def test_jobs_listing(client):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
     jobs = client.get("/api/admin/jobs", headers=ADMIN).json()
     assert isinstance(jobs, list)
+    row = next(j for j in jobs if j["avatar_id"] == avatar_id)
+    assert set(row) >= {"job_id", "avatar_id", "stage", "progress", "error", "created_at"}
+
+
+@pytest.mark.parametrize("status", ["failed", "pending", "ready"])
+def test_avatar_retry_allowed_from_any_status(client, status):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    _set_status(avatar_id, status)
+
+    resp = client.post(f"/api/admin/avatars/{avatar_id}/retry", headers=ADMIN)
+    assert resp.status_code == 202
+    job_id = resp.json()["job_id"]
+
+    # A brand-new job row exists for this avatar (the retry background task ran).
+    jobs = client.get("/api/admin/jobs", headers=ADMIN).json()
+    assert any(j["job_id"] == job_id and j["avatar_id"] == avatar_id for j in jobs)
