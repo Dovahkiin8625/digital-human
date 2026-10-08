@@ -13,4 +13,12 @@ def create_app() -> FastAPI:
     def healthz() -> dict:
         return {"status": "ok", "engine": settings.drive_engine, "gpu": False}
 
+    from server.api.admin import router as admin_router
+    from server.api.avatars import router as avatars_router
+    from server.core.errors import register_handlers
+
+    register_handlers(app)
+    app.include_router(admin_router)
+    app.include_router(avatars_router)
+
     return app
