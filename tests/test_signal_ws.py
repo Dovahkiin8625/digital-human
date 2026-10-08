@@ -63,3 +63,37 @@ def test_signal_ws_bye_restores_null_sink(client):
 
     # Teardown restored the session's sink so audio ingest no longer feeds a dead track.
     assert isinstance(manager.get_render(sid).sink, NullSink)
+
+
+def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch):
+    """If the session is swept/deleted mid-connection, teardown must still close the pc."""
+    from server.core import webrtc
+
+    instances = []
+
+    class _StubPC:
+        def __init__(self):
+            self.closed = False
+            instances.append(self)
+
+        def addTrack(self, track):
+            pass
+
+        async def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(webrtc, "RTCPeerConnection", _StubPC)
+
+    api_key, avatar_id = _seed(client)
+    sid = _new_session(client, api_key, avatar_id)
+    headers = {"X-API-Key": api_key}
+
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+        # The idle sweeper (or DELETE) removes the render while signaling is live.
+        assert client.delete(f"/api/v1/sessions/{sid}", headers=headers).status_code == 204
+        ws.send_text('{"type": "bye"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+    # A missing session must not abort teardown: the peer connection is released.
+    assert instances and all(pc.closed for pc in instances)

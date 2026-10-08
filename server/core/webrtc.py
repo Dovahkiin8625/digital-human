@@ -9,6 +9,7 @@ from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from starlette.websockets import WebSocket
 
+from server.core.errors import AppError
 from server.core.stream_sink import NullSink, SinkClosed, StreamSink
 
 
@@ -88,9 +89,18 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
             elif msg.get("type") == "bye":
                 break
     finally:
-        await sink.close()
-        manager.attach_sink(session_id, NullSink())
-        await pc.close()
-        # Starlette does not auto-close when the endpoint returns; close explicitly
-        # so signaling clients observe a deterministic teardown after "bye".
-        await websocket.close()
+        # Teardown must be order-independent: the session may have been swept or
+        # deleted mid-connection, making attach_sink raise. Never let that skip the
+        # pc/websocket close below (an unclosed RTCPeerConnection leaks a UDP socket
+        # and internal asyncio tasks).
+        try:
+            await sink.close()
+            try:
+                manager.attach_sink(session_id, NullSink())
+            except AppError:
+                pass
+        finally:
+            await pc.close()
+            # Starlette does not auto-close when the endpoint returns; close explicitly
+            # so signaling clients observe a deterministic teardown after "bye".
+            await websocket.close()
