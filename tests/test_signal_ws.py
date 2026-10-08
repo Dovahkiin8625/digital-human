@@ -79,6 +79,15 @@ def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch)
         def addTrack(self, track):
             pass
 
+        def on(self, event, handler=None):
+            # Real RTCPeerConnection.on supports both pc.on(event, handler) and
+            # the @pc.on(event) decorator form; mirror it so the new "track"
+            # registration in handle_signal_websocket is exercised.
+            def decorator(fn):
+                return fn
+
+            return decorator if handler is None else handler
+
         async def close(self):
             self.closed = True
 

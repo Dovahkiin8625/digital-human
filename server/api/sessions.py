@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy import select
 from starlette.responses import Response
@@ -116,3 +118,31 @@ async def signal_ws(websocket: WebSocket, session_id: str, api_key: str = "") ->
     from server.core.webrtc import handle_signal_websocket
 
     await handle_signal_websocket(websocket, _manager(), session_id)
+
+
+@router.websocket("/api/v1/ws/audio/{session_id}")
+async def audio_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> None:
+    """Backup PCM ingress: binary frames are raw s16le mono 48kHz chunks fed to
+    the same RenderSession.push_pcm as the RTP audio track; a text {"type":"flush"}
+    drains the ingest's partial tail block."""
+    if not _ws_auth(api_key):
+        await websocket.close(code=4401)
+        return
+    try:
+        render = _manager().get_render(session_id)
+    except AppError:
+        await websocket.close(code=4404)
+        return
+    await websocket.accept()
+    try:
+        while True:
+            msg = await websocket.receive()
+            if msg.get("bytes") is not None:
+                await render.push_pcm(msg["bytes"])
+            elif msg.get("text"):
+                payload = json.loads(msg["text"])
+                if payload.get("type") == "flush":
+                    for block in render._ingest.flush():
+                        await render._drive_block(block)
+    except Exception:
+        pass

@@ -3,10 +3,11 @@ import json
 from fractions import Fraction
 
 import numpy as np
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from aiortc.mediastreams import VIDEO_CLOCK_RATE
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
+from av.audio.resampler import AudioResampler
 from starlette.websockets import WebSocket
 
 from server.core.errors import AppError
@@ -56,6 +57,32 @@ class WebRTCSink(StreamSink):
         self.closed = True
 
 
+async def consume_audio_track(track: MediaStreamTrack, push_pcm) -> None:
+    """Drain an inbound RTP audio track into the session's PCM ingest.
+
+    Resamples non-48k/mono frames to s16 mono 48kHz, then hands raw PCM bytes to
+    push_pcm. Any failure (track ended, transport torn down, bad frame) exits
+    silently so a dead audio track never crashes its owning task.
+    """
+    resampler = None
+    try:
+        while True:
+            frame = await track.recv()
+            if frame.sample_rate != 48000 or frame.layout.name != "mono":
+                if resampler is None:
+                    resampler = AudioResampler(format="s16", layout="mono", rate=48000)
+                frames = resampler.resample(frame)
+            else:
+                frames = [frame]
+            for f in frames:
+                arr = f.to_ndarray()
+                if arr.dtype != np.int16:
+                    arr = (np.clip(arr.astype(np.float32), -1, 1) * 32767).astype(np.int16)
+                await push_pcm(arr.tobytes())
+    except Exception:
+        return
+
+
 async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str) -> None:
     await websocket.accept()
     try:
@@ -69,6 +96,11 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
     manager.attach_sink(session_id, sink)
     pc = RTCPeerConnection()
     pc.addTrack(track)
+
+    @pc.on("track")
+    def on_track(inbound):
+        if inbound.kind == "audio":
+            asyncio.ensure_future(consume_audio_track(inbound, render.push_pcm))
 
     try:
         while True:
