@@ -1,10 +1,13 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from server.config import get_settings
 from server.db.session import get_engine, init_db
+
+logger = logging.getLogger(__name__)
 
 _app = None
 
@@ -13,11 +16,16 @@ async def _sweep_loop(manager, interval: float, session_factory) -> None:
     """Periodically reclaim idle sessions until cancelled (spec §6: 60s auto-reclaim)."""
     while True:
         await asyncio.sleep(interval)
-        db = session_factory()
+        # A transient failure in one tick (e.g. a broken tail-drive) must not kill
+        # the sweeper permanently; absorb it, log it, and keep ticking.
         try:
-            await manager.sweep_idle(db)
-        finally:
-            db.close()
+            db = session_factory()
+            try:
+                await manager.sweep_idle(db)
+            finally:
+                db.close()
+        except Exception:
+            logger.exception("session sweep tick failed")
 
 
 def create_app() -> FastAPI:

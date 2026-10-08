@@ -191,3 +191,37 @@ def test_lifespan_sweeper_reclaims_idle_and_stops_cleanly(tmp_path, monkeypatch)
     finally:
         reset_engine()
         get_settings.cache_clear()
+
+
+def test_sweep_loop_survives_transient_failure(tmp_path, monkeypatch):
+    app = _build_app(
+        tmp_path, monkeypatch,
+        DH_SESSION_IDLE_TIMEOUT="0.05", DH_SESSION_SWEEP_INTERVAL="0.02",
+    )
+    from server.config import get_settings
+    from server.db.session import reset_engine
+
+    try:
+        with TestClient(app) as c:
+            manager = app.state.session_manager
+            calls = {"n": 0}
+            real = manager.sweep_idle
+
+            async def flaky(db, now=None):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise RuntimeError("transient sweep failure")
+                return await real(db, now)
+
+            monkeypatch.setattr(manager, "sweep_idle", flaky)
+
+            deadline = time.time() + 5.0
+            while calls["n"] < 2 and time.time() < deadline:
+                time.sleep(0.02)
+
+            # One bad tick must not kill the sweeper: it keeps running and recovers.
+            assert calls["n"] >= 2, "sweep loop died after a transient tick failure"
+            assert not app.state.sweep_task.done()
+    finally:
+        reset_engine()
+        get_settings.cache_clear()
