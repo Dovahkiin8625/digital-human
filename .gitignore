@@ -5,3 +5,4 @@ data/
 admin-ui/node_modules/
 admin-ui/dist/
 .pytest_cache/
+.env

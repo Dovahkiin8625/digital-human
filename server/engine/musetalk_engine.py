@@ -5,7 +5,7 @@ import numpy as np
 from server.config import get_settings
 from server.engine.base import AvatarPack, DriveEngine, DriveFrame, EngineUnavailable
 
-WEIGHTS = ["musetalk.json", "musetalk_v2.ckpt", "vae.pth"]
+WEIGHTS = ["musetalk.json", "musetalk_v2.ckpt", "vae.pth", "whisper"]
 
 
 class MuseTalkEngine(DriveEngine):
