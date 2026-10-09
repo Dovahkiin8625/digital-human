@@ -48,6 +48,9 @@ class _StubRuntime:
     device = "cpu"
     weight_dtype = None
     whisper = None
+    # Window lengths handed to get_whisper_chunk, so a test can assert on what
+    # the engine asked whisper to encode rather than only on what came out.
+    window_lengths: list[int] = []
 
     def __init__(self, prompts_per_call=8):
         self.prompts_per_call = prompts_per_call
@@ -64,7 +67,13 @@ class _StubRuntime:
     class _AudioProcessor:
         def get_whisper_chunk(self, feats, device, dtype, whisper, length, fps=25):
             # Mirrors MuseTalk: one prompt per output frame, 50-wide.
-            n = max(1, int(np.floor(length / 16000 * fps)))
+            _StubRuntime.window_lengths.append(int(length))
+            n = int(np.floor(length / 16000 * fps))
+            if n == 0:
+                # MuseTalk reaches `torch.cat([])` and raises here. Modelling
+                # that faithfully is the point: a window shorter than one output
+                # frame is a bug in the caller, not a case to paper over.
+                raise ValueError("expected a non-empty list of Tensors")
             # Each frame's prompt is tagged with its index so a test can tell
             # which window-relative frame the engine actually selected.
             arr = np.zeros((n, 50, 384), dtype=np.float32)
@@ -111,6 +120,13 @@ class _Moved:
 @pytest.fixture()
 def engine(tmp_path, monkeypatch):
     eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # The batch worker concatenates prompt tensors with torch; the stub's
+    # stand-in is a numpy array, so the seam is swapped here.
+    monkeypatch.setattr(
+        me,
+        "_cat_prompts",
+        lambda parts: _FakePrompts(np.concatenate([p.arr for p in parts], axis=0)),
+    )
     monkeypatch.setattr(eng, "_ensure_runtime", lambda: _StubRuntime())
     monkeypatch.setattr(
         eng, "_render", lambda rt, avatar, prompts: [np.zeros((1280, 720, 3), np.uint8)] * len(prompts.arr)
@@ -120,7 +136,7 @@ def engine(tmp_path, monkeypatch):
         "_load_avatar",
         lambda rt, pack: me._AvatarState(
             bbox=[100, 200, 300, 400],
-            base_bgr=np.zeros((1280, 720, 3), np.uint8),
+            base_rgb=np.zeros((1280, 720, 3), np.uint8),
             latents=None,
             mask=np.zeros((272, 272), np.uint8),
             mask_crop_box=[50, 150, 350, 450],
@@ -240,6 +256,81 @@ def test_context_is_per_session(engine, tmp_path):
     assert a.emitted == 10
 
 
+@pytest.mark.asyncio
+async def test_concurrent_sessions_share_a_render_batch(engine, tmp_path, monkeypatch):
+    """Two sessions driving at once must land in one _render call.
+
+    The UNet is latency-bound -- 15.6 ms/frame at batch 3 against 4.5 at batch 8
+    -- so a per-session worker would cap the box at ~27 fps no matter how many
+    sessions connect. This is the behaviour that makes concurrency affordable.
+    """
+    import time
+
+    calls: list[int] = []
+    real_render = engine._render
+
+    def spy(rt, avatar, prompts):
+        time.sleep(0.005)  # stand in for the ~60 ms of real render work
+        calls.append(int(prompts.shape[0]))
+        return real_render(rt, avatar, prompts)
+
+    monkeypatch.setattr(engine, "_render", spy)
+
+    pack = _pack(tmp_path, prep=_prep(tmp_path))
+    ctxs = [engine.new_context(pack), engine.new_context(pack)]
+    block = np.zeros(4800, dtype=np.float32)
+
+    async def drive_all(i: int):
+        for _ in range(20):
+            await engine.drive(pack, block, 48000, context=ctxs[i])
+
+    await asyncio.gather(drive_all(0), drive_all(1))
+
+    assert sum(calls) == 100, sum(calls)  # 40 blocks -> 2,3,2,3,... each
+    # 40 jobs, but not 40 render calls: the worker coalesced some.
+    assert len(calls) < 40, len(calls)
+    # Each job contributes 2-3 frames, so a call above that carried more than
+    # one session's work.
+    assert max(calls) > 3, max(calls)
+
+
+def test_gather_engages_only_when_a_second_session_is_live(engine):
+    """A lone session must not pay the gather window.
+
+    Two sessions only share a UNet call if both jobs are queued at once, but
+    each session awaits its drive() before pushing the next block, so the
+    worker has to wait a moment for the second one. That wait is 4 ms of pure
+    added latency, and a single-session stream is on a 100 ms budget -- so it
+    is gated on a second session actually existing.
+    """
+    import time
+
+    assert engine._concurrent() is False  # nothing has driven yet
+    # Held in locals on purpose: an unnamed temporary is freed at once and
+    # CPython hands its id straight to the next one, which would collide.
+    first, second = object(), object()
+    engine._ctx_seen[id(first)] = time.monotonic()
+    assert engine._concurrent() is False  # one session: no wait
+    engine._ctx_seen[id(second)] = time.monotonic()
+    assert engine._concurrent() is True  # two sessions: gather
+
+
+def test_stale_contexts_stop_counting_as_live(engine):
+    """A session that stopped driving must not hold the gather window open.
+
+    Nothing tells the engine a session ended, so activity is aged out by
+    timestamp instead; otherwise one finished session would tax every later
+    lone session for the life of the process.
+    """
+    import time
+
+    now = time.monotonic()
+    engine._ctx_seen[1] = now - me.CONTEXT_TTL_S - 1
+    engine._ctx_seen[2] = now - me.CONTEXT_TTL_S - 1
+    assert engine._concurrent() is False
+    assert len(engine._ctx_seen) == 0  # pruned, not merely discounted
+
+
 # -- rolling whisper window --------------------------------------------
 
 def test_prompt_index_clamps_to_available_frames(engine, tmp_path):
@@ -282,6 +373,46 @@ def test_prompt_selection_maps_to_absolute_frames(engine, tmp_path):
     assert prompts.arr[:, 0, 0].astype(int).tolist() == [5, 6, 7]
 
 
+def test_long_session_survives_the_buffer_sliding(engine, tmp_path):
+    """The rolling window must stay valid once the buffer starts dropping audio.
+
+    MAX_BUF is 2 s. Past that the lookback for `first - CONTEXT_FRAMES` frames
+    points before the buffer, and an offset computed without knowing where the
+    buffer starts reads off the end of it. Feeding 1-2 s -- all the earlier
+    gates did -- never reaches that boundary.
+    """
+    pack = _pack(tmp_path, prep=_prep(tmp_path))
+    ctx = engine.new_context(pack)
+    blocks = 300  # 30 s, i.e. 15x the buffer
+    frames = _drive(engine, pack, ctx, blocks)
+    assert len(frames) == blocks * 25 // 10
+    # The window must have slid: the context no longer holds the first block.
+    assert ctx.buf16k.size <= me.MAX_BUF
+    assert ctx.buf_start > 0
+
+
+def test_window_keeps_its_lookback_once_the_buffer_slides(engine, tmp_path):
+    """The window must still carry CONTEXT_FRAMES of lookback after 2 s.
+
+    Clamping the window offset to the buffer's *length* rather than to where
+    the buffer *starts* leaves only the last 320 samples, so whisper is asked
+    for one prompt and every output frame is clamped onto it -- the mouth is
+    then driven by the oldest audio in the window instead of the newest. The
+    padding guard stops that from crashing, which is why it has to be asserted
+    on the window size rather than on a missing exception.
+    """
+    _StubRuntime.window_lengths.clear()
+    pack = _pack(tmp_path, prep=_prep(tmp_path))
+    ctx = engine.new_context(pack)
+    _drive(engine, pack, ctx, 300)  # 30 s, fifteen buffer-lengths
+
+    # Skip the first 4 s, while the buffer is still filling and short windows
+    # are legitimate.
+    tail = _StubRuntime.window_lengths[40:]
+    assert tail
+    assert min(tail) >= me.CONTEXT_FRAMES * 640, min(tail)
+
+
 def test_rolling_buffer_is_bounded(engine, tmp_path):
     pack = _pack(tmp_path)
     ctx = engine.new_context(pack)
@@ -310,8 +441,65 @@ def test_load_avatar_reads_sidecars(tmp_path, monkeypatch):
 
     assert state.bbox == [100, 200, 300, 400]
     assert state.mask_crop_box == [50, 150, 350, 450]
-    assert state.base_bgr.shape == (1280, 720, 3)
+    assert state.base_rgb.shape == (1280, 720, 3)
     assert state.mask.shape == (272, 272)
+
+
+def _pil_reference_blend(base, face, bbox, mask, crop_box):
+    """MuseTalk's `get_image_blending`, transcribed, as the oracle.
+
+    Same PIL calls as the vendored version. It works directly in whatever order
+    the caller passes: the vendored code flips BGR->RGB on the way in and
+    RGB->BGR on the way out, and neither flip changes what the paste computes,
+    so this stays an independent implementation of the same lerp.
+    """
+    body = Image.fromarray(base)
+    face_image = Image.fromarray(face)
+    x, y, x1, y1 = bbox
+    x_s, y_s, x_e, y_e = crop_box
+    face_large = body.crop(tuple(crop_box))
+    mask_image = Image.fromarray(mask).convert("L")
+    face_large.paste(face_image, (x - x_s, y - y_s, x1 - x_s, y1 - y_s))
+    body.paste(face_large, tuple(crop_box[:2]), mask_image)
+    return np.array(body)
+
+
+@pytest.mark.parametrize("fill", [0, 128, 255])
+@pytest.mark.parametrize("order", ["rgb", "bgr"])
+def test_blend_face_matches_the_pil_reference(fill, order):
+    """Both channel orders, because the blend commutes with the permutation.
+
+    Production runs in RGB end to end now, but the order-independence is the
+    property that lets it -- if it ever stopped holding, `_render` would be
+    quietly swapping red and blue on every frame.
+    """
+    rng = np.random.default_rng(0)
+    base = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    face = rng.integers(0, 256, (20, 30, 3), dtype=np.uint8)
+    if order == "bgr":
+        base = np.ascontiguousarray(base[:, :, ::-1])
+        face = np.ascontiguousarray(face[:, :, ::-1])
+    mask = np.full((40, 40), fill, np.uint8)  # sized to crop_box, as written
+    bbox = [10, 20, 40, 40]  # x, y, x1, y1 -> 30x20 face
+    crop_box = [5, 15, 45, 55]  # 40x40 expanded box, as the pipeline writes
+
+    got = me.blend_face(base, face, bbox, mask, crop_box)
+    want = _pil_reference_blend(base, face, bbox, mask, crop_box)
+
+    assert got.shape == base.shape
+    assert got.dtype == np.uint8
+    # PIL's masked paste rounds its fixed-point blend; a count either way is
+    # invisible after video encoding, but a channel swap or an off-by-one in the
+    # paste offset would not be.
+    assert np.abs(got.astype(np.int16) - want.astype(np.int16)).max() <= 1
+
+
+def test_blend_face_leaves_the_rest_of_the_canvas_untouched():
+    base = np.full((64, 64, 3), 40, np.uint8)
+    face = np.full((20, 30, 3), 200, np.uint8)
+    mask = np.zeros((40, 40), np.uint8)
+    got = me.blend_face(base, face, [10, 20, 40, 40], mask, [5, 15, 45, 55])
+    assert np.array_equal(got, base)  # a zero mask means no paste at all
 
 
 def test_prepare_raises_without_weights(tmp_path):
@@ -354,16 +542,16 @@ async def test_drive_does_not_block_the_event_loop(tmp_path, monkeypatch):
         "_load_avatar",
         lambda rt, pack: me._AvatarState(
             bbox=[100, 200, 300, 400],
-            base_bgr=np.zeros((1280, 720, 3), np.uint8),
+            base_rgb=np.zeros((1280, 720, 3), np.uint8),
             latents=None,
             mask=np.zeros((272, 272), np.uint8),
             mask_crop_box=[50, 150, 350, 450],
         ),
     )
 
-    def blocking_drive(pack, audio, sample_rate, ctx):
+    def blocking_drive(jobs):
         time.sleep(0.3)
-        return []
+        return [[] for _ in jobs]
 
     monkeypatch.setattr(eng, "_drive_sync", blocking_drive)
 

@@ -33,10 +33,12 @@ class EngineVideoTrack(VideoStreamTrack):
 
     async def recv(self) -> VideoFrame:
         pts, image = await self._queue.get()
-        # Live track: drop any backlog and emit the freshest frame so a slow
-        # consumer never renders stale video (push() already bounds the queue).
-        while not self._queue.empty():
-            pts, image = self._queue.get_nowait()
+        # Hand out the oldest surviving frame, not the freshest. push() already
+        # bounds the queue and drops the oldest on overflow, so staleness is
+        # capped by maxsize; draining the backlog here as well meant a consumer
+        # that was keeping up still lost every frame but the last of each burst.
+        # The engine emits a block's 2-3 frames at once, so that turned a 25 fps
+        # session into ~8 fps of delivered video.
         frame = VideoFrame.from_ndarray(image, format="rgb24")
         frame.pts = int(pts * VIDEO_CLOCK_RATE)
         frame.time_base = Fraction(1, VIDEO_CLOCK_RATE)
@@ -44,9 +46,15 @@ class EngineVideoTrack(VideoStreamTrack):
 
 
 class WebRTCSink(StreamSink):
+    keepalive = True
+
     def __init__(self, track: EngineVideoTrack):
         self.track = track
         self.closed = False
+
+    @property
+    def overflows(self) -> int:
+        return self.track.overflows
 
     async def push(self, image: np.ndarray, pts: float) -> None:
         if self.closed:

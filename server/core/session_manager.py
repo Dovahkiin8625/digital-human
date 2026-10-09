@@ -79,4 +79,8 @@ class SessionManager:
         if self._engine_closed:
             return
         self._engine_closed = True
+        # Sessions still open at teardown never reach close(), so their
+        # keep-alive tasks would outlive the loop that owns them.
+        for render in self._renders.values():
+            render.stop()
         await self.engine.close()

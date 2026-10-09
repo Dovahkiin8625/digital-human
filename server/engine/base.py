@@ -88,6 +88,14 @@ class DriveEngine(ABC):
         )
         return frames[0].image
 
+    def pending(self) -> int:
+        """Jobs queued but not yet rendered. 0 for a synchronous engine.
+
+        A streaming engine renders on its own worker thread, so a session that
+        is outrunning it shows up here before it shows up as latency.
+        """
+        return 0
+
     def describe(self) -> dict:
         return {"name": self.name, "gpu": False}
 

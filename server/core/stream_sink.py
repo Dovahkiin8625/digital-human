@@ -8,6 +8,13 @@ class SinkClosed(Exception):
 
 
 class StreamSink(ABC):
+    #: Whether an idle session should keep pushing static frames. True only for
+    #: sinks backed by a live video track, where a silent producer freezes the
+    #: receiver; a NullSink has no transport to keep alive.
+    keepalive = False
+    #: Frames this sink had to drop because it could not keep up.
+    overflows = 0
+
     @abstractmethod
     async def push(self, image: np.ndarray, pts: float) -> None:
         ...

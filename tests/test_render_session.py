@@ -5,7 +5,8 @@ import pytest
 
 from server.core.audio_ingest import AudioIngest
 from server.core.render_session import RenderSession, SessionState
-from server.core.stream_sink import FrameBufferSink
+from server.core.render_session import _histogram
+from server.core.stream_sink import FrameBufferSink, NullSink
 from server.engine.base import AvatarPack
 from server.engine.mock_engine import MockEngine
 
@@ -182,3 +183,118 @@ async def test_push_concurrent_with_close_is_serialized(tmp_path):
     # push's first block (pts 0.0), breaking monotonicity.
     assert all(b > a for a, b in zip(pts, pts[1:]))
     assert session.metrics["frames_out"] == len(pts)
+
+
+class _LiveSink(_RecordingSink):
+    """A sink that asks for idle keep-alive frames, as WebRTCSink does."""
+
+    keepalive = True
+
+
+def _session_with_canvas(tmp_path, sink=None):
+    """Like `_session`, but with the resting canvas every pipeline writes."""
+    from PIL import Image
+
+    session, sink = _session(tmp_path, sink=sink if sink is not None else _LiveSink())
+    Image.new("RGB", (720, 1280), (200, 30, 40)).save(tmp_path / "normalized.png")
+    return session, sink
+
+
+@pytest.mark.asyncio
+async def test_idle_session_keeps_a_live_track_fed(tmp_path):
+    """An idle session drives nothing, so its track would starve and freeze."""
+    session, sink = _session_with_canvas(tmp_path)
+    await session.start()
+    await asyncio.sleep(0.2)
+    # FrameBufferSink.close() drops its buffer, so read it before closing.
+    assert sink.latest is not None
+    assert tuple(sink.latest[1][0, 0]) == (200, 30, 40)
+    assert session.metrics["keepalive_frames"] > 0
+    # Nothing was driven, so the driving pipeline's own counter stays at zero.
+    assert session.metrics["frames_out"] == 0
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_advances_the_session_clock(tmp_path):
+    """Repeated pts would read as one frame; a jump would break the resume."""
+    session, sink = _session_with_canvas(tmp_path)
+    await session.start()
+    await asyncio.sleep(0.2)
+    await session.close()
+
+    assert len(sink.pts_list) > 1
+    assert sink.pts_list == sorted(sink.pts_list)
+    assert sink.pts_list[1] > sink.pts_list[0]
+
+
+@pytest.mark.asyncio
+async def test_keepalive_pauses_while_speaking(tmp_path):
+    session, sink = _session_with_canvas(tmp_path)
+    await session.start()
+    await asyncio.sleep(0.15)
+    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())  # -> SPEAKING
+    at = session.metrics["keepalive_frames"]
+    await asyncio.sleep(0.15)
+    assert session.state == SessionState.SPEAKING
+    assert session.metrics["keepalive_frames"] == at
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_null_sink_gets_no_keepalive_frames(tmp_path):
+    """Nothing is attached, so there is no track to keep alive."""
+    session, _ = _session_with_canvas(tmp_path, sink=NullSink())
+    await session.start()
+    await asyncio.sleep(0.1)
+    await session.close()
+    assert session.metrics["keepalive_frames"] == 0
+    assert session.metrics["frames_out"] == 0
+
+
+@pytest.mark.asyncio
+async def test_missing_canvas_disables_keepalive(tmp_path):
+    """A pack without normalized.png must not break the session."""
+    session, _ = _session(tmp_path, sink=_LiveSink())
+    await session.start()
+    await asyncio.sleep(0.1)
+    await session.close()
+    assert session.metrics["keepalive_frames"] == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_cancels_the_keepalive_task(tmp_path):
+    session, _ = _session_with_canvas(tmp_path)
+    await session.start()
+    assert session._keepalive_task is not None
+    session.stop()
+    assert session._keepalive_task is None
+    await asyncio.sleep(0)
+    await session.close()
+
+
+def test_latency_histogram_buckets():
+    assert _histogram([]) == {}
+    got = _histogram([10.0, 30.0, 60.0, 90.0, 120.0, 300.0])
+    assert got == {"<25": 1, "25-50": 1, "50-75": 1, "75-100": 1, "100-150": 1, ">=250": 1}
+
+
+@pytest.mark.asyncio
+async def test_metrics_report_latency_histogram_and_queue(tmp_path):
+    session, _ = _session(tmp_path)
+    await session.start()
+    empty = session.metrics
+    assert empty["blocks"] == 0
+    assert empty["latency_histogram"] == {}
+    assert empty["p95_latency_ms"] == 0.0
+
+    await session.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())  # 5 blocks
+    m = session.metrics
+    assert m["blocks"] == 5
+    assert sum(m["latency_histogram"].values()) == 5
+    assert m["p95_latency_ms"] >= m["p50_latency_ms"] > 0.0
+    assert m["max_latency_ms"] >= m["p95_latency_ms"]
+    assert m["queue_depth"] == 0  # MockEngine renders synchronously
+    assert m["overflows"] == 0
+    assert m["state"] == "speaking"
+    await session.close()

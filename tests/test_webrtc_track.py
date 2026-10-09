@@ -21,8 +21,10 @@ async def test_track_overflow_drops_oldest():
     for i in range(4):
         await track.push(np.full((8, 8, 3), i, dtype=np.uint8), float(i))
     assert track.overflows >= 2
-    frame = await track.recv()
-    assert frame.to_ndarray(format="rgb24")[0, 0, 0] == 3
+    # Overflow drops the oldest on push; recv() hands out what survived, oldest
+    # first, so a consumer that keeps up sees every frame in order.
+    assert (await track.recv()).to_ndarray(format="rgb24")[0, 0, 0] == 2
+    assert (await track.recv()).to_ndarray(format="rgb24")[0, 0, 0] == 3
 
 
 @pytest.mark.asyncio
