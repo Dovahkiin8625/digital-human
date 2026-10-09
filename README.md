@@ -79,7 +79,7 @@ DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \
 
 ```bash
 curl http://127.0.0.1:8000/healthz
-# {"status":"ok","engine":"mock","pipeline":"musetalk","gpu":false}
+# {"status":"ok","engine":"mock","pipeline":"mock","gpu":false}
 ```
 
 `gpu` 在启动时探测一次（导入 torch 是昂贵的那一步，而结论不会在运行中改变）。
@@ -93,7 +93,7 @@ curl http://127.0.0.1:8000/healthz
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DH_DRIVE_ENGINE` | `mock` | 驱动引擎：`mock` 或 `musetalk` |
+| `DH_DRIVE_ENGINE` | `musetalk` | 驱动引擎：`mock` 或 `musetalk` |
 | `DH_AVATAR_PIPELINE` | `musetalk` | 形象制作流水线：`mock` 或 `musetalk`。与 `DH_DRIVE_ENGINE` 保持一致：mock 形象包没有真引擎要读的 sidecar，真形象包带着 mock 用不上的张量 |
 | `DH_DATA_DIR` | `data` | 运行时数据目录（SQLite、形象资产、模型权重） |
 | `DH_DATABASE_URL` | `sqlite:///data/digital-human.db` | SQLAlchemy 数据库 URL |

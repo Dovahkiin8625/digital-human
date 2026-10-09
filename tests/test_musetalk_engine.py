@@ -6,7 +6,9 @@ the frame accumulator, the 48->16 kHz resampler, the rolling window's frame
 alignment, the offload, and the pack contract.
 """
 import asyncio
+import concurrent.futures
 import json
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -361,6 +363,34 @@ def test_window_anchors_on_a_frame_boundary(engine, tmp_path, monkeypatch):
     assert seen["length"] == 16000 - 15 * 640
 
 
+def test_window_clamps_up_to_a_frame_boundary_when_buf_start_is_off_grid(engine, tmp_path):
+    """buf_start is a 1600-sample block multiple, not a 640-sample frame one.
+
+    `max(start, buf_start)` leaves the window half a frame out on every other
+    block (1600/640 = 2.5), so window-relative frame r stops mapping to f0 + r
+    and the prompt label alternates block to block. The clamp has to round *up*
+    to the next frame boundary, never back before buf_start, since audio before
+    it is no longer in the buffer.
+    """
+    seen = {}
+
+    class _Rec(_StubRuntime):
+        class _AudioProcessor(_StubRuntime._AudioProcessor):
+            def get_whisper_chunk(self, feats, device, dtype, whisper, length, fps=25):
+                seen["length"] = length
+                return super().get_whisper_chunk(feats, device, dtype, whisper, length, fps)
+
+        audio_processor = _AudioProcessor()
+
+    ctx = engine.new_context(_pack(tmp_path))
+    ctx.buf_start = 320  # half a frame past a frame boundary
+    ctx.buf16k = np.zeros(16000, dtype=np.float32)
+    engine._prompts_for(_Rec(), ctx, 0, 1)  # first=0 -> raw start 0, clamped to 640
+    # ceil(320/640)*640 = 640, so the window drops the first 320 samples:
+    # 16000 - (640 - 320) = 15680. Clamping to buf_start itself would pass 16000.
+    assert seen["length"] == 15680
+
+
 def test_prompt_selection_maps_to_absolute_frames(engine, tmp_path):
     """Frame f must get the prompt tagged f - f0, not a window-relative index."""
     pack = _pack(tmp_path)
@@ -595,3 +625,38 @@ async def test_close_is_idempotent(tmp_path):
     eng = MuseTalkEngine(models_dir=tmp_path / "m")
     await eng.close()
     await eng.close()  # must not raise on a second shutdown
+
+
+def test_worker_exits_when_the_drain_consumes_the_stop_sentinel(tmp_path, monkeypatch):
+    """close() must not hang when the drain, not get(), pulls the sentinel.
+
+    close() enqueues None and then joins the worker, but _dispatch's drain reads
+    the same queue. If the drain swallowed the None the worker would loop back
+    to a blocking get() and never return -- shutdown would hang until the
+    process was killed. Queuing the job ahead of the sentinel makes the drain
+    its guaranteed consumer, so this does not depend on the gather window being
+    open at the right instant; running _worker_loop on a thread we own (the
+    engine's own worker is stopped first) makes the join deterministic and
+    needs no GPU.
+    """
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # Stop the engine's own worker so the loop under test is the only consumer.
+    eng._jobs.put(None)
+    eng._worker.join()
+    monkeypatch.setattr(eng, "_drive_sync", lambda jobs: [[] for _ in jobs])
+
+    eng._jobs.put(
+        me._Job(
+            pack=_pack(tmp_path),
+            ctx=eng.new_context(_pack(tmp_path)),
+            audio=np.zeros(4800, np.float32),
+            sample_rate=48000,
+            future=concurrent.futures.Future(),
+        )
+    )
+    eng._jobs.put(None)  # the stop sentinel, behind the job in FIFO order
+
+    worker = threading.Thread(target=eng._worker_loop, daemon=True)
+    worker.start()
+    worker.join(timeout=2.0)
+    assert not worker.is_alive(), "worker blocked after the drain swallowed the sentinel"

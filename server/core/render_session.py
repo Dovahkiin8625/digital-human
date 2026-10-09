@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import threading
 import time
 from collections import deque
 from enum import Enum
@@ -80,6 +81,13 @@ class RenderSession:
         }
         self._blocks = 0
         self._latencies: deque[float] = deque(maxlen=LATENCY_WINDOW)
+        # `metrics` is read from a *sync* FastAPI endpoint (admin_list_sessions),
+        # which FastAPI runs in a threadpool, while the event loop appends to
+        # `_latencies` in _drive_block. Iterating a deque that another thread
+        # mutates raises "deque mutated during iteration" and 500s the admin
+        # sessions poll, so both sides take this lock. A threading.Lock, not an
+        # asyncio one: the reading side is synchronous and cannot await.
+        self._latencies_lock = threading.Lock()
         self._keepalive_task: asyncio.Task | None = None
         self._idle_frame: np.ndarray | None = None
         self._idle_frame_read = False
@@ -96,14 +104,18 @@ class RenderSession:
         out["state"] = self.state.value
         out["queue_depth"] = self.engine.pending()
         out["overflows"] = self.sink.overflows
-        if self._latencies:
-            arr = np.asarray(self._latencies, dtype=np.float64)
+        # Snapshot under the lock so the percentile and histogram passes below
+        # never iterate the deque while _drive_block appends to it.
+        with self._latencies_lock:
+            latencies = list(self._latencies)
+        if latencies:
+            arr = np.asarray(latencies, dtype=np.float64)
             out["p50_latency_ms"] = float(np.percentile(arr, 50))
             out["p95_latency_ms"] = float(np.percentile(arr, 95))
             out["max_latency_ms"] = float(arr.max())
         else:
             out["p50_latency_ms"] = out["p95_latency_ms"] = out["max_latency_ms"] = 0.0
-        out["latency_histogram"] = _histogram(self._latencies)
+        out["latency_histogram"] = _histogram(latencies)
         return out
 
     async def start(self) -> None:
@@ -153,6 +165,13 @@ class RenderSession:
             tick += 1
             await asyncio.sleep(max(0.0, started + tick * period - time.monotonic()))
             self.maybe_idle()
+            # Check CLOSED/ERROR out here, not only under the lock below. The
+            # lock is entered only when this sink wants keep-alive *and* a
+            # resting frame exists, so a session on a NullSink, or one whose
+            # pack has no normalized.png, would otherwise skip that check
+            # forever -- a 25 Hz no-op task surviving close()/stop()/shutdown.
+            if self.state in (SessionState.CLOSED, SessionState.ERROR):
+                return
             if self.state is SessionState.SPEAKING or not self.sink.keepalive:
                 continue
             frame = self._static_frame()
@@ -214,7 +233,8 @@ class RenderSession:
                 return
         latency_ms = (time.perf_counter() - t0) * 1000.0
         self._blocks += 1
-        self._latencies.append(latency_ms)
+        with self._latencies_lock:
+            self._latencies.append(latency_ms)
         prev = self._metrics["avg_latency_ms"]
         self._metrics["avg_latency_ms"] = latency_ms if prev == 0 else prev * 0.8 + latency_ms * 0.2
         self._metrics["fps"] = float(self.fps)

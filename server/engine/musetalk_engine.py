@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar.musetalk_pipeline import IMPORT_LOCK, VENDOR_DIR
+from server.avatar.musetalk_pipeline import IMPORT_LOCK, RUNTIME_WEIGHTS, VENDOR_DIR
 from server.config import get_settings
 from server.engine.base import (
     AvatarPack,
@@ -382,14 +382,11 @@ class _Runtime:
 class MuseTalkEngine(DriveEngine):
     name = "musetalk"
 
-    # Relative to models_dir; checked by describe() and prepare() without
-    # touching a tensor, so a misconfigured box fails loudly and early.
-    WEIGHTS = (
-        "musetalkV15/unet.pth",
-        "musetalkV15/musetalk.json",
-        "sd-vae/config.json",
-        "whisper/config.json",
-    )
+    # The runtime set `_Runtime` actually loads, relative to models_dir and
+    # checked by describe()/warmup() without touching a tensor. Shared with the
+    # avatar pipeline (see RUNTIME_WEIGHTS) so the two cannot disagree about
+    # whether the weights are present.
+    WEIGHTS = RUNTIME_WEIGHTS
 
     def __init__(self, models_dir: Path | None = None, fps: int | None = None):
         settings = get_settings()
@@ -503,14 +500,27 @@ class MuseTalkEngine(DriveEngine):
             if item is None:
                 return
             try:
-                self._dispatch(item)
+                # The drain in _dispatch shares this queue, so it -- not the
+                # `get()` above -- may be the one that pulls the sentinel.
+                if self._dispatch(item):
+                    return
             except Exception:  # noqa: BLE001 -- the loop must outlive any one job
                 _log.exception("musetalk worker: unhandled error, continuing")
 
-    def _dispatch(self, item) -> None:
+    def _dispatch(self, item) -> bool:
+        """Run one queued item, coalescing concurrent jobs into one batch.
+
+        Returns True when the stop sentinel was pulled while draining. `close()`
+        enqueues `None` and then joins this thread; the drain loop below reads
+        the same queue, so if it consumed the sentinel silently the worker would
+        loop back to a blocking `get()` and never return -- `close()`'s join()
+        would never complete, and lifespan shutdown would hang the process
+        until it was killed. Reporting the sentinel here is what lets the worker
+        exit instead of swallowing it.
+        """
         if isinstance(item, _Call):
             self._resolve(item, lambda: item.fn(*item.args))
-            return
+            return False
         batch = [item]
         # Drain what is already waiting, and -- when a second session is
         # live -- wait a moment for its job to land too, so the two share a
@@ -539,9 +549,10 @@ class MuseTalkEngine(DriveEngine):
                     break
             if nxt is None:
                 self._run_batch(batch)
-                return
+                return True
             batch.append(nxt)
         self._run_batch(batch)
+        return False
 
     def _active(self) -> int:
         """How many sessions have driven a block recently.
@@ -679,7 +690,18 @@ class MuseTalkEngine(DriveEngine):
         # window, and 320 samples at 16 kHz is 0.5 output frames, which makes
         # get_whisper_chunk return an empty list and torch.cat([]) throw. Any
         # session past ~2 s hit it.
-        start = max(start, ctx.buf_start)
+        #
+        # Clamp *up* to the next frame boundary at or after buf_start, never
+        # backwards: audio before buf_start is gone. `max(start, ctx.buf_start)`
+        # looks equivalent but is not -- buf_start is a multiple of the
+        # 1600-sample ingest block and 1600 is not a multiple of the 640-sample
+        # output frame (1600/640 = 2.5), so on every other block it left `start`
+        # half a frame (20 ms) off the frame grid and f0, hence every prompt
+        # label, alternated block to block. Dropping at most one frame from the
+        # head is harmless: the window carries CONTEXT_FRAMES of left context
+        # and the frames actually needed sit at its end.
+        frame_start = ((ctx.buf_start + samples_per_frame - 1) // samples_per_frame) * samples_per_frame
+        start = max(start, frame_start)
         f0 = start // samples_per_frame
         window = ctx.buf16k[start - ctx.buf_start :]
         if window.size < samples_per_frame:

@@ -49,6 +49,23 @@ VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "MuseTalk"
 #: the import, so the two never interleave their ~11 s of GPU init either.
 IMPORT_LOCK = threading.Lock()
 
+#: The files `_Runtime` (the engine's global model set) loads: the MuseTalk 1.5
+#: UNet and its config, the SD-VAE (config + weights) and whisper-tiny (config,
+#: weights and feature-extractor config). Shared with the engine so one list
+#: decides "are the weights present" for both `describe()`/`warmup()` and this
+#: pipeline's own check. When the two lists drifted, describe() reported
+#: weights_present: True and then failed inside `_Runtime` on a file the list
+#: never mentioned -- the point of the check is to fail before that.
+RUNTIME_WEIGHTS = (
+    "musetalkV15/unet.pth",
+    "musetalkV15/musetalk.json",
+    "sd-vae/config.json",
+    "sd-vae/diffusion_pytorch_model.bin",
+    "whisper/config.json",
+    "whisper/pytorch_model.bin",
+    "whisper/preprocessor_config.json",
+)
+
 
 def _cv2_and_torch():
     """Import the GPU-venv-only deps at call time.
@@ -128,14 +145,17 @@ class MuseTalkPreparer:
 
     # -- model plumbing -------------------------------------------------
     def _missing_weights(self) -> None:
-        needed = [
-            self.models_dir / "musetalkV15" / "unet.pth",
-            self.models_dir / "sd-vae" / "config.json",
-            self.models_dir / "face-parse-bisent" / "79999_iter.pth",
-            self.models_dir / "face-parse-bisent" / "resnet18-5c106cde.pth",
-            self.models_dir / "face_landmarker.task",
+        # The engine's runtime set, plus the files only preparation needs: the
+        # biSeNet face parser and its resnet18 backbone, and the mediapipe
+        # landmarker. The engine never loads those, so they must not gate
+        # describe()/warmup() -- but a prepare() without them must still fail
+        # loudly here.
+        needed = list(RUNTIME_WEIGHTS) + [
+            "face-parse-bisent/79999_iter.pth",
+            "face-parse-bisent/resnet18-5c106cde.pth",
+            "face_landmarker.task",
         ]
-        missing = [str(p) for p in needed if not p.exists()]
+        missing = [str(self.models_dir / w) for w in needed if not (self.models_dir / w).exists()]
         if missing:
             raise PipelineError(
                 f"musetalk weights not found in {self.models_dir} (missing: {missing}); "

@@ -86,6 +86,12 @@ class DriveEngine(ABC):
         frames = await self.drive(
             pack, audio, get_settings().sample_rate, context=self.new_context(pack)
         )
+        if not frames:
+            # A 200 ms tone always yields frames today, but the admin preview
+            # endpoint must not 500 on an engine that returns none.
+            raise EngineUnavailable(
+                f"engine {self.name} produced no frames for the preview"
+            )
         return frames[0].image
 
     def pending(self) -> int:

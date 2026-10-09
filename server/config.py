@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    drive_engine: str = "mock"
+    drive_engine: str = "musetalk"
     avatar_pipeline: str = "musetalk"
     data_dir: Path = Path("data")
     database_url: str = "sqlite:///data/digital-human.db"

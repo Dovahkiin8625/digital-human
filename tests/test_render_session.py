@@ -263,6 +263,25 @@ async def test_missing_canvas_disables_keepalive(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_keepalive_exits_on_error_even_without_a_canvas(tmp_path):
+    """CLOSED/ERROR must stop the task before the keep-alive gate.
+
+    The check used to live only inside the lock, which a NullSink -- or a pack
+    with no normalized.png -- never reaches, so the task spun at 25 Hz forever
+    after the session errored. `_session` here writes no canvas and uses a
+    NullSink, which is exactly that blind spot.
+    """
+    session, _ = _session(tmp_path, sink=NullSink())
+    await session.start()
+    task = session._keepalive_task
+    assert task is not None
+    session.mark_error("boom")
+    await asyncio.sleep(0.15)
+    assert task.done()
+    await session.close()
+
+
+@pytest.mark.asyncio
 async def test_stop_cancels_the_keepalive_task(tmp_path):
     session, _ = _session_with_canvas(tmp_path)
     await session.start()

@@ -102,6 +102,7 @@ def test_admin_issue_api_key_unknown_tenant(client):
 def test_system_info(client):
     body = client.get("/api/admin/system", headers=ADMIN).json()
     assert body["engine"]["name"] == "mock"
+    assert body["pipeline"] == "mock"
     assert body["gpu"] is False
 
 
