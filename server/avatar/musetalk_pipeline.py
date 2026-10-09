@@ -38,6 +38,17 @@ VERSION = "1.5"
 DETECTOR = "mediapipe.face_landmarker"
 VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "MuseTalk"
 
+#: Serializes the first load of MuseTalk's vendored models, which pull in
+#: `diffusers`. Two threads reach that import in normal operation -- the
+#: engine's warmup on its worker thread, and an avatar job on the job thread --
+#: and `diffusers/__init__.py` ends by replacing itself in `sys.modules` with a
+#: lazy module. A second thread resolving a name during that window sees a
+#: module without it. Reproduced: uploading an avatar while warmup was still
+#: loading failed with "cannot import name 'AutoencoderKL' from 'diffusers'";
+#: the same upload after warmup succeeded. Held across construction, not just
+#: the import, so the two never interleave their ~11 s of GPU init either.
+IMPORT_LOCK = threading.Lock()
+
 
 def _cv2_and_torch():
     """Import the GPU-venv-only deps at call time.
@@ -105,14 +116,15 @@ class MuseTalkPreparer:
         if str(VENDOR_DIR) not in sys.path:
             sys.path.insert(0, str(VENDOR_DIR))
 
-        from musetalk.models.vae import VAE
-        from musetalk.utils.blending import get_image_prepare_material
+        with IMPORT_LOCK:
+            from musetalk.models.vae import VAE
+            from musetalk.utils.blending import get_image_prepare_material
 
-        self._get_image_prepare_material = get_image_prepare_material
-        self._vae = VAE(model_path=str(self.models_dir / "sd-vae"))
-        self._vae.vae = self._vae.vae.half().to(self._device())
-        self._fp = self._face_parsing()
-        self._landmarker, self._mp = self._build_landmarker()
+            self._get_image_prepare_material = get_image_prepare_material
+            self._vae = VAE(model_path=str(self.models_dir / "sd-vae"))
+            self._vae.vae = self._vae.vae.half().to(self._device())
+            self._fp = self._face_parsing()
+            self._landmarker, self._mp = self._build_landmarker()
 
     # -- model plumbing -------------------------------------------------
     def _missing_weights(self) -> None:

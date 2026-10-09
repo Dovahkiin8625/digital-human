@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import logging
 import queue
 import threading
 import time
@@ -33,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar.musetalk_pipeline import VENDOR_DIR
+from server.avatar.musetalk_pipeline import IMPORT_LOCK, VENDOR_DIR
 from server.config import get_settings
 from server.engine.base import (
     AvatarPack,
@@ -42,6 +43,30 @@ from server.engine.base import (
     EngineUnavailable,
     gpu_available,
 )
+
+_log = logging.getLogger(__name__)
+
+
+def _settle(future: concurrent.futures.Future, *, result=None, exc=None) -> None:
+    """Hand a result to a caller that may already be gone.
+
+    `loop.run_in_executor`'s future is cancelled when the awaiting coroutine is
+    cancelled -- a client that disconnects mid-block, a shutdown that cancels
+    the warmup task. Setting a result on a cancelled future raises
+    InvalidStateError, and letting that escape would kill the worker loop (see
+    `_worker_loop`). The caller being gone is not an error: there is nobody left
+    to tell.
+    """
+    if future.cancelled() or future.done():
+        return
+    try:
+        if exc is not None:
+            future.set_exception(exc)
+        else:
+            future.set_result(result)
+    except concurrent.futures.InvalidStateError:
+        pass  # cancelled between the check above and here
+
 
 # whisper and MuseTalk both work at 16 kHz; ingest is 48 kHz.
 SR16 = 16000
@@ -323,25 +348,29 @@ class _Runtime:
             sys.path.insert(0, str(VENDOR_DIR))
 
         import torch
-        from musetalk.models.unet import PositionalEncoding, UNet
-        from musetalk.models.vae import VAE
-        from musetalk.utils.audio_processor import AudioProcessor
-        from transformers import WhisperModel
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.vae = VAE(model_path=str(models_dir / "sd-vae"))
-        self.unet = UNet(
-            unet_config=str(models_dir / "musetalkV15" / "musetalk.json"),
-            model_path=str(models_dir / "musetalkV15" / "unet.pth"),
-            device=self.device,
-        )
-        self.pe = PositionalEncoding(d_model=384)
-        self.whisper = WhisperModel.from_pretrained(str(models_dir / "whisper"))
-        self.whisper = self.whisper.to(device=self.device).eval()
-        self.whisper.requires_grad_(False)
-        self.audio_processor = AudioProcessor(feature_extractor_path=str(models_dir / "whisper"))
-        self.feature_extractor = self.audio_processor.feature_extractor
-        self.timesteps = torch.tensor([0], device=self.device)
+        # Shared with the avatar pipeline: whichever thread gets here first does
+        # the first `diffusers` import, the other waits. See IMPORT_LOCK.
+        with IMPORT_LOCK:
+            from musetalk.models.unet import PositionalEncoding, UNet
+            from musetalk.models.vae import VAE
+            from musetalk.utils.audio_processor import AudioProcessor
+            from transformers import WhisperModel
+
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.vae = VAE(model_path=str(models_dir / "sd-vae"))
+            self.unet = UNet(
+                unet_config=str(models_dir / "musetalkV15" / "musetalk.json"),
+                model_path=str(models_dir / "musetalkV15" / "unet.pth"),
+                device=self.device,
+            )
+            self.pe = PositionalEncoding(d_model=384)
+            self.whisper = WhisperModel.from_pretrained(str(models_dir / "whisper"))
+            self.whisper = self.whisper.to(device=self.device).eval()
+            self.whisper.requires_grad_(False)
+            self.audio_processor = AudioProcessor(feature_extractor_path=str(models_dir / "whisper"))
+            self.feature_extractor = self.audio_processor.feature_extractor
+            self.timesteps = torch.tensor([0], device=self.device)
 
         self.pe = self.pe.half().to(self.device)
         self.vae.vae = self.vae.vae.half().to(self.device)
@@ -462,45 +491,57 @@ class MuseTalkEngine(DriveEngine):
             self._jobs.put(item)
 
     def _worker_loop(self) -> None:
-        """The single thread that touches CUDA."""
+        """The single thread that touches CUDA.
+
+        Nothing may escape this loop. It is the process's only CUDA thread, and
+        there is no supervisor to restart it: an exception that unwinds out of
+        here leaves every later `drive()` waiting on a future that will never be
+        resolved, i.e. a permanently hung engine and no recovery but a restart.
+        """
         while True:
             item = self._jobs.get()
             if item is None:
                 return
-            if isinstance(item, _Call):
-                self._resolve(item, lambda: item.fn(*item.args))
-                continue
-            batch = [item]
-            # Drain what is already waiting, and -- when a second session is
-            # live -- wait a moment for its job to land too, so the two share a
-            # UNet call instead of queueing behind each other. With one session
-            # this is a plain non-blocking drain.
-            active = self._active()
-            deadline = time.monotonic() + GATHER_S if active > 1 else None
-            while len(batch) < MAX_JOBS_PER_BATCH:
-                # A session cannot have two jobs in flight -- it awaits drive()
-                # before pushing the next block -- so once the batch holds one
-                # job per live session there is nothing left to wait for. Without
-                # this the worker paid the full window on every batch, waiting
-                # for a third job that could not exist.
-                if deadline is None or len(batch) >= active:
-                    try:
-                        nxt = self._jobs.get_nowait()
-                    except queue.Empty:
-                        break
-                else:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        break
-                    try:
-                        nxt = self._jobs.get(timeout=remaining)
-                    except queue.Empty:
-                        break
-                if nxt is None:
-                    self._run_batch(batch)
-                    return
-                batch.append(nxt)
-            self._run_batch(batch)
+            try:
+                self._dispatch(item)
+            except Exception:  # noqa: BLE001 -- the loop must outlive any one job
+                _log.exception("musetalk worker: unhandled error, continuing")
+
+    def _dispatch(self, item) -> None:
+        if isinstance(item, _Call):
+            self._resolve(item, lambda: item.fn(*item.args))
+            return
+        batch = [item]
+        # Drain what is already waiting, and -- when a second session is
+        # live -- wait a moment for its job to land too, so the two share a
+        # UNet call instead of queueing behind each other. With one session
+        # this is a plain non-blocking drain.
+        active = self._active()
+        deadline = time.monotonic() + GATHER_S if active > 1 else None
+        while len(batch) < MAX_JOBS_PER_BATCH:
+            # A session cannot have two jobs in flight -- it awaits drive()
+            # before pushing the next block -- so once the batch holds one
+            # job per live session there is nothing left to wait for. Without
+            # this the worker paid the full window on every batch, waiting
+            # for a third job that could not exist.
+            if deadline is None or len(batch) >= active:
+                try:
+                    nxt = self._jobs.get_nowait()
+                except queue.Empty:
+                    break
+            else:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    nxt = self._jobs.get(timeout=remaining)
+                except queue.Empty:
+                    break
+            if nxt is None:
+                self._run_batch(batch)
+                return
+            batch.append(nxt)
+        self._run_batch(batch)
 
     def _active(self) -> int:
         """How many sessions have driven a block recently.
@@ -525,17 +566,17 @@ class MuseTalkEngine(DriveEngine):
             results = self._drive_sync(batch)
         except Exception as exc:  # noqa: BLE001 -- surfaced to every caller
             for job in batch:
-                job.future.set_exception(exc)
+                _settle(job.future, exc=exc)
             return
         for job, frames in zip(batch, results):
-            job.future.set_result(frames)
+            _settle(job.future, result=frames)
 
     @staticmethod
     def _resolve(call: _Call, fn) -> None:
         try:
-            call.future.set_result(fn())
+            _settle(call.future, result=fn())
         except Exception as exc:  # noqa: BLE001
-            call.future.set_exception(exc)
+            _settle(call.future, exc=exc)
 
     # -- driving --------------------------------------------------------
     async def drive(
