@@ -41,6 +41,10 @@ class RenderSession:
         self.last_audio_at = time.monotonic()
         self._ingest = AudioIngest(sample_rate=sample_rate, block_ms=100)
         self._audio_pts = 0.0
+        # Per-session engine state (rolling audio window, frame accumulator).
+        # Built in start(), once prepare() has made the avatar's artifacts
+        # available; every drive() call for this session gets the same object.
+        self._ctx: object | None = None
         self._metrics = {"frames_out": 0, "dropped_frames": 0, "fps": 0.0, "avg_latency_ms": 0.0}
         # Serializes the entry points that drive frames and advance pts/metrics.
         # push_pcm (audio WS / RTP track) and close (DELETE / idle sweep) can run
@@ -54,6 +58,7 @@ class RenderSession:
 
     async def start(self) -> None:
         await self.engine.prepare(self.pack)
+        self._ctx = self.engine.new_context(self.pack)
         self.state = SessionState.LISTENING
 
     def maybe_idle(self, now: float | None = None) -> None:
@@ -82,7 +87,9 @@ class RenderSession:
         block_start = self._audio_pts
         self._audio_pts += block_duration
         try:
-            frames = await self.engine.drive(self.pack, block, self.sample_rate)
+            frames = await self.engine.drive(
+                self.pack, block, self.sample_rate, context=self._ctx
+            )
         except Exception as exc:
             self.mark_error(str(exc))
             raise

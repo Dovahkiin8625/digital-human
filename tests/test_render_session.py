@@ -45,7 +45,7 @@ class _RecordingSink(FrameBufferSink):
 
 
 class _BoomEngine(MockEngine):
-    async def drive(self, pack, audio, sample_rate):
+    async def drive(self, pack, audio, sample_rate, *, context=None):
         raise RuntimeError("engine exploded")
 
 
@@ -150,12 +150,12 @@ class _GateEngine(MockEngine):
         self.entered = asyncio.Event()
         self.gate = asyncio.Event()
 
-    async def drive(self, pack, audio, sample_rate):
+    async def drive(self, pack, audio, sample_rate, *, context=None):
         if self._first:
             self._first = False
             self.entered.set()
             await self.gate.wait()
-        return await super().drive(pack, audio, sample_rate)
+        return await super().drive(pack, audio, sample_rate, context=context)
 
 
 @pytest.mark.asyncio

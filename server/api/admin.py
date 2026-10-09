@@ -5,7 +5,6 @@ from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
 
-import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, UploadFile
 from PIL import Image
 from pydantic import BaseModel
@@ -51,14 +50,18 @@ def login(body: LoginIn) -> dict:
 
 @admin_router.get("/system")
 def system_info() -> dict:
-    from server.engine.base import create_engine
+    from server.main import get_session_manager
 
-    engine = create_engine()
-    described = engine.describe()
+    # The shared engine, not a fresh one per request: a real engine's describe()
+    # is cheap, but constructing one per request would be a new thread pool and
+    # a new view of the model state every poll (the page polls every 2 s).
+    described = get_session_manager().engine.describe()
+    settings = get_settings()
     return {
         "engine": described,
+        "pipeline": settings.avatar_pipeline,
         "version": "0.1.0",
-        "data_dir": str(get_settings().data_dir),
+        "data_dir": str(settings.data_dir),
         "gpu": described.get("gpu", False),
     }
 
@@ -216,18 +219,20 @@ def patch_avatar_config(avatar_id: str, body: AvatarConfigIn, db=Depends(get_db)
 def avatar_preview(avatar_id: str, level: float = Query(0.5, ge=0.0, le=1.0), db=Depends(get_db)):
     import asyncio
 
-    from server.engine.base import create_engine as _ce
+    from server.main import get_session_manager
 
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     store = AvatarStore(get_settings().data_dir)
     pack = store.load_pack(avatar)
-    engine = _ce()
-    audio = np.ones(4800, dtype=np.float32) * level
-    frames = asyncio.run(engine.drive(pack, audio, 48000))
+    # The shared engine: a real engine holds the loaded weights and a single
+    # worker thread, so a per-request engine would reload ~3 GB of models and
+    # never call prepare(). preview() does both prepare() and a short drive().
+    engine = get_session_manager().engine
+    image = asyncio.run(engine.preview(pack, level))
     buf = io.BytesIO()
-    Image.fromarray(frames[0].image).save(buf, format="PNG")
+    Image.fromarray(image).save(buf, format="PNG")
     return Response(buf.getvalue(), media_type="image/png")
 
 

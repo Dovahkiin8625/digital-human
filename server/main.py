@@ -11,6 +11,7 @@ from starlette.types import Scope
 
 from server.config import get_settings
 from server.db.session import get_engine, init_db
+from server.engine.base import gpu_available
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,26 @@ async def _sweep_loop(manager, interval: float, session_factory) -> None:
             logger.exception("session sweep tick failed")
 
 
+async def _warmup(engine) -> None:
+    """Load the engine's weights off the request path (cold start is ~34 s).
+
+    Failure is logged, not fatal: a box without a GPU -- or one that has not
+    fetched the weights yet -- must still boot, and the first session will
+    surface the real error through its own prepare().
+    """
+    try:
+        await engine.warmup()
+        logger.info("engine %s warmup complete", engine.name)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "engine %s warmup failed; the first session will pay the cost",
+            engine.name,
+            exc_info=True,
+        )
+
+
 def create_app() -> FastAPI:
     global _app
     settings = get_settings()
@@ -66,22 +87,36 @@ def create_app() -> FastAPI:
             _sweep_loop(app.state.session_manager, settings.session_sweep_interval, session_factory)
         )
         app.state.sweep_task = sweep_task
+        warmup_task = asyncio.create_task(_warmup(app.state.session_manager.engine))
+        app.state.warmup_task = warmup_task
         try:
             yield
         finally:
+            warmup_task.cancel()
             sweep_task.cancel()
-            try:
-                await sweep_task
-            except asyncio.CancelledError:
-                pass
+            for task in (warmup_task, sweep_task):
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            # Shutdown closes the shared engine, which waits out any in-flight
+            # warmup on its own worker thread before releasing the GPU.
             await app.state.session_manager.shutdown()
 
     app = FastAPI(title="digital-human", version="0.1.0", lifespan=lifespan)
     init_db(get_engine())
+    # Probe once at startup rather than on every /healthz: importing torch is
+    # the expensive part, and the answer cannot change without a restart.
+    app.state.gpu = gpu_available()
 
     @app.get("/healthz")
     def healthz() -> dict:
-        return {"status": "ok", "engine": settings.drive_engine, "gpu": False}
+        return {
+            "status": "ok",
+            "engine": settings.drive_engine,
+            "pipeline": settings.avatar_pipeline,
+            "gpu": app.state.gpu,
+        }
 
     from server.api.admin import admin_router as admin_api_router
     from server.api.admin import router as admin_router

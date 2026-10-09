@@ -15,7 +15,15 @@ class MockEngine(DriveEngine):
     def describe(self) -> dict:
         return {"name": self.name, "gpu": False, "width": self.width, "height": self.height, "fps": self.fps}
 
-    async def drive(self, pack: AvatarPack, audio: np.ndarray, sample_rate: int) -> list[DriveFrame]:
+    async def drive(
+        self,
+        pack: AvatarPack,
+        audio: np.ndarray,
+        sample_rate: int,
+        *,
+        context: object | None = None,
+    ) -> list[DriveFrame]:
+        # Stateless: the mock ignores per-session context entirely.
         audio = np.asarray(audio, dtype=np.float32)
         duration = len(audio) / sample_rate
         n_frames = max(1, round(duration * self.fps))
