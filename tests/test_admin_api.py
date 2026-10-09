@@ -63,6 +63,42 @@ def test_tenant_and_key_roundtrip(client):
     assert client.get("/api/v1/avatars", headers={"X-API-Key": body["api_key"]}).status_code == 200
 
 
+def test_admin_issue_api_key_returns_usable_key(client):
+    tenant_id = client.post("/api/admin/tenants", headers=ADMIN, json={"name": "acme"}).json()[
+        "tenant_id"
+    ]
+
+    resp = client.post(f"/api/admin/tenants/{tenant_id}/api-key", headers=ADMIN)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tenant_id"] == tenant_id
+    assert body["api_key"].startswith("dh_")
+    # The freshly issued key must authenticate against the real customer surface.
+    assert (
+        client.get("/api/v1/avatars", headers={"X-API-Key": body["api_key"]}).status_code == 200
+    )
+
+
+def test_admin_issue_api_key_rotates_previous(client):
+    created = client.post("/api/admin/tenants", headers=ADMIN, json={"name": "acme"}).json()
+    tenant_id, first_key = created["tenant_id"], created["api_key"]
+    assert client.get("/api/v1/avatars", headers={"X-API-Key": first_key}).status_code == 200
+
+    second_key = client.post(
+        f"/api/admin/tenants/{tenant_id}/api-key", headers=ADMIN
+    ).json()["api_key"]
+
+    assert second_key != first_key
+    # Rotation invalidates the previous key but keeps the new one working.
+    assert client.get("/api/v1/avatars", headers={"X-API-Key": first_key}).status_code == 401
+    assert client.get("/api/v1/avatars", headers={"X-API-Key": second_key}).status_code == 200
+
+
+def test_admin_issue_api_key_unknown_tenant(client):
+    resp = client.post(f"/api/admin/tenants/{uuid4().hex}/api-key", headers=ADMIN)
+    assert resp.status_code == 404
+
+
 def test_system_info(client):
     body = client.get("/api/admin/system", headers=ADMIN).json()
     assert body["engine"]["name"] == "mock"

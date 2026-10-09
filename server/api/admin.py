@@ -80,6 +80,23 @@ def create_tenant(body: TenantIn, db=Depends(get_db)) -> dict:
     return {"tenant_id": tenant.id, "name": tenant.name, "api_key": api_key}
 
 
+@admin_router.post("/tenants/{tenant_id}/api-key")
+def issue_tenant_api_key(tenant_id: str, db=Depends(get_db)) -> dict:
+    """Issue (rotate) the tenant's API key and return the new plaintext once.
+
+    Keys are stored only as a hash, so an existing key cannot be re-read; issuing
+    is the only way to hand a key to the console's demo-key bootstrap. Rotation
+    replaces the hash, invalidating the previous key.
+    """
+    tenant = db.execute(select(Tenant).where(Tenant.id == tenant_id)).scalar_one_or_none()
+    if tenant is None:
+        raise AppError("not_found", f"tenant {tenant_id} not found", 404)
+    api_key = "dh_" + token_urlsafe(32)
+    tenant.api_key_hash = hash_api_key(api_key)
+    db.commit()
+    return {"tenant_id": tenant.id, "api_key": api_key}
+
+
 @admin_router.get("/avatars")
 def admin_list_avatars(tenant_id: str = "", db=Depends(get_db)) -> list[dict]:
     stmt = select(Avatar)

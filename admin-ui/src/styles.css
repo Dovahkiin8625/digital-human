@@ -9,3 +9,8 @@ table { border-collapse: collapse; width: 100%; }
 th, td { border-bottom: 1px solid #2a2e37; padding: 8px; text-align: left; }
 input, select { background: #1c2028; color: inherit; border: 1px solid #2a2e37; padding: 8px; }
 button { background: #2b5cab; color: white; border: 0; padding: 8px 14px; cursor: pointer; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #2a2e37; }
+.badge.pending { background: #4a3f1a; color: #f3d27a; }
+.badge.processing { background: #1a3a4a; color: #7fd1f0; }
+.badge.ready { background: #1a3a24; color: #86e29b; }
+.badge.failed { background: #4a1f22; color: #f28b82; }
