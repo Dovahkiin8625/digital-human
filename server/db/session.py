@@ -20,6 +20,8 @@ def get_engine():
 
 def reset_engine() -> None:
     global _engine
+    if _engine is not None:
+        _engine.dispose()
     _engine = None
 
 

@@ -160,6 +160,29 @@ def _build_app(tmp_path, monkeypatch, **env):
     return app
 
 
+def test_session_honors_configured_fps_and_sample_rate(tmp_path, monkeypatch):
+    from server.config import get_settings
+    from server.db.session import reset_engine
+
+    app = _build_app(tmp_path, monkeypatch, DH_FPS="30", DH_SAMPLE_RATE="16000")
+    try:
+        with TestClient(app) as c:
+            headers, avatar_id = _seed(c)
+            sid = c.post(
+                "/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}
+            ).json()["session_id"]
+            render = app.state.session_manager.get_render(sid)
+            # The render must carry the configured rates, not the hardcoded 25/48000,
+            # or engine fps and pts would silently drift apart.
+            assert render.fps == 30
+            assert render.sample_rate == 16000
+            # 100ms ingest blocks at 16kHz are 1600 samples.
+            assert render._ingest.block_samples == 1600
+    finally:
+        reset_engine()
+        get_settings.cache_clear()
+
+
 def test_lifespan_sweeper_reclaims_idle_and_stops_cleanly(tmp_path, monkeypatch):
     app = _build_app(
         tmp_path, monkeypatch,

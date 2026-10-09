@@ -56,6 +56,35 @@ def test_ws_audio_rejects_bad_key(client):
     assert exc.value.code == 4401
 
 
+def _add_tenant(name, api_key):
+    from sqlalchemy.orm import sessionmaker
+
+    from server.api.deps import hash_api_key
+    from server.db.models import Tenant
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    db.add(Tenant(name=name, api_key_hash=hash_api_key(api_key)))
+    db.commit()
+    db.close()
+
+
+def test_ws_audio_rejects_other_tenants_session(client):
+    from server.core.render_session import SessionState
+
+    sid = _setup(client)       # tenant A (key-1) owns sid
+    _add_tenant("b", "key-2")  # tenant B, valid key but not the owner
+    render = client.app.state.session_manager.get_render(sid)
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/api/v1/ws/audio/{sid}?api_key=key-2") as ws:
+            ws.receive()
+    assert exc.value.code == 4404
+    # B never reached A's render: no frames driven and the state is untouched.
+    assert render.metrics["frames_out"] == 0
+    assert render.state == SessionState.LISTENING
+
+
 class _FakeTrack:
     """Minimal MediaStreamTrack stand-in: yields queued frames, then ends."""
 

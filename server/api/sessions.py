@@ -95,8 +95,11 @@ async def delete_session(session_id: str, tenant: Tenant = Depends(get_tenant), 
     return Response(status_code=204)
 
 
-def _ws_auth(api_key: str) -> bool:
-    """WebSocket auth: REST uses the X-API-Key header, WS uses ?api_key=."""
+def _ws_tenant(api_key: str) -> Tenant | None:
+    """WebSocket auth: REST uses the X-API-Key header, WS uses ?api_key=.
+
+    Returns the authenticated tenant, or None when the key is missing/unknown.
+    """
     from sqlalchemy.orm import sessionmaker
 
     from server.db.models import Tenant
@@ -105,15 +108,41 @@ def _ws_auth(api_key: str) -> bool:
     db = sessionmaker(bind=get_engine())()
     try:
         tenant = db.query(Tenant).filter(Tenant.api_key_hash == hash_api_key(api_key)).first()
-        return tenant is not None
+        if tenant is None:
+            return None
+        # Touch the PK while the session is live so the returned instance stays usable.
+        _ = tenant.id
+        return tenant
+    finally:
+        db.close()
+
+
+def _ws_session_owned(session_id: str, tenant_id: str) -> bool:
+    """True only when ``session_id`` names a session owned by ``tenant_id``.
+
+    Missing and other-tenant sessions both return False so callers cannot use the
+    WS close code to probe for the existence of another tenant's session.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        row = db.get(StreamSession, session_id)
+        return row is not None and row.tenant_id == tenant_id
     finally:
         db.close()
 
 
 @router.websocket("/api/v1/ws/signal/{session_id}")
 async def signal_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> None:
-    if not _ws_auth(api_key):
+    tenant = _ws_tenant(api_key)
+    if tenant is None:
         await websocket.close(code=4401)
+        return
+    if not _ws_session_owned(session_id, tenant.id):
+        await websocket.close(code=4404)
         return
     from server.core.webrtc import handle_signal_websocket
 
@@ -125,8 +154,12 @@ async def audio_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> 
     """Backup PCM ingress: binary frames are raw s16le mono 48kHz chunks fed to
     the same RenderSession.push_pcm as the RTP audio track; a text {"type":"flush"}
     drains the ingest's partial tail block."""
-    if not _ws_auth(api_key):
+    tenant = _ws_tenant(api_key)
+    if tenant is None:
         await websocket.close(code=4401)
+        return
+    if not _ws_session_owned(session_id, tenant.id):
+        await websocket.close(code=4404)
         return
     try:
         render = _manager().get_render(session_id)
@@ -142,7 +175,6 @@ async def audio_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> 
             elif msg.get("text"):
                 payload = json.loads(msg["text"])
                 if payload.get("type") == "flush":
-                    for block in render._ingest.flush():
-                        await render._drive_block(block)
+                    await render.flush()
     except Exception:
         pass

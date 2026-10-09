@@ -1,3 +1,4 @@
+import asyncio
 import time
 from enum import Enum
 
@@ -41,6 +42,11 @@ class RenderSession:
         self._ingest = AudioIngest(sample_rate=sample_rate, block_ms=100)
         self._audio_pts = 0.0
         self._metrics = {"frames_out": 0, "dropped_frames": 0, "fps": 0.0, "avg_latency_ms": 0.0}
+        # Serializes the entry points that drive frames and advance pts/metrics.
+        # push_pcm (audio WS / RTP track) and close (DELETE / idle sweep) can run
+        # concurrently; a real GPU engine's awaited drive() would otherwise let
+        # their frame sequences interleave.
+        self._lock = asyncio.Lock()
 
     @property
     def metrics(self) -> dict:
@@ -56,12 +62,19 @@ class RenderSession:
             self.state = SessionState.IDLE
 
     async def push_pcm(self, data: bytes) -> None:
-        if self.state in (SessionState.CLOSED, SessionState.ERROR):
-            raise AppError("session_closed", f"session {self.session_id} is {self.state.value}", 409)
-        self.last_audio_at = time.monotonic()
-        self.state = SessionState.SPEAKING
-        for block in self._ingest.push_pcm(data):
-            await self._drive_block(block)
+        async with self._lock:
+            if self.state in (SessionState.CLOSED, SessionState.ERROR):
+                raise AppError("session_closed", f"session {self.session_id} is {self.state.value}", 409)
+            self.last_audio_at = time.monotonic()
+            self.state = SessionState.SPEAKING
+            for block in self._ingest.push_pcm(data):
+                await self._drive_block(block)
+
+    async def flush(self) -> None:
+        """Drain the ingest's partial tail block, driving any frames it yields."""
+        async with self._lock:
+            for block in self._ingest.flush():
+                await self._drive_block(block)
 
     async def _drive_block(self, block: np.ndarray) -> None:
         t0 = time.perf_counter()
@@ -91,9 +104,10 @@ class RenderSession:
         self.error = message[:1024]
 
     async def close(self) -> None:
-        for block in self._ingest.flush():
-            await self._drive_block(block)
-        # The DriveEngine is shared across sessions and owned by SessionManager
-        # (closed once via SessionManager.shutdown); a session only closes its sink.
-        await self.sink.close()
-        self.state = SessionState.CLOSED
+        async with self._lock:
+            for block in self._ingest.flush():
+                await self._drive_block(block)
+            # The DriveEngine is shared across sessions and owned by SessionManager
+            # (closed once via SessionManager.shutdown); a session only closes its sink.
+            await self.sink.close()
+            self.state = SessionState.CLOSED

@@ -34,6 +34,18 @@ def _new_session(client, api_key, avatar_id):
     ).json()["session_id"]
 
 
+def _add_tenant(name, api_key):
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Tenant
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    db.add(Tenant(name=name, api_key_hash=hash_api_key(api_key)))
+    db.commit()
+    db.close()
+
+
 def test_signal_ws_rejects_invalid_api_key(client):
     with pytest.raises(WebSocketDisconnect) as exc:
         with client.websocket_connect("/api/v1/ws/signal/whatever?api_key=nope"):
@@ -62,6 +74,37 @@ def test_signal_ws_bye_restores_null_sink(client):
             ws.receive_text()
 
     # Teardown restored the session's sink so audio ingest no longer feeds a dead track.
+    assert isinstance(manager.get_render(sid).sink, NullSink)
+
+
+def test_signal_ws_owner_key_attaches_sink(client):
+    from server.core.webrtc import WebRTCSink
+
+    api_key, avatar_id = _seed(client)
+    sid = _new_session(client, api_key, avatar_id)
+    manager = client.app.state.session_manager
+
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+        # The owner's valid key attaches the live video sink.
+        assert isinstance(manager.get_render(sid).sink, WebRTCSink)
+        ws.send_text('{"type": "bye"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+
+def test_signal_ws_rejects_other_tenants_session(client):
+    from server.core.stream_sink import NullSink
+
+    api_key, avatar_id = _seed(client)  # tenant A (key-1)
+    _add_tenant("b", "key-2")           # tenant B, valid but not the owner
+    sid = _new_session(client, api_key, avatar_id)
+    manager = client.app.state.session_manager
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key=key-2") as ws:
+            ws.receive_text()
+    assert exc.value.code == 4404
+    # B's rejected handshake must not have attached a video sink to A's session.
     assert isinstance(manager.get_render(sid).sink, NullSink)
 
 

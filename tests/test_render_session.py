@@ -1,3 +1,5 @@
+import asyncio
+
 import numpy as np
 import pytest
 
@@ -133,3 +135,50 @@ async def test_close_flushes_audio_tail(tmp_path):
     assert session.state == SessionState.CLOSED
     # tail driven on close: max(1, round(0.05 * 25)) = 1 frame
     assert session.metrics["frames_out"] == 1
+
+
+class _GateEngine(MockEngine):
+    """Yields inside the first drive() so a concurrent close() can interleave.
+
+    MockEngine.drive never awaits, so it cannot expose the missing lock; this
+    stand-in mimics a real (GPU) engine whose drive() suspends.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._first = True
+        self.entered = asyncio.Event()
+        self.gate = asyncio.Event()
+
+    async def drive(self, pack, audio, sample_rate):
+        if self._first:
+            self._first = False
+            self.entered.set()
+            await self.gate.wait()
+        return await super().drive(pack, audio, sample_rate)
+
+
+@pytest.mark.asyncio
+async def test_push_concurrent_with_close_is_serialized(tmp_path):
+    sink = _RecordingSink()
+    engine = _GateEngine()
+    session, _ = _session(tmp_path, engine=engine, sink=sink)
+    await session.start()
+
+    # 0.55s: five full 100ms blocks drain immediately, a 0.05s tail stays buffered.
+    pcm = np.zeros(26400, dtype=np.int16).tobytes()
+    push = asyncio.create_task(session.push_pcm(pcm))
+    await engine.entered.wait()  # push is parked inside its first drive(), holding the lock
+    close = asyncio.create_task(session.close())
+    await asyncio.sleep(0)  # close must block on the lock rather than run concurrently
+    await asyncio.sleep(0)
+    engine.gate.set()
+    await asyncio.gather(push, close)
+
+    assert session.state == SessionState.CLOSED
+    pts = sink.pts_list
+    # Serialized: every frame lands in strictly increasing pts order and each is
+    # counted once. Without the lock close() would drive the tail (pts 0.1) before
+    # push's first block (pts 0.0), breaking monotonicity.
+    assert all(b > a for a, b in zip(pts, pts[1:]))
+    assert session.metrics["frames_out"] == len(pts)

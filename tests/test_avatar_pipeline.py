@@ -8,21 +8,28 @@ from server.avatar.store import AvatarStore
 from server.db.models import Avatar, AvatarJob
 
 
-def _make_db(tmp_path, monkeypatch):
+@pytest.fixture()
+def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
-    from server.config import get_settings
-    get_settings.cache_clear()
-    from server.db.session import get_engine, init_db, reset_engine
     from sqlalchemy.orm import sessionmaker
 
+    from server.config import get_settings
+    from server.db.session import get_engine, init_db, reset_engine
+
+    get_settings.cache_clear()
     reset_engine()
     init_db(get_engine())
-    return sessionmaker(bind=get_engine())()
+    session = sessionmaker(bind=get_engine())()
+    try:
+        yield session
+    finally:
+        session.close()
+        reset_engine()
+        get_settings.cache_clear()
 
 
-def test_pipeline_produces_pack(tmp_path, monkeypatch):
-    db = _make_db(tmp_path, monkeypatch)
+def test_pipeline_produces_pack(tmp_path, db):
     store = AvatarStore(tmp_path / "data")
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
@@ -48,8 +55,7 @@ def test_pipeline_produces_pack(tmp_path, monkeypatch):
     assert pack.source_image_path.exists()
 
 
-def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeypatch):
-    db = _make_db(tmp_path, monkeypatch)
+def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeypatch, db):
     store = AvatarStore(tmp_path / "data")
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
@@ -74,8 +80,7 @@ def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeyp
     assert "disk full" in job.error
 
 
-def test_pipeline_rejects_tiny_image(tmp_path, monkeypatch):
-    db = _make_db(tmp_path, monkeypatch)
+def test_pipeline_rejects_tiny_image(tmp_path, db):
     store = AvatarStore(tmp_path / "data")
     src = tmp_path / "tiny.png"
     Image.new("RGB", (100, 100), (0, 0, 0)).save(src)
@@ -105,7 +110,8 @@ def test_mock_pipeline_stages_and_config(tmp_path):
 
     assert stages == [("detect_face", 10), ("align", 40), ("normalize", 70), ("build_pack", 100)]
     assert cfg == {"mouth_scale": 1.0, "expression_intensity": 1.0, "crop": {"mode": "center"}}
-    assert Image.open(out / "normalized.png").size == (720, 1280)
+    with Image.open(out / "normalized.png") as img:
+        assert img.size == (720, 1280)
 
 
 def test_save_source_image_validates_decodable(tmp_path):

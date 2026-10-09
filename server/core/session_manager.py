@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from server.avatar.store import AvatarStore
+from server.config import get_settings
 from server.core.errors import AppError
 from server.core.render_session import RenderSession
 from server.core.stream_sink import NullSink, StreamSink
@@ -25,7 +26,15 @@ class SessionManager:
         db.add(row)
         db.commit()
         pack = self.store.load_pack(avatar)
-        render = RenderSession(row.id, pack, self.engine, NullSink())
+        settings = get_settings()
+        render = RenderSession(
+            row.id,
+            pack,
+            self.engine,
+            NullSink(),
+            sample_rate=settings.sample_rate,
+            fps=settings.fps,
+        )
         await render.start()
         self._renders[row.id] = render
         return row
