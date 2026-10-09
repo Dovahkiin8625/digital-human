@@ -106,3 +106,59 @@ def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch)
 
     # A missing session must not abort teardown: the peer connection is released.
     assert instances and all(pc.closed for pc in instances)
+
+
+def test_signal_ws_teardown_survives_client_disconnect(monkeypatch):
+    """A client that disconnects first must not turn teardown into an exception.
+
+    When the browser closes before the server does, Starlette's ``close()`` raises
+    ``WebSocketDisconnect`` (1006); the handler must swallow it and return normally
+    instead of letting uvicorn log an ASGI traceback on every ordinary disconnect.
+    """
+    import asyncio
+
+    from server.core import webrtc
+    from server.core.stream_sink import NullSink
+
+    class _StubPC:
+        def addTrack(self, track):
+            pass
+
+        def on(self, event, handler=None):
+            def decorator(fn):
+                return fn
+
+            return decorator if handler is None else handler
+
+        async def close(self):
+            pass
+
+    class _StubManager:
+        def __init__(self):
+            self.sinks = []
+
+        def get_render(self, session_id):
+            return object()
+
+        def attach_sink(self, session_id, sink):
+            self.sinks.append(sink)
+
+    class _DisconnectingWS:
+        async def accept(self):
+            pass
+
+        async def receive_text(self):
+            return '{"type": "bye"}'
+
+        async def close(self, code=1000):
+            raise WebSocketDisconnect(code=1006)
+
+    monkeypatch.setattr(webrtc, "RTCPeerConnection", _StubPC)
+
+    manager = _StubManager()
+    # Must return cleanly (not raise) even though close() reports the disconnect.
+    asyncio.run(webrtc.handle_signal_websocket(_DisconnectingWS(), manager, "sid"))
+
+    # Teardown still restored the null sink before the (guarded) close.
+    assert isinstance(manager.sinks[-1], NullSink)
+

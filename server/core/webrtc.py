@@ -8,7 +8,7 @@ from aiortc.mediastreams import VIDEO_CLOCK_RATE
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from av.audio.resampler import AudioResampler
-from starlette.websockets import WebSocket
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from server.core.errors import AppError
 from server.core.stream_sink import NullSink, SinkClosed, StreamSink
@@ -134,5 +134,11 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
         finally:
             await pc.close()
             # Starlette does not auto-close when the endpoint returns; close explicitly
-            # so signaling clients observe a deterministic teardown after "bye".
-            await websocket.close()
+            # so signaling clients observe a deterministic teardown after "bye". A
+            # client that already disconnected (or whose close was already sent) makes
+            # this raise WebSocketDisconnect/RuntimeError — that is the normal
+            # disconnect path, not an error, so it must not escape as an ASGI traceback.
+            try:
+                await websocket.close()
+            except (WebSocketDisconnect, RuntimeError):
+                pass
