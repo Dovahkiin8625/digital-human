@@ -14,6 +14,12 @@ torch = pytest.importorskip("torch")
 
 from server.engine import musetalk_engine as me  # noqa: E402
 
+# Both markers, because this file needs both halves of the heavy environment:
+# the .venv-musetalk interpreter (torch, diffusers) and a CUDA device. The
+# torch-free contract tests for the same module live in test_musetalk_engine.py
+# and carry neither.
+pytestmark = [pytest.mark.gpu, pytest.mark.musetalk]
+
 
 def _to_chw(a: np.ndarray):
     return torch.from_numpy(a).permute(2, 0, 1).contiguous()

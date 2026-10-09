@@ -65,5 +65,16 @@ if [ ! -s "$ROOT/face-parse-bisent/resnet18-5c106cde.pth" ]; then
     https://download.pytorch.org/models/resnet18-5c106cde.pth
 fi
 
+# --- mediapipe face landmarker (3.6 MiB) ---
+# The detector that replaces DWPose: box + landmarks from a single still. Not a
+# MuseTalk file, so it is not on ModelScope under any MuseTalk repo id -- it is
+# Google's own published MediaPipe task bundle. `musetalk_pipeline.py` refuses
+# to start without it, so the "run scripts/fetch_musetalk_weights.sh" hint in
+# its error message has to be true.
+if [ ! -s "$ROOT/face_landmarker.task" ]; then
+  curl -sL --fail --retry 5 --retry-all-errors -o "$ROOT/face_landmarker.task" \
+    https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+fi
+
 echo "done -> $ROOT"
 du -sh "$ROOT"

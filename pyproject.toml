@@ -15,6 +15,28 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=1.0", "httpx>=0.27", "httpx2"]
+# The runtime subset of MuseTalk's own requirements.txt, minus what only its
+# training and demo scripts need: tensorflow/tensorboard, gradio, gdown,
+# moviepy, ffmpeg-python, and the SyncNet checkpoint. Those are also what pinned
+# numpy==1.23.5 and made the file unresolvable on cp311+.
+#
+# torch/torchvision are NOT listed here: they must come from the cu128 index
+# (no cu126-or-earlier wheel carries sm_120 kernels for the RTX 50 series).
+# scripts/setup_musetalk.sh installs them first, from the right index.
+musetalk = [
+  "numpy>=2.0",
+  "scipy>=1.13",
+  "opencv-python>=4.10",
+  "pillow>=10.0",
+  "mediapipe>=0.10",
+  "diffusers>=0.30",
+  "transformers>=4.39",
+  "huggingface-hub>=0.30",
+  "safetensors>=0.4",
+  "einops>=0.8",
+  "librosa>=0.11",
+  "soundfile>=0.12",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -28,3 +50,13 @@ testpaths = ["tests"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["error::ResourceWarning"]
+# Both markers are deselected by default so `pytest` in the torch-free .venv
+# stays under ten seconds and never needs a GPU. `-m gpu` / `-m musetalk` in
+# .venv-musetalk opts back in. The module-level `pytest.importorskip("torch")`
+# in the gpu files is the second line of defence: it makes them skip cleanly
+# even when someone runs `-m ""` or `-m gpu` from the wrong interpreter.
+markers = [
+  "gpu: needs a CUDA device and the real weights (run in .venv-musetalk)",
+  "musetalk: needs the MuseTalk runtime dependencies (run in .venv-musetalk)",
+]
+addopts = "-m 'not gpu and not musetalk'"

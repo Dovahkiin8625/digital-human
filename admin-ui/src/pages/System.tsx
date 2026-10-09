@@ -2,8 +2,20 @@ import { FormEvent, useEffect, useState } from "react";
 import { api } from "../api";
 import type { SessionInfo, TenantInfo } from "../types";
 
+interface EngineInfo {
+  name: string;
+  gpu: boolean;
+  // Only the real engine reports these; the mock has no weights to load.
+  models_dir?: string;
+  weights_present?: boolean;
+  loaded?: boolean;
+  avatars_cached?: number;
+  pending?: number;
+}
+
 interface SystemInfo {
-  engine: { name: string; gpu: boolean };
+  engine: EngineInfo;
+  pipeline: string;
   version: string;
   data_dir: string;
   gpu: boolean;
@@ -55,7 +67,14 @@ export default function System() {
         <table>
           <tbody>
             <tr><td>引擎</td><td>{sys.engine.name}</td></tr>
-            <tr><td>GPU</td><td>{String(sys.gpu)}</td></tr>
+            <tr><td>制作流水线</td><td>{sys.pipeline}</td></tr>
+            <tr><td>GPU</td><td>{sys.gpu ? "可用" : "不可用"}</td></tr>
+            {sys.engine.weights_present !== undefined && (
+              <tr><td>权重</td><td>{sys.engine.weights_present ? "就绪" : "缺失"}</td></tr>
+            )}
+            {sys.engine.loaded !== undefined && (
+              <tr><td>已加载</td><td>{sys.engine.loaded ? "是" : "否"}</td></tr>
+            )}
             <tr><td>数据目录</td><td>{sys.data_dir}</td></tr>
             <tr><td>版本</td><td>{sys.version}</td></tr>
           </tbody>
