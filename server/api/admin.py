@@ -6,12 +6,14 @@ from secrets import token_urlsafe
 from uuid import uuid4
 
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, UploadFile
 from PIL import Image
 from pydantic import BaseModel
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from starlette.responses import Response
 
+from server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
 from server.api.deps import get_admin, hash_api_key
 from server.avatar.pipeline import run_job_in_new_session
 from server.avatar.store import AvatarStore
@@ -84,29 +86,83 @@ def admin_list_avatars(tenant_id: str = "", db=Depends(get_db)) -> list[dict]:
     if tenant_id:
         stmt = stmt.where(Avatar.tenant_id == tenant_id)
     rows = db.execute(stmt.order_by(Avatar.created_at.desc())).scalars().all()
-    out = []
-    for a in rows:
-        job = (
-            db.execute(
-                select(AvatarJob)
-                .where(AvatarJob.avatar_id == a.id)
-                .order_by(AvatarJob.created_at.desc())
-            )
-            .scalars()
-            .first()
+    return [_admin_avatar_row(db, a) for a in rows]
+
+
+def _admin_avatar_row(db, a: Avatar) -> dict:
+    """Full admin shape for an avatar, matching the list rows (incl. latest job error)."""
+    job = (
+        db.execute(
+            select(AvatarJob)
+            .where(AvatarJob.avatar_id == a.id)
+            .order_by(AvatarJob.created_at.desc())
         )
-        out.append(
-            {
-                "avatar_id": a.id,
-                "tenant_id": a.tenant_id,
-                "name": a.name,
-                "status": a.status,
-                "config": a.config_json,
-                "error": job.error if a.status == "failed" and job else None,
-                "created_at": a.created_at.isoformat(),
-            }
-        )
-    return out
+        .scalars()
+        .first()
+    )
+    return {
+        "avatar_id": a.id,
+        "tenant_id": a.tenant_id,
+        "name": a.name,
+        "status": a.status,
+        "config": a.config_json,
+        "error": job.error if a.status == "failed" and job else None,
+        "created_at": a.created_at.isoformat(),
+    }
+
+
+def _get_or_create_default_tenant(db) -> Tenant:
+    """The designated tenant for admin-created avatars when no tenant_id is given.
+
+    Deliberately the tenant named "default" (not merely the oldest): the session
+    debug page issues an API key for this same tenant, and create_session requires
+    the avatar to belong to that key's tenant, so both surfaces must agree.
+    """
+    tenant = db.execute(select(Tenant).where(Tenant.name == "default")).scalars().first()
+    if tenant is None:
+        tenant = Tenant(name="default", api_key_hash=hash_api_key("dh_" + token_urlsafe(32)))
+        db.add(tenant)
+        db.commit()
+    return tenant
+
+
+@admin_router.post("/avatars", status_code=201)
+def admin_create_avatar(
+    background: BackgroundTasks,
+    name: str = Form(...),
+    file: UploadFile = ...,
+    tenant_id: str = Form(""),
+    db=Depends(get_db),
+) -> dict:
+    data = file.file.read()
+    suffix = _derive_suffix(file.filename)
+    if not tenant_id:
+        tenant_id = _get_or_create_default_tenant(db).id
+    avatar_id, job_id = _create_avatar_rows(db, tenant_id, name, data, suffix)
+    background.add_task(run_job_in_new_session, job_id, AvatarStore(get_settings().data_dir))
+    return {"avatar_id": avatar_id, "status": "pending"}
+
+
+@admin_router.get("/avatars/{avatar_id}")
+def admin_get_avatar(avatar_id: str, db=Depends(get_db)) -> dict:
+    _require_uuid_hex(avatar_id)
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
+    return _admin_avatar_row(db, avatar)
+
+
+@admin_router.delete("/avatars/{avatar_id}", status_code=204)
+def admin_delete_avatar(avatar_id: str, db=Depends(get_db)) -> Response:
+    _require_uuid_hex(avatar_id)
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
+    db.execute(sa_delete(AvatarJob).where(AvatarJob.avatar_id == avatar_id))
+    db.delete(avatar)
+    db.commit()
+    AvatarStore(get_settings().data_dir).delete_assets(avatar_id)
+    return Response(status_code=204)
 
 
 @admin_router.post("/avatars/{avatar_id}/retry", status_code=202)

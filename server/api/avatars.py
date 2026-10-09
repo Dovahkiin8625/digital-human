@@ -55,6 +55,34 @@ def _serialize(a: Avatar, with_detail: bool = False) -> dict:
     return data
 
 
+def _create_avatar_rows(db, tenant_id: str, name: str, data: bytes, suffix: str) -> tuple[str, str]:
+    """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
+
+    Shared by the tenant upload endpoint here and the admin upload endpoint in
+    ``server.api.admin`` so neither duplicates the store/row wiring. Scheduling
+    the background job stays with each caller (each owns its BackgroundTasks).
+    """
+    avatar_id = uuid4().hex
+    store = _store()
+    try:
+        source_path = store.save_source_image(avatar_id, data, suffix)
+    except Exception as exc:
+        raise AppError("invalid_image", str(exc), 422) from exc
+
+    avatar = Avatar(
+        id=avatar_id,
+        tenant_id=tenant_id,
+        name=name,
+        status="pending",
+        source_image_path=str(source_path),
+    )
+    job = AvatarJob(id=uuid4().hex, avatar_id=avatar_id, stage="queued")
+    db.add(avatar)
+    db.add(job)
+    db.commit()
+    return avatar_id, job.id
+
+
 def _get_owned(db, tenant: Tenant, avatar_id: str) -> Avatar:
     avatar = db.execute(
         select(Avatar).where(Avatar.id == avatar_id, Avatar.tenant_id == tenant.id)
@@ -72,27 +100,10 @@ def create_avatar(
     tenant: Tenant = Depends(get_tenant),
     db=Depends(get_db),
 ) -> dict:
-    avatar_id = uuid4().hex
-    store = _store()
     data = file.file.read()
     suffix = _derive_suffix(file.filename)
-    try:
-        source_path = store.save_source_image(avatar_id, data, suffix)
-    except Exception as exc:
-        raise AppError("invalid_image", str(exc), 422) from exc
-
-    avatar = Avatar(
-        id=avatar_id,
-        tenant_id=tenant.id,
-        name=name,
-        status="pending",
-        source_image_path=str(source_path),
-    )
-    job = AvatarJob(avatar_id=avatar_id, stage="queued")
-    db.add(avatar)
-    db.add(job)
-    db.commit()
-    background.add_task(run_job_in_new_session, job.id, _store())
+    avatar_id, job_id = _create_avatar_rows(db, tenant.id, name, data, suffix)
+    background.add_task(run_job_in_new_session, job_id, _store())
     return {"avatar_id": avatar_id, "status": "pending"}
 
 
