@@ -144,16 +144,12 @@ def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path):
 
 
 def _build_app(tmp_path, monkeypatch, **env):
-    monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
-    monkeypatch.setenv("DH_DRIVE_ENGINE", "mock")
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    from server.config import get_settings
+    from env import apply_env
+
+    apply_env(monkeypatch, tmp_path, **env)
     from server.db.session import get_engine, init_db, reset_engine
     from server.main import create_app
 
-    get_settings.cache_clear()
     reset_engine()
     app = create_app()
     init_db(get_engine())

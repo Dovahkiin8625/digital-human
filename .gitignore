@@ -1,4 +1,7 @@
 .venv/
+.venv-musetalk/
+vendor/
+spike/
 __pycache__/
 *.egg-info/
 data/

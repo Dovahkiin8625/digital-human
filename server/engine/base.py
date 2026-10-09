@@ -17,6 +17,10 @@ class AvatarPack:
     root: Path
     source_image_path: Path
     config: dict = field(default_factory=dict)
+    # Small scalars/paths from the pipeline's `pack.json` "musetalk" block
+    # (bbox, crop size, mask_crop_box, sidecar dir). Never holds tensors --
+    # the engine loads those lazily from `root`.
+    prep: dict = field(default_factory=dict)
 
 
 @dataclass

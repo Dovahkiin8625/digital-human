@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from server.config import Settings, get_settings
+
 if TYPE_CHECKING:
     from server.avatar.store import AvatarStore
 
@@ -43,9 +45,15 @@ class MockAvatarPipeline(AvatarPipeline):
         return {"mouth_scale": 1.0, "expression_intensity": 1.0, "crop": {"mode": "center"}}
 
 
-def create_pipeline(name: str) -> AvatarPipeline:
+def create_pipeline(name: str | None = None, settings: Settings | None = None) -> AvatarPipeline:
+    settings = settings or get_settings()
+    name = name or settings.avatar_pipeline
     if name == "mock":
         return MockAvatarPipeline()
+    if name == "musetalk":
+        from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
+
+        return MuseTalkAvatarPipeline()
     raise PipelineError(f"unknown pipeline: {name}")
 
 
@@ -92,6 +100,6 @@ def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
 
     db = sessionmaker(bind=get_engine())()
     try:
-        run_avatar_job(db, store, create_pipeline("mock"), job_id)
+        run_avatar_job(db, store, create_pipeline(), job_id)
     finally:
         db.close()

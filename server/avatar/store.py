@@ -38,6 +38,7 @@ class AvatarStore:
             root=root,
             source_image_path=normalized if normalized.exists() else source,
             config=config,
+            prep=config.get("musetalk", {}),
         )
 
     def delete_assets(self, avatar_id: str) -> None:
