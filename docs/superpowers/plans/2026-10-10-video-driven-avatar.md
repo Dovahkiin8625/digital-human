@@ -1023,6 +1023,22 @@ def test_avatar_video_lifecycle(client, monkeypatch):
     assert detail["status"] == "ready"
 
 
+def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeypatch):
+    # 15 s at 30 fps is 450 *source* frames but exactly 375 *output* frames at
+    # 25 fps. The spec caps on duration-derived output frames, so this upload is
+    # legal -- a cap on raw source frames would wrongly reject it. Without this
+    # case, capping on `info["frame_count"]` passes every other test.
+    _stub_video(monkeypatch, duration=15.0, fps=30.0)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "30fps"},
+        files={"file": ("clip.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 201, resp.text
+
+
 def test_avatar_video_too_long_is_422(client, monkeypatch):
     _stub_video(monkeypatch, duration=20.0)
     headers = _seed_tenant(client)
