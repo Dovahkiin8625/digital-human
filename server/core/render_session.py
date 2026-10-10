@@ -91,6 +91,11 @@ class RenderSession:
         self._keepalive_task: asyncio.Task | None = None
         self._idle_frame: np.ndarray | None = None
         self._idle_frame_read = False
+        # Ping-pong position of the next idle frame. Advanced per successful
+        # source-frame tick; seeded INTO the engine context when speech starts
+        # and re-read FROM it when speech ends, so idle and speech share one
+        # continuous position -- no jump at either boundary.
+        self._idle_pos = 0
         # Serializes the entry points that drive frames and advance pts/metrics.
         # push_pcm (audio WS / RTP track) and close (DELETE / idle sweep) can run
         # concurrently; a real GPU engine's awaited drive() would otherwise let
@@ -128,6 +133,7 @@ class RenderSession:
         now = now if now is not None else time.monotonic()
         if self.state == SessionState.SPEAKING and now - self.last_audio_at > IDLE_AFTER:
             self.state = SessionState.IDLE
+            self._idle_pos = int(self.engine.idle_position(self._ctx))
 
     # -- idle keep-alive -------------------------------------------------
     def _static_frame(self) -> np.ndarray | None:
@@ -174,19 +180,25 @@ class RenderSession:
                 return
             if self.state is SessionState.SPEAKING or not self.sink.keepalive:
                 continue
-            frame = self._static_frame()
-            if frame is None:
+            source_frame = await self.engine.idle_frame(
+                self.pack, self._ctx, int(self._idle_pos)
+            )
+            # Static fallback only when the engine supplies no source frame;
+            # both are fetched before the lock, below.
+            frame = None if source_frame is not None else self._static_frame()
+            if source_frame is None and frame is None:
                 continue
             async with self._lock:
                 if self.state in (SessionState.CLOSED, SessionState.ERROR):
                     return
                 # Re-check under the lock: speech may have started between the
-                # pre-check above and here, and a resting canvas pushed between
-                # two speech frames is a visible flicker.
+                # pre-check above and here, and a frame pushed between two
+                # speech frames is a visible flicker.
                 if self.state is SessionState.SPEAKING:
                     continue
                 try:
-                    await self.sink.push(frame, self._audio_pts)
+                    pushed = source_frame if source_frame is not None else frame
+                    await self.sink.push(pushed, self._audio_pts)
                 except SinkClosed:
                     self._metrics["dropped_frames"] += 1
                     continue
@@ -195,11 +207,21 @@ class RenderSession:
                 # latency look better the longer a session sat unused.
                 self._metrics["keepalive_frames"] += 1
                 self._audio_pts += period
+                if source_frame is not None:
+                    # Only source frames occupy cycle positions; a static
+                    # fallback must not move the phase the next speech seeds.
+                    self._idle_pos += 1
 
     async def push_pcm(self, data: bytes) -> None:
         async with self._lock:
             if self.state in (SessionState.CLOSED, SessionState.ERROR):
                 raise AppError("session_closed", f"session {self.session_id} is {self.state.value}", 409)
+            if self.state is not SessionState.SPEAKING:
+                # First audio after idle: hand the idle position to the engine
+                # so its first speech frame is the frame the idle track would
+                # have shown next. Duck-typed: a mock engine's context is None.
+                if self._ctx is not None and hasattr(self._ctx, "phase"):
+                    self._ctx.phase = int(self._idle_pos)
             self.last_audio_at = time.monotonic()
             self.state = SessionState.SPEAKING
             for block in self._ingest.push_pcm(data):

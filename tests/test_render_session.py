@@ -6,7 +6,7 @@ import pytest
 from server.core.audio_ingest import AudioIngest
 from server.core.render_session import RenderSession, SessionState
 from server.core.render_session import _histogram
-from server.core.stream_sink import FrameBufferSink, NullSink
+from server.core.stream_sink import FrameBufferSink, NullSink, SinkClosed
 from server.engine.base import AvatarPack
 from server.engine.mock_engine import MockEngine
 
@@ -316,4 +316,138 @@ async def test_metrics_report_latency_histogram_and_queue(tmp_path):
     assert m["queue_depth"] == 0  # MockEngine renders synchronously
     assert m["overflows"] == 0
     assert m["state"] == "speaking"
+    await session.close()
+
+
+# -- idle source-frame playback -----------------------------------------
+
+class _IdleEngine(MockEngine):
+    """Serves solid-colour source frames ping-pong, like the real engine."""
+
+    def __init__(self, n=3):
+        super().__init__()
+        self.n = n
+        self.source = np.stack(
+            [np.full((1280, 720, 3), 60 + i, np.uint8) for i in range(n)]
+        )
+        self.idle_calls: list[int] = []
+
+    class _Ctx:
+        phase = 0
+        emitted = 0
+
+    def new_context(self, pack):
+        return self._Ctx()
+
+    async def idle_frame(self, pack, ctx, pos):
+        from server.engine.musetalk_engine import cycle_index
+
+        self.idle_calls.append(int(pos))
+        return self.source[cycle_index(int(pos), self.n)]
+
+    async def drive(self, pack, audio, sample_rate, *, context=None):
+        frames = await super().drive(pack, audio, sample_rate, context=context)
+        if context is not None:
+            context.emitted += len(frames)
+        return frames
+
+    def idle_position(self, ctx):
+        return int(getattr(ctx, "emitted", 0))
+
+
+class _ImageCapture(FrameBufferSink):
+    keepalive = True
+
+    def __init__(self):
+        super().__init__()
+        self.vals: list[int] = []
+
+    async def push(self, image, pts):
+        self.vals.append(int(image[0, 0, 0]))
+
+
+@pytest.mark.asyncio
+async def test_idle_track_plays_source_frames_in_cycle(tmp_path):
+    engine = _IdleEngine(n=3)
+    session, sink = _session(tmp_path, engine=engine, sink=_ImageCapture())
+    await session.start()
+    await asyncio.sleep(0.3)
+    await session.close()
+    # At least the first cycle must be source frames in ping-pong order.
+    assert len(sink.vals) >= 5
+    assert sink.vals[:5] == [60, 61, 62, 61, 60]
+
+
+@pytest.mark.asyncio
+async def test_speech_start_seeds_the_idle_position(tmp_path):
+    engine = _IdleEngine(n=3)
+    session, _ = _session(tmp_path, engine=engine, sink=_LiveSink())
+    await session.start()
+    await asyncio.sleep(0.2)
+    pos = session._idle_pos
+    assert pos > 0
+    await session.push_pcm(np.zeros(4800, np.int16).tobytes())
+    assert session._ctx.phase == pos
+    # A second, still-speaking block must not re-seed the phase.
+    await session.push_pcm(np.zeros(4800, np.int16).tobytes())
+    assert session._ctx.phase == pos
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_speech_end_reads_back_the_engine_position(tmp_path):
+    engine = _IdleEngine(n=3)
+    session, _ = _session(tmp_path, engine=engine, sink=_LiveSink())
+    await session.start()
+    # 0.5 s: five 100 ms blocks, mock emits 2 frames each -> emitted 10.
+    await session.push_pcm(np.zeros(24000, np.int16).tobytes())
+    session.maybe_idle(now=session.last_audio_at + 3.0)
+    assert session.state == SessionState.IDLE
+    assert session._idle_pos == 10
+
+
+@pytest.mark.asyncio
+async def test_idle_resumes_from_the_speech_end_position(tmp_path):
+    engine = _IdleEngine(n=3)
+    session, sink = _session(tmp_path, engine=engine, sink=_ImageCapture())
+    await session.start()
+    await session.push_pcm(np.zeros(24000, np.int16).tobytes())  # 10 frames
+    before = len(engine.idle_calls)
+    session.maybe_idle(now=session.last_audio_at + 3.0)
+    await asyncio.sleep(0.15)
+    await session.close()
+    # The idle track after speech asks for frames starting at position 10.
+    assert engine.idle_calls[before] == 10
+
+
+@pytest.mark.asyncio
+async def test_static_fallback_does_not_advance_the_position(tmp_path):
+    # Default MockEngine has no idle frames (idle_frame -> None): the resting
+    # canvas is pushed instead and the cycle position must stay put.
+    session, _ = _session_with_canvas(tmp_path)
+    await session.start()
+    await asyncio.sleep(0.2)
+    assert session.metrics["keepalive_frames"] > 0
+    assert session._idle_pos == 0
+    await session.close()
+
+
+class _ClosedOnPush(_RecordingSink):
+    keepalive = True
+
+    async def push(self, image, pts):
+        raise SinkClosed()
+
+
+@pytest.mark.asyncio
+async def test_sink_closed_does_not_advance_position(tmp_path):
+    # The engine must supply a source frame so the loop reaches sink.push:
+    # with the default MockEngine there is no canvas in this pack, so the
+    # push (and thus the SinkClosed path) would never be exercised.
+    engine = _IdleEngine(n=3)
+    session, _ = _session(tmp_path, engine=engine, sink=_ClosedOnPush())
+    await session.start()
+    await asyncio.sleep(0.15)
+    assert session._idle_pos == 0
+    assert session.metrics["dropped_frames"] > 0
     await session.close()
