@@ -13,8 +13,8 @@
 ## Global Constraints
 
 - 运行环境：Windows 11 + Git Bash；命令均以仓库根为 CWD
-- 默认测试 venv 为 `.venv`（torch-free）；GPU 测试在 `.venv-musetalk` 跑 `python -m pytest -m gpu`
-- 默认测试命令：`python -m pytest`（`addopts` 已排除 `gpu`/`musetalk` 标记）
+- **两个 venv，且裸 `python` 指向错的那个**：`.venv`（Python 3.14.6，torch-free，无 cv2）是默认套件的目标；`.venv-musetalk`（Python 3.11.15，有 torch/cv2）是 GPU 套件的目标。Git Bash 里 `python` 解析到 `.venv-musetalk`，所以默认套件必须显式写 `.venv/Scripts/python.exe -m pytest`
+- GPU 测试：`.venv-musetalk/Scripts/python.exe -m pytest -m gpu`
 - 环境变量前缀 `DH_`；本次新增 `DH_AVATAR_MAX_VIDEO_SECONDS`、`DH_AVATAR_MAX_VIDEO_FRAMES`、`DH_AVATAR_CACHE_SIZE`
 - 统一错误信封：`{"error": {"code": str, "message": str, "detail": any}}`；新增错误码 `invalid_video`、`video_too_long`（均 422）
 - 画布固定 `720×1280`、输出帧率 `settings.fps=25`；`cv2` 只在 GPU venv 存在，凡用到 cv2 的模块必须在**函数内**惰性 import，保证 `.venv` 可导入
@@ -298,9 +298,14 @@ def decode_frames(
         raise VideoError("video is shorter than a single output frame")
 
     # source index -> the output frames that want it (a slow source feeds many)
+    last = info["frame_count"] - 1
     wanted: dict[int, list[int]] = {}
     for k in range(n_out):
-        wanted.setdefault(int(round(k * src_fps / target_fps)), []).append(k)
+        # Clamped to the last decoded frame: the final output timestamp can round
+        # one past the end when the source is slower than the target (10 fps
+        # source, 25 fps target: k=24 wants source 10 of a 10-frame clip).
+        src = min(int(round(k * src_fps / target_fps)), last)
+        wanted.setdefault(src, []).append(k)
 
     width, height = canvas
     frames = np.zeros((n_out, height, width, 3), dtype=np.uint8)
@@ -432,6 +437,8 @@ def test_video_rejects_too_long(tmp_path, monkeypatch):
         store.save_source("v3", b"\x00" * 64, ".mp4")
     assert ei.value.code == "video_too_long"
     assert ei.value.status == 422
+    # The rejected upload must not be left behind: no Avatar row exists to own it.
+    assert not (store.avatar_dir("v3") / "source.mp4").exists()
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -476,14 +483,26 @@ class AvatarStore:
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"source{suffix or '.png'}"
         path.write_bytes(data)
-        if video.is_video_suffix(suffix):
-            self._validate_video(path)
-        else:
-            try:
-                Image.open(path).verify()
-            except (UnidentifiedImageError, OSError) as exc:
-                raise AppError("invalid_image", "source image is not a decodable image", 422) from exc
+        try:
+            if video.is_video_suffix(suffix):
+                self._validate_video(path)
+            else:
+                self._validate_image(path)
+        except AppError:
+            # Nothing will own this file: a rejected upload never gets an Avatar
+            # row, so no job and no delete_assets() will ever come back for it.
+            # Previously an invalid image leaked a few KB; a too-long video is
+            # tens of MB.
+            path.unlink(missing_ok=True)
+            raise
         return path
+
+    @staticmethod
+    def _validate_image(path: Path) -> None:
+        try:
+            Image.open(path).verify()
+        except (UnidentifiedImageError, OSError) as exc:
+            raise AppError("invalid_image", "source image is not a decodable image", 422) from exc
 
     def _validate_video(self, path: Path) -> None:
         settings = get_settings()
