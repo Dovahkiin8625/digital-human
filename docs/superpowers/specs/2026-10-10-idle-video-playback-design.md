@@ -337,8 +337,14 @@ RenderSession（新增/扩展对应测试文件）：
 
 - 空闲：用记录 id​le 调用的假引擎，逐 tick 的 pos 为 0,1,2,...，成功推送后
   推进；
-- 首块 PCM（LISTENING→SPEAKING）：context.phase 被种为当前 `_idle_pos`；
+- 开口首块 PCM（LISTENING/IDLE→SPEAKING）：context.phase 被种为差值
+  `_idle_pos − ctx.emitted`（首句两者皆为 0，与直接种位置等价；见 §5.2）；
   持续说话的后续块不重种；
+- 第二段说话的连续性回归：idle→speech→idle→speech，断言第二段首帧 = 空闲
+  下一帧的绝对位置——旧的绝对值种入会把上一段累计 emitted 重复计数；
+- IDLE 状态下的 flush 尾块可能让 emitted 超过 `_idle_pos`，使种入差值为负；
+  `cycle_index` 用 Python 正取模（−1 % 周期 = 周期−1），负相位恰好对应乒乓
+  回摆方向，选帧仍然连续；
 - SPEAKING→IDLE（驱动 maybe_idle）：`_idle_pos` 取 engine.idle_position；
 - idle_frame 返回 None 时回退静态 normalized.png，且 `_idle_pos` 不推进；
 - SinkClosed 时不推进。
