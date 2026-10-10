@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
+from server.avatar import video
 from server.config import Settings, get_settings
 
 if TYPE_CHECKING:
@@ -27,7 +28,18 @@ class MockAvatarPipeline(AvatarPipeline):
 
     def process(self, avatar_id: str, source_path: Path, out_dir: Path, progress: Callable[[str, int], None]) -> dict:
         progress("detect_face", 10)
-        img = Image.open(source_path).convert("RGB")
+        source_path = Path(source_path)
+        if video.is_video_suffix(source_path.suffix):
+            settings = get_settings()
+            frames, _ = video.decode_frames(
+                source_path,
+                target_fps=settings.fps,
+                max_frames=1,
+                canvas=(settings.frame_width, settings.frame_height),
+            )
+            img = Image.fromarray(frames[0])
+        else:
+            img = Image.open(source_path).convert("RGB")
         if img.width < self.MIN_SIZE or img.height < self.MIN_SIZE:
             raise PipelineError(f"image too small: {img.width}x{img.height}, min {self.MIN_SIZE}x{self.MIN_SIZE}")
         progress("align", 40)

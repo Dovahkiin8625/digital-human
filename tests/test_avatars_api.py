@@ -177,3 +177,85 @@ def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
     assert called == []
+
+
+def _stub_video(monkeypatch, duration=2.0, fps=25.0):
+    # Both call sites look the names up on the module at call time (store does
+    # `video.probe_video`, the mock pipeline `video.decode_frames`), which is
+    # what makes patching `server.avatar.video` sufficient for both.
+    monkeypatch.setattr(
+        "server.avatar.video.probe_video",
+        lambda p: {"fps": fps, "frame_count": int(duration * fps), "duration": duration},
+    )
+    import numpy as np
+
+    monkeypatch.setattr(
+        "server.avatar.video.decode_frames",
+        lambda p, target_fps, max_frames, canvas: (
+            np.full((1, canvas[1], canvas[0], 3), 128, np.uint8),
+            fps,
+        ),
+    )
+
+
+def test_avatar_video_lifecycle(client, monkeypatch):
+    _stub_video(monkeypatch)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Video Alice"},
+        files={"file": ("alice.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 201, resp.text
+    avatar_id = resp.json()["avatar_id"]
+
+    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    assert detail["status"] == "ready"
+
+
+def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeypatch):
+    # 15 s at 30 fps is 450 *source* frames but exactly 375 *output* frames at
+    # 25 fps. The spec caps on duration-derived output frames, so this upload is
+    # legal -- a cap on raw source frames would wrongly reject it. Without this
+    # case, capping on `info["frame_count"]` passes every other test.
+    _stub_video(monkeypatch, duration=15.0, fps=30.0)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "30fps"},
+        files={"file": ("clip.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_avatar_video_too_long_is_422(client, monkeypatch):
+    _stub_video(monkeypatch, duration=20.0)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Too long"},
+        files={"file": ("long.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "video_too_long"
+
+
+def test_avatar_undecodable_video_is_422(client, monkeypatch):
+    from server.avatar.video import VideoError
+
+    def boom(p):
+        raise VideoError("cannot open video")
+
+    monkeypatch.setattr("server.avatar.video.probe_video", boom)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Bad"},
+        files={"file": ("bad.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "invalid_video"
