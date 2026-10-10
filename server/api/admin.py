@@ -1,20 +1,19 @@
 import hmac
-import io
 import json
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, Query, UploadFile
-from PIL import Image
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response
 
 from server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
 from server.api.deps import get_admin, hash_api_key
 from server.avatar.pipeline import run_job_in_new_session
+from server.avatar import video
 from server.avatar.store import AvatarStore
 from server.config import get_settings
 from server.core.errors import AppError
@@ -229,25 +228,40 @@ def patch_avatar_config(avatar_id: str, body: AvatarConfigIn, db=Depends(get_db)
     return {"avatar_id": avatar_id, "config": cfg}
 
 
-@admin_router.get("/avatars/{avatar_id}/preview.png")
-def avatar_preview(avatar_id: str, level: float = Query(0.5, ge=0.0, le=1.0), db=Depends(get_db)):
-    import asyncio
-
-    from server.main import get_session_manager
-
+@admin_router.get("/avatars/{avatar_id}/idle.mp4")
+def avatar_idle_video(avatar_id: str, db=Depends(get_db)):
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     store = AvatarStore(get_settings().data_dir)
     pack = store.load_pack(avatar)
-    # The shared engine: a real engine holds the loaded weights and a single
-    # worker thread, so a per-request engine would reload ~3 GB of models and
-    # never call prepare(). preview() does both prepare() and a short drive().
-    engine = get_session_manager().engine
-    image = asyncio.run(engine.preview(pack, level))
-    buf = io.BytesIO()
-    Image.fromarray(image).save(buf, format="PNG")
-    return Response(buf.getvalue(), media_type="image/png")
+    if pack.prep.get("mode") != "video":
+        # Photo/legacy avatars have no source cycle; the UI uses normalized.png.
+        raise AppError("not_found", f"avatar {avatar_id} has no idle video", 404)
+    root = store.avatar_dir(avatar_id)
+    path = root / "idle.mp4"
+    if not path.exists():
+        # Built lazily on this threadpool worker: pure CPU, one-time per avatar.
+        try:
+            path = video.build_idle_video(
+                root, root / pack.prep.get("source", "source.mp4"), get_settings()
+            )
+        except video.VideoError as exc:
+            raise AppError("idle_video_unavailable", str(exc), 503) from exc
+    return FileResponse(path, media_type="video/mp4")
+
+
+@admin_router.get("/avatars/{avatar_id}/normalized.png")
+def avatar_normalized_png(avatar_id: str, db=Depends(get_db)):
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
+    store = AvatarStore(get_settings().data_dir)
+    pack = store.load_pack(avatar)
+    path = Path(pack.root) / pack.prep.get("base_image", "normalized.png")
+    if not path.exists():
+        raise AppError("not_found", "avatar image not found", 404)
+    return FileResponse(path, media_type="image/png")
 
 
 @admin_router.post("/tts")

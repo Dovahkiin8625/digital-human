@@ -1,4 +1,6 @@
 import io
+import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -106,7 +108,7 @@ def test_system_info(client):
     assert body["gpu"] is False
 
 
-def test_avatar_config_and_preview(client):
+def test_avatar_config(client):
     client.post("/api/admin/tenants", headers=ADMIN, json={"name": "t"})
     api_key = client.post("/api/admin/tenants", headers=ADMIN, json={"name": "t2"}).json()["api_key"]
     avatar_id = client.post(
@@ -120,10 +122,83 @@ def test_avatar_config_and_preview(client):
     assert resp.status_code == 200
     assert resp.json()["config"]["mouth_scale"] == 1.5
 
-    resp = client.get(f"/api/admin/avatars/{avatar_id}/preview.png?level=0.8", headers=ADMIN)
+
+def _make_video_mode(client, avatar_id):
+    """Rewrite the uploaded avatar's pack.json into a video-mode pack."""
+    from server.config import get_settings
+
+    root = Path(get_settings().data_dir) / "avatars" / avatar_id
+    (root / "pack.json").write_text(
+        json.dumps(
+            {"musetalk": {"mode": "video", "source": "source.mp4", "base_image": "normalized.png"}}
+        )
+    )
+    return root
+
+
+def test_normalized_png_is_served(client):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    resp = client.get(f"/api/admin/avatars/{avatar_id}/normalized.png", headers=ADMIN)
     assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/png"
-    assert len(resp.content) > 100
+    assert resp.headers["content-type"].startswith("image/png")
+    assert len(resp.content) > 50
+
+
+def test_idle_mp4_is_generated_then_served_with_range(client, monkeypatch):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    root = _make_video_mode(client, avatar_id)
+
+    def fake_build(avatar_dir, source, settings):
+        assert source == avatar_dir / "source.mp4"
+        out = avatar_dir / "idle.mp4"
+        out.write_bytes(b"FAKEMP4-DATA")
+        return out
+
+    monkeypatch.setattr("server.avatar.video.build_idle_video", fake_build)
+
+    resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4", headers=ADMIN)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "video/mp4"
+    assert resp.content == b"FAKEMP4-DATA"
+
+    # A ranged read is served by FileResponse (206 Partial Content).
+    rng = client.get(
+        f"/api/admin/avatars/{avatar_id}/idle.mp4", headers={**ADMIN, "Range": "bytes=0-3"}
+    )
+    assert rng.status_code == 206
+    assert rng.content == b"FAKE"
+
+
+def test_idle_mp4_build_failure_is_503(client, monkeypatch):
+    from server.avatar.video import VideoError
+
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    _make_video_mode(client, avatar_id)
+
+    def boom(avatar_dir, source, settings):
+        raise VideoError("decoder died")
+
+    monkeypatch.setattr("server.avatar.video.build_idle_video", boom)
+    resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4", headers=ADMIN)
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "idle_video_unavailable"
+
+
+def test_idle_mp4_404_for_photo_avatar(client):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4", headers=ADMIN)
+    assert resp.status_code == 404
+
+
+def test_preview_png_route_is_removed(client):
+    api_key = _new_tenant(client, "t")
+    avatar_id = _upload_avatar(client, api_key, "a")
+    resp = client.get(f"/api/admin/avatars/{avatar_id}/preview.png", headers=ADMIN)
+    assert resp.status_code == 404
 
 
 def test_jobs_listing(client):

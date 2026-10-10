@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from server.engine.base import AvatarPack, EngineUnavailable, create_engine
+from server.engine.base import AvatarPack, create_engine
 from server.engine.mock_engine import MockEngine
 
 
@@ -43,19 +43,6 @@ async def test_loud_audio_opens_mouth_more(tmp_path):
     silent = await engine.drive(pack, np.zeros(4800, dtype=np.float32), 48000)
     loud = await engine.drive(pack, np.ones(4800, dtype=np.float32) * 0.9, 48000)
     assert np.abs(loud[0].image.astype(int) - silent[0].image.astype(int)).sum() > 0
-
-
-class _EmptyEngine(MockEngine):
-    async def drive(self, pack, audio, sample_rate, *, context=None):
-        return []
-
-
-@pytest.mark.asyncio
-async def test_preview_raises_on_an_empty_frame_list(tmp_path):
-    """The admin preview endpoint must not 500 with IndexError."""
-    engine = _EmptyEngine()
-    with pytest.raises(EngineUnavailable, match="no frames"):
-        await engine.preview(_pack(tmp_path))
 
 
 def test_create_engine_factory():

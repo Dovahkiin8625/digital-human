@@ -93,21 +93,6 @@ class DriveEngine(ABC):
         """Ping-pong cycle position after the most recently used frame."""
         return 0
 
-    async def preview(self, pack: AvatarPack, level: float = 0.5) -> np.ndarray:
-        """A single frame for the admin debug page's openness slider."""
-        await self.prepare(pack)
-        audio = _tone(level)
-        frames = await self.drive(
-            pack, audio, get_settings().sample_rate, context=self.new_context(pack)
-        )
-        if not frames:
-            # A 200 ms tone always yields frames today, but the admin preview
-            # endpoint must not 500 on an engine that returns none.
-            raise EngineUnavailable(
-                f"engine {self.name} produced no frames for the preview"
-            )
-        return frames[0].image
-
     def pending(self) -> int:
         """Jobs queued but not yet rendered. 0 for a synchronous engine.
 
@@ -121,14 +106,6 @@ class DriveEngine(ABC):
 
     async def close(self) -> None:
         pass
-
-
-def _tone(level: float, ms: int = 200, hz: float = 160.0) -> np.ndarray:
-    """A short voiced-range sine, for previewing a mouth shape at `level`."""
-    settings = get_settings()
-    n = settings.sample_rate * ms // 1000
-    t = np.arange(n, dtype=np.float32) / settings.sample_rate
-    return (np.sin(2 * np.pi * hz * t) * float(level)).astype(np.float32)
 
 
 def create_engine(name: str | None = None, settings: Settings | None = None) -> DriveEngine:
