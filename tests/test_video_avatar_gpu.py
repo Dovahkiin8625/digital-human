@@ -132,7 +132,6 @@ def test_idle_phase_carries_seamlessly_into_speech(tmp_path):
     import asyncio
 
     asyncio.run(eng.prepare(pack))
-    n = int(cfg["musetalk"]["frame_count"])
 
     # Simulate an idle track that reached position p (= the position the next
     # idle frame would use), as RenderSession does.
