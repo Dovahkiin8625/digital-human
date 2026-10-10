@@ -1694,6 +1694,16 @@ git add server/engine/musetalk_engine.py tests/test_musetalk_engine.py
 git commit -m "feat(engine): load N-frame video packs, keeping the legacy single-frame path"
 ```
 
+**Review amendment — fix round 1 (post-review, Critical):**
+
+The dispatcher above branches on presence of `coords`, which routes a **photo** written under the unified layout (one coords row, `source.png`) into `_load_video_avatar` — it then re-decodes the PNG via `decode_frames`, and this machine's cv2 build cannot open PNG/WebP in `VideoCapture` (fps=-1 → `VideoError`); JPG works only by an OpenCV quirk. Photo uploads would show `ready` then fail every session, violating spec §8. The fix:
+
+1. `_load_avatar` branches on `prep.get("mode")`: `"video"` → video loader; `"image"` → new `_load_image_avatar`; missing (old packs) → legacy. Never on `coords`.
+2. `_load_image_avatar(rt, root, prep) -> _AvatarState` loads N=1 straight from prepare-time artifacts: `normalized.png` as the single base, `masks/00000000.png` as the mask, `prep["bbox"]` / `prep["mask_crop_box"]`, latents via the existing `_load_latents` seam. It never calls `decode_frames`.
+3. New default-suite test `test_load_image_pack_uses_the_saved_canvas_without_decoding` with a `decode_frames` patch that raises AssertionError if invoked, asserting the state is the saved canvas at cycle_len 1.
+
+Two Minor review findings (raw `FileNotFoundError` for a missing mask; duplicate/negative kept indices — only via hand-corrupted meta.json) are deferred to the final whole-branch review.
+
 ---
 
 ### Task 8: 后台控制台上传视频
