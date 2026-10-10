@@ -83,6 +83,25 @@ def cycle_index(frame: int, n: int) -> int:
     return k if k < n else period - k
 
 
+def select_frame_assets(avatar: "_AvatarState", idxs: list[int]) -> list[tuple]:
+    """Per output frame: (base, latent, bbox, mask, mask_box), in `idxs` order.
+
+    Torch-free on purpose -- this is the feature's core selection step, and
+    keeping it a plain function keeps it assertable in the default suite,
+    where torch is absent.
+    """
+    return [
+        (
+            avatar.frames[c],
+            avatar.latents[c],
+            avatar.bboxes[c],
+            avatar.masks[c],
+            avatar.mask_boxes[c],
+        )
+        for c in idxs
+    ]
+
+
 # whisper and MuseTalk both work at 16 kHz; ingest is 48 kHz.
 SR16 = 16000
 # MuseTalk's whisper feature stream is 50 fps and each output frame consumes a
@@ -765,12 +784,14 @@ class MuseTalkEngine(DriveEngine):
         with torch.no_grad():
             for i in range(0, prompts.shape[0], BATCH_SIZE):
                 wb = prompts[i : i + BATCH_SIZE].to(rt.device, dtype=rt.weight_dtype)
-                lb = avatar.latents[[idxs[i + j] for j in range(wb.shape[0])]]
+                chunk = select_frame_assets(
+                    avatar, [idxs[i + j] for j in range(wb.shape[0])]
+                )
+                lb = torch.stack([a[1] for a in chunk])
                 pred = rt.unet.model(lb, rt.timesteps, encoder_hidden_states=rt.pe(wb)).sample
                 recon = _decode_gpu(rt, pred)
                 for j in range(recon.shape[0]):
-                    c = idxs[i + j]
-                    bbox = avatar.bboxes[c]
+                    base, _, bbox, mask, mask_box = chunk[j]
                     x1, y1, x2, y2 = bbox
                     face = (
                         F.interpolate(
@@ -784,11 +805,11 @@ class MuseTalkEngine(DriveEngine):
                         .to(torch.uint8)[0]
                     )
                     frame = _blend_face_gpu(
-                        self._to_device(rt, avatar.frames[c]),
+                        self._to_device(rt, base),
                         face,
                         bbox,
-                        self._mask_to_device(rt, avatar.masks[c]),
-                        avatar.mask_boxes[c],
+                        self._mask_to_device(rt, mask),
+                        mask_box,
                     )
                     out.append(frame.permute(1, 2, 0).contiguous().cpu().numpy())
         return out

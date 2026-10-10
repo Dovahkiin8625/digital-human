@@ -676,6 +676,29 @@ def test_cycle_index_ping_pongs():
     assert [me.cycle_index(f, 2) for f in range(6)] == [0, 1, 0, 1, 0, 1]
 
 
+def test_frame_selection_is_per_index_and_ping_pongs():
+    """The engine's core selection step: every output frame gets its own
+    base/latent/bbox/mask, and the cycle ping-pongs. Torch-free on purpose,
+    so it runs in the default suite where the render path cannot."""
+    n = 3
+    avatar = me._AvatarState(
+        frames=np.stack([np.full((8, 8, 3), 10 * (i + 1), np.uint8) for i in range(n)]),
+        latents=[f"latent{i}" for i in range(n)],
+        bboxes=[[i, 0, 8, 8] for i in range(n)],
+        masks=[np.full((8, 8), 10 * (i + 1), np.uint8) for i in range(n)],
+        mask_boxes=[[0, i, 8, 8] for i in range(n)],
+    )
+    assert avatar.cycle_len == 3
+
+    idxs = [me.cycle_index(f, n) for f in range(6)]
+    assert idxs == [0, 1, 2, 1, 0, 1]
+
+    assets = me.select_frame_assets(avatar, idxs)
+    assert [int(a[0][0, 0, 0]) for a in assets] == [10, 20, 30, 20, 10, 20]
+    assert [a[1] for a in assets] == ["latent0", "latent1", "latent2", "latent1", "latent0", "latent1"]
+    assert [a[2][0] for a in assets] == [0, 1, 2, 1, 0, 1]
+
+
 @pytest.mark.musetalk  # needs torch, which the torch-free .venv does not have
 def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     """Two output frames must blend onto two different base frames."""
@@ -684,15 +707,22 @@ def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     eng = MuseTalkEngine(models_dir=tmp_path / "m")
 
     seen_bases = []
+    seen_bboxes = []
+    seen_latents = []
 
     def spy_blend(base, face, bbox, mask, crop_box):
         seen_bases.append(int(base[0, 0, 0]))  # base is CHW; corner pixel tags it
+        seen_bboxes.append(list(bbox))
         return base
 
     monkeypatch.setattr(me, "_blend_face_gpu", spy_blend)
 
     class _Model:
         def __call__(self, latents, timesteps, encoder_hidden_states=None):
+            # Tag each stacked latent row so the test proves per-frame latent
+            # selection, not just per-frame base selection.
+            seen_latents.append(latents[:, 0, 0, 0].detach().tolist())
+
             class _Out:
                 sample = latents
 
@@ -720,8 +750,8 @@ def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     frames[1, :, :, :] = 20
     avatar = me._AvatarState(
         frames=frames,
-        latents=torch.zeros((2, 8, 32, 32)),
-        bboxes=[[0, 0, 8, 8], [0, 0, 8, 8]],
+        latents=torch.stack([torch.zeros((8, 32, 32)), torch.ones((8, 32, 32))]),
+        bboxes=[[0, 0, 8, 8], [1, 0, 8, 8]],
         masks=[np.zeros((8, 8), np.uint8), np.zeros((8, 8), np.uint8)],
         mask_boxes=[[0, 0, 8, 8], [0, 0, 8, 8]],
     )
@@ -730,3 +760,7 @@ def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     eng._render(_RT(), avatar, [0, 1], prompts)
 
     assert seen_bases == [10, 20]
+    # The two output frames must carry their own latent row and their own bbox,
+    # not always latents[0]/bboxes[0].
+    assert seen_latents == [[0.0, 1.0]]
+    assert seen_bboxes == [[0, 0, 8, 8], [1, 0, 8, 8]]
