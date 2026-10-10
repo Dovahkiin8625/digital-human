@@ -7,6 +7,7 @@ path -- both call it with identical arguments so both see identical frames.
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -101,3 +102,66 @@ def decode_frames(
         # Probed N frames but decoded fewer: keep what actually came out.
         frames = frames[:filled]
     return frames, src_fps
+
+
+#: Per-avatar build locks, so two first-requests for the same idle clip
+#: serialize: the loser waits and reuses the file instead of reading a
+#: half-written one or building a second copy.
+_idle_locks: dict[str, threading.Lock] = {}
+
+
+def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
+    """Render ``<avatar_dir>/idle.mp4``: the kept source frames ping-ponged.
+
+    Pure CPU and torch-free. The frame set is exactly what the engine's idle
+    track plays -- decode with the prepare pipeline's arguments and select the
+    frames named by ``musetalk/meta.json``'s ``kept`` -- then write
+    ``seq + seq[-2:0:-1]``, the same 2N-2 period ``cycle_index`` walks. The
+    file is built via ``idle.mp4.tmp`` and atomically replaced so a reader can
+    never see a partial clip.
+    """
+    import json
+    import os
+
+    avatar_dir = Path(avatar_dir)
+    meta_path = avatar_dir / "musetalk" / "meta.json"
+    out = avatar_dir / "idle.mp4"
+    lock = _idle_locks.setdefault(str(avatar_dir), threading.Lock())
+    with lock:
+        if out.exists():
+            return out
+        try:
+            meta = json.loads(meta_path.read_text())
+            kept = [int(i) for i in meta["kept"]]
+        except (OSError, ValueError, KeyError) as exc:
+            raise VideoError(f"cannot read kept frames from {meta_path}") from exc
+        frames, _ = decode_frames(
+            source,
+            target_fps=settings.fps,
+            max_frames=settings.avatar_max_video_frames,
+            canvas=(settings.frame_width, settings.frame_height),
+        )
+        if not kept or max(kept) >= len(frames):
+            raise VideoError(
+                f"kept frames are outside the decoded sequence "
+                f"(kept={len(kept)}, decoded={len(frames)})"
+            )
+        seq = frames[kept]
+        clip = np.concatenate((seq, seq[-2:0:-1]), axis=0)
+        tmp = out.with_name("idle.mp4.tmp")
+        cv2 = _cv2()
+        writer = cv2.VideoWriter(
+            str(tmp),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            settings.fps,
+            (settings.frame_width, settings.frame_height),
+        )
+        if not writer.isOpened():
+            writer.release()
+            tmp.unlink(missing_ok=True)
+            raise VideoError("cannot open idle video writer")
+        for rgb in clip:
+            writer.write(np.ascontiguousarray(rgb[:, :, ::-1]))
+        writer.release()
+        os.replace(tmp, out)
+    return out
