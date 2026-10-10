@@ -18,24 +18,59 @@ export class DigitalHumanClient {
   private audioWs: WebSocket | null = null;
   private audioTransceiver: RTCRtpTransceiver | null = null;
 
-  constructor(private signalUrl: string, private audioUrl: string) {}
+  constructor(
+    private signalUrl: string,
+    private audioUrl: string,
+    // Bounded so a handshake the server never completes surfaces as an error
+    // instead of an indefinite spinner. A WebSocket stuck in CONNECTING fires
+    // no event at all, so nothing else would ever settle the promise.
+    private openTimeoutMs = 10_000
+  ) {}
+
+  /** Resolve once `ws` is open; reject on error, early close, or timeout. */
+  private awaitOpen(ws: WebSocket): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(
+        () => reject(new Error(`signal socket did not open within ${this.openTimeoutMs}ms`)),
+        this.openTimeoutMs
+      );
+      const settle = (finish: () => void) => () => {
+        clearTimeout(timer);
+        ws.onopen = ws.onerror = ws.onclose = null;
+        finish();
+      };
+      ws.onopen = settle(resolve);
+      ws.onerror = settle(() => reject(new Error("signal socket failed to open")));
+      // A refused upgrade (an HTTP response instead of a 101) can surface as a
+      // close with no error event.
+      ws.onclose = settle(() => reject(new Error("signal socket closed before it opened")));
+    });
+  }
 
   async connect(video: HTMLVideoElement): Promise<void> {
-    this.ws = new WebSocket(this.signalUrl);
+    const ws = new WebSocket(this.signalUrl);
+    this.ws = ws;
     this.audioWs = new WebSocket(this.audioUrl);
-    await new Promise<void>((resolve, reject) => {
-      this.ws!.onopen = () => resolve();
-      this.ws!.onerror = () => reject(new Error("signal socket failed to open"));
-    });
+    try {
+      await this.awaitOpen(ws);
+    } catch (err) {
+      // The audio socket is opened up front and would otherwise be left behind.
+      this.close();
+      throw err;
+    }
 
     this.pc = new RTCPeerConnection();
     this.pc.ontrack = (ev) => {
       video.srcObject = ev.streams[0];
     };
     this.pc.onicecandidate = (ev) => {
-      this.ws?.send(JSON.stringify({ type: "candidate", candidate: ev.candidate }));
+      ws.send(JSON.stringify({ type: "candidate", candidate: ev.candidate }));
     };
-    this.ws.onmessage = async (ev) => {
+    ws.onmessage = async (ev) => {
       const msg = JSON.parse(ev.data as string) as SignalMessage;
       if (msg.type === "answer") {
         await this.pc!.setRemoteDescription({ type: "answer", sdp: msg.sdp });
@@ -50,7 +85,7 @@ export class DigitalHumanClient {
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
-    this.ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
+    ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
   }
 
   async attachMicrophone(): Promise<void> {
