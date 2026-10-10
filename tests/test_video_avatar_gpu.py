@@ -110,3 +110,48 @@ def test_short_audio_session_does_not_kill_the_worker(tmp_path):
     # The worker must still be alive: a following full block drives normally.
     more = asyncio.run(eng.drive(pack, np.zeros(4800, np.float32), 48000, context=ctx))
     assert len(more) == 2
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="MuseTalk sample video not vendored")
+def test_idle_phase_carries_seamlessly_into_speech(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    src = _short_video(out / "clip.mp4")
+    cfg = MuseTalkAvatarPipeline().process("v3", src, out, lambda s, p: None)
+
+    from server.engine.base import AvatarPack
+
+    pack = AvatarPack(
+        avatar_id="v3",
+        root=out,
+        source_image_path=out / "normalized.png",
+        config=cfg,
+        prep=cfg["musetalk"],
+    )
+    eng = MuseTalkEngine()
+    import asyncio
+
+    asyncio.run(eng.prepare(pack))
+    n = int(cfg["musetalk"]["frame_count"])
+
+    # Simulate an idle track that reached position p (= the position the next
+    # idle frame would use), as RenderSession does.
+    p = 3
+    idle_here = asyncio.run(eng.idle_frame(pack, None, p))
+    ctx = eng.new_context(pack)
+    ctx.phase = p
+    frames = asyncio.run(eng.drive(pack, np.zeros(4800, np.float32), 48000, context=ctx))
+    assert len(frames) >= 2
+    # The first speech frame uses the same base frame the idle track would have
+    # shown next: cycle position p. (MuseTalk edits only the mouth region.)
+    from server.engine.musetalk_engine import cycle_index
+
+    assert cycle_index(p, n) == cycle_index(ctx.phase + 0, n)
+    # Outside the edited mouth box, idle-at-p and first speech frame agree.
+    bbox = [int(v) for v in cfg["musetalk"]["bbox"]]
+    x1, y1, x2, y2 = bbox
+    rest = np.delete(np.delete(idle_here, slice(y1, y2), axis=0), slice(x1, x2), axis=1)
+    got = np.delete(np.delete(frames[0].image, slice(y1, y2), axis=0), slice(x1, x2), axis=1)
+    assert np.array_equal(rest, got)
+    # The engine reports the position after the emitted speech frames.
+    assert eng.idle_position(ctx) == ctx.phase + ctx.emitted
