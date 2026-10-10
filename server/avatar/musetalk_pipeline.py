@@ -1,18 +1,23 @@
 """Real MuseTalk 1.5 avatar preparation -- the production path.
 
-Turns one uploaded photo into the artifacts the engine needs, and nothing more:
+Turns one uploaded photo or one short driver video into the artifacts the engine
+needs. A photo is the N=1 case of a frame cycle, so both modes write the same
+layout:
 
-    <avatar_dir>/normalized.png          720x1280 base frame (detection runs here,
-                                         so every stored coordinate is already in
-                                         canvas space -- the engine never rescales)
+    <avatar_dir>/normalized.png          720x1280 base frame, taken from the first
+                                         kept frame (idle keepalive, preview, and
+                                         the shape the old single-frame packs had)
     <avatar_dir>/pack.json               small scalars/paths only (no tensors)
     <avatar_dir>/musetalk/
-        face_crop.png   256x256          aligned face, for inspection/debugging
-        bbox.json       face box + blend crop box
-        landmarks.json  detector output
-        mask.png        bisenet blend mask (sized to the blend crop box)
-        latents.pt      [1,8,32,32] VAE latents
-        meta.json       model version / crop / detector
+        latents.pt      [N,8,32,32]      VAE latents, one row per kept frame
+        coords.json     [N]              face box + blend crop box per kept frame
+        masks/NNNNNNNN.png               bisenet blend mask per kept frame, sized
+                                         to that frame's own mask_crop_box
+        meta.json       model version / crop / detector / fps / mode / kept
+
+`kept` is the list of decoded-sequence indices the N rows came from: a video
+drops frames with no detectable face, so row i of `coords.json` is decoded frame
+`kept[i]`, and the engine re-decodes the same sequence and selects those indices.
 
 Everything torch-shaped is imported lazily inside `MuseTalkPreparer`, so this
 module stays importable (and the default test suite stays torch-free) even
@@ -30,6 +35,7 @@ from PIL import Image
 
 from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 from server.avatar.pipeline import AvatarPipeline, PipelineError
+from server.avatar.video import is_video_suffix
 from server.config import get_settings
 
 SUBDIR = "musetalk"
@@ -37,6 +43,9 @@ FACE_CROP = 256
 VERSION = "1.5"
 DETECTOR = "mediapipe.face_landmarker"
 VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "MuseTalk"
+
+#: A video needs at least this many face-bearing frames to be usable as a driver.
+MIN_FRAMES = 8
 
 #: Serializes the first load of MuseTalk's vendored models, which pull in
 #: `diffusers`. Two threads reach that import in normal operation -- the
@@ -80,16 +89,14 @@ def _cv2_and_torch():
     return cv2, torch
 
 
-def _save_latents(latents, path: Path) -> None:
+def _save_latents(parts, path: Path) -> None:
     """Seam for the torch-free contract test.
 
-    Serialising a `.pt` needs torch, which only exists in the GPU venv, but the
-    rest of the pack contract (file names, coordinate propagation, pack.json
-    shape) is exactly what a GPU-less test can and should assert. Tests
-    substitute this with a numpy writer.
+    `parts` is a list of per-frame ``[1,8,32,32]`` latents; they are stacked to
+    ``[N,8,32,32]`` and saved as one tensor. Tests substitute a numpy writer.
     """
     _, torch = _cv2_and_torch()
-    torch.save(latents.detach().cpu(), path)
+    torch.save(torch.cat(list(parts), dim=0).detach().cpu(), path)
 
 
 def default_models_dir() -> Path:
@@ -287,34 +294,47 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         self, avatar_id: str, source_path: Path, out_dir: Path, progress: Callable[[str, int], None]
     ) -> dict:
         settings = get_settings()
+        source_path = Path(source_path)
+        mode = "video" if is_video_suffix(source_path.suffix) else "image"
 
         progress("detect_face", 10)
-        img = Image.open(source_path).convert("RGB")
-        if img.width < self.MIN_SIZE or img.height < self.MIN_SIZE:
-            raise PipelineError(
-                f"image too small: {img.width}x{img.height}, min {self.MIN_SIZE}x{self.MIN_SIZE}"
-            )
-        canvas = fit_to_canvas(img, settings.frame_width, settings.frame_height)
-        bgr = np.asarray(canvas)[:, :, ::-1].copy()
+        if mode == "video":
+            frames, source_fps = self._video_frames(source_path, settings)
+        else:
+            frames, source_fps = self._image_frames(source_path, settings)
 
-        prep = self._get_preparer()(bgr)
+        prep = self._get_preparer()
+        parts, coords, masks, kept = [], [], [], []
+        for i, bgr in enumerate(frames):
+            try:
+                out = prep(bgr)
+            except PipelineError:
+                if mode == "image":
+                    raise  # an image with no face is a plain error, not a skip
+                continue
+            kept.append(i)
+            parts.append(out["latents"])
+            coords.append({"bbox": out["bbox"], "mask_crop_box": out["mask_crop_box"]})
+            masks.append(out["mask"])
+
+        if not parts:
+            raise PipelineError("no face detected in the uploaded image")
+        if mode == "video" and len(parts) < MIN_FRAMES:
+            raise PipelineError(f"no usable face frames in video: found {len(parts)}, need {MIN_FRAMES}")
 
         progress("align", 40)
         sidecar = out_dir / SUBDIR
         sidecar.mkdir(parents=True, exist_ok=True)
-        Image.fromarray(prep["face_crop_bgr"][:, :, ::-1]).save(sidecar / "face_crop.png")
-        (sidecar / "bbox.json").write_text(
-            json.dumps({"bbox": prep["bbox"], "mask_crop_box": prep["mask_crop_box"]})
-        )
-        (sidecar / "landmarks.json").write_text(
-            json.dumps([[round(float(x), 2), round(float(y), 2)] for x, y in prep["landmarks"]])
-        )
+        masks_dir = sidecar / "masks"
+        masks_dir.mkdir(parents=True, exist_ok=True)
+        _save_latents(parts, sidecar / "latents.pt")
+        (sidecar / "coords.json").write_text(json.dumps(coords))
+        for i, mask in enumerate(masks):
+            Image.fromarray(mask).save(masks_dir / f"{i:08d}.png")
 
         progress("normalize", 70)
-        canvas.save(out_dir / "normalized.png")
-        # PIL rather than cv2 here so that nothing in this method needs the GPU venv.
-        Image.fromarray(prep["mask"]).save(sidecar / "mask.png")
-        _save_latents(prep["latents"], sidecar / "latents.pt")
+        # Frame 0 of the *kept* frames: the resting canvas, preview and back-compat.
+        Image.fromarray(frames[kept[0]][:, :, ::-1]).save(out_dir / "normalized.png")
 
         progress("build_pack", 100)
         (sidecar / "meta.json").write_text(
@@ -323,22 +343,42 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
                     "version": VERSION,
                     "crop": FACE_CROP,
                     "detector": DETECTOR,
-                    "latent_shape": list(prep["latents"].shape),
                     "fps": settings.fps,
-                    "sample_rate": settings.sample_rate,
+                    "source_fps": source_fps,
+                    "frame_count": len(parts),
+                    "mode": mode,
+                    "kept": kept,
                 }
             )
         )
         return {
             "musetalk": {
+                "mode": mode,
                 "dir": SUBDIR,
                 "version": VERSION,
                 "crop": FACE_CROP,
                 "detector": DETECTOR,
-                "bbox": prep["bbox"],
-                "mask_crop_box": prep["mask_crop_box"],
+                "frame_count": len(parts),
+                "fps": settings.fps,
+                "source_fps": source_fps,
                 "base_image": "normalized.png",
+                "source": source_path.name,
                 "latents": f"{SUBDIR}/latents.pt",
-                "mask": f"{SUBDIR}/mask.png",
+                "coords": f"{SUBDIR}/coords.json",
+                "masks": f"{SUBDIR}/masks",
+                "bbox": coords[0]["bbox"],
+                "mask_crop_box": coords[0]["mask_crop_box"],
             }
         }
+
+    def _image_frames(self, source_path: Path, settings) -> tuple[list[np.ndarray], float]:
+        img = Image.open(source_path).convert("RGB")
+        if img.width < self.MIN_SIZE or img.height < self.MIN_SIZE:
+            raise PipelineError(
+                f"image too small: {img.width}x{img.height}, min {self.MIN_SIZE}x{self.MIN_SIZE}"
+            )
+        canvas = fit_to_canvas(img, settings.frame_width, settings.frame_height)
+        return [np.ascontiguousarray(np.asarray(canvas)[:, :, ::-1])], float(settings.fps)
+
+    def _video_frames(self, source_path: Path, settings) -> tuple[list[np.ndarray], float]:
+        raise NotImplementedError  # Task 4

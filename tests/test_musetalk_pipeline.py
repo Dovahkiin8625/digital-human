@@ -21,7 +21,7 @@ from server.avatar.musetalk_pipeline import (
 from server.avatar.pipeline import MockAvatarPipeline, PipelineError, create_pipeline
 from server.avatar.store import AvatarStore
 
-SIDECARS = ["face_crop.png", "bbox.json", "landmarks.json", "mask.png", "latents.pt", "meta.json"]
+SIDECARS = ["latents.pt", "coords.json", "meta.json"]
 
 
 class StubPreparer:
@@ -52,11 +52,11 @@ def wired(tmp_path, monkeypatch):
 
     written = {}
 
-    def fake_save_latents(latents, path):
-        written["shape"] = tuple(latents.shape)
-        # a file handle, not a str: np.save would append ".npy" to a str path
+    def fake_save_latents(parts, path):
+        arr = np.concatenate([np.asarray(p) for p in parts], axis=0)
+        written["shape"] = tuple(arr.shape)
         with open(path, "wb") as fh:
-            np.save(fh, latents)
+            np.save(fh, arr)
 
     monkeypatch.setattr(mp, "_save_latents", fake_save_latents)
     stub = StubPreparer()
@@ -73,29 +73,34 @@ def test_pack_contract_is_complete(wired):
 
     assert stages == [("detect_face", 10), ("align", 40), ("normalize", 70), ("build_pack", 100)]
 
-    # every declared sidecar is on disk
     sidecar = out / "musetalk"
     for name in SIDECARS:
         assert (sidecar / name).exists(), f"missing sidecar {name}"
+    assert (sidecar / "masks" / "00000000.png").exists()
 
-    assert written["shape"] == (1, 8, 32, 32), "latents must be [1,8,32,32]"
+    assert written["shape"] == (1, 8, 32, 32), "one image frame -> latents [1,8,32,32]"
 
     with Image.open(out / "normalized.png") as img:
         assert img.size == (720, 1280)
-    with Image.open(sidecar / "face_crop.png") as img:
-        assert img.size == (FACE_CROP, FACE_CROP)
 
-    bbox = json.loads((sidecar / "bbox.json").read_text())
-    assert bbox["bbox"] == [100, 200, 300, 400]
-    assert bbox["mask_crop_box"] == [10, 20, 310, 320]
+    coords = json.loads((sidecar / "coords.json").read_text())
+    assert len(coords) == 1
+    assert coords[0]["bbox"] == [100, 200, 300, 400]
+    assert coords[0]["mask_crop_box"] == [10, 20, 310, 320]
+
     meta = json.loads((sidecar / "meta.json").read_text())
     assert meta["version"] == "1.5"
     assert meta["crop"] == FACE_CROP
-    assert meta["latent_shape"] == [1, 8, 32, 32]
+    assert meta["mode"] == "image"
+    assert meta["frame_count"] == 1
+    assert meta["kept"] == [0]
 
     # pack.json carries only the small "musetalk" block, and it must be JSON-clean
     assert list(cfg) == ["musetalk"]
     assert json.loads(json.dumps(cfg)) == cfg
+    assert cfg["musetalk"]["coords"] == "musetalk/coords.json"
+    assert cfg["musetalk"]["masks"] == "musetalk/masks"
+    assert cfg["musetalk"]["bbox"] == [100, 200, 300, 400]
 
 
 def test_detection_runs_on_the_canvas_not_the_raw_photo(wired):
