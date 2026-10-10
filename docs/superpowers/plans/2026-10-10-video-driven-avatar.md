@@ -1496,6 +1496,13 @@ git add server/engine/musetalk_engine.py tests/test_musetalk_engine.py
 git commit -m "feat(engine): render onto a per-frame ping-pong cycle instead of one base"
 ```
 
+**Review amendment — fix round 1 (post-review, two Important test-coverage holes):**
+
+1. The render test is decorated `@pytest.mark.musetalk`. The Step-1 block above does not show it; it is required because the test does `import torch`, which is absent from the default `.venv`. The premise was verified by forcing the test in that venv (`ModuleNotFoundError`); `musetalk` is a registered marker already used by `tests/test_musetalk_engine_gpu.py`. A fake-torch `sys.modules` stub was rejected because it would validate the fake's indexing rather than torch's.
+2. The selection step is extracted to a module-level, torch-free helper so the feature's core behaviour is covered in the default suite after all: `select_frame_assets(avatar, idxs) -> list[(base, latent, bbox, mask, mask_box)]`, defined next to `cycle_index`. `_render` consumes it (per-group one UNet call, `BATCH_SIZE` chunking, `torch.stack([a[1] for a in chunk])` replacing the `avatar.latents[[...]]` gather — behaviour otherwise unchanged).
+3. A new **unmarked** test `test_frame_selection_is_per_index_and_ping_pongs` asserts the helper returns per-frame base/latent/bbox along the `[0,1,2,1,0,1]` ping-pong, with `latents` passed as a plain list and no torch imported.
+4. The render test above is additionally strengthened: the two latents are 0-filled vs 1-filled (asserted per row on the model's stacked input) and the two bboxes differ in their first element (asserted via the `_blend_face_gpu` spy), so it now catches an implementation stuck on `latents[0]`/`bboxes[0]`, not only `frames[0]`.
+
 ---
 
 ### Task 7: 引擎加载视频包（新布局 + 旧格式回退）
