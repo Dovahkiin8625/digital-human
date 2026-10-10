@@ -133,7 +133,7 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
         try:
             meta = json.loads(meta_path.read_text())
             kept = [int(i) for i in meta["kept"]]
-        except (OSError, ValueError, KeyError) as exc:
+        except (OSError, ValueError, KeyError, TypeError) as exc:
             raise VideoError(f"cannot read kept frames from {meta_path}") from exc
         frames, _ = decode_frames(
             source,
@@ -160,8 +160,15 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
             writer.release()
             tmp.unlink(missing_ok=True)
             raise VideoError("cannot open idle video writer")
-        for rgb in clip:
-            writer.write(np.ascontiguousarray(rgb[:, :, ::-1]))
-        writer.release()
-        os.replace(tmp, out)
+        try:
+            for rgb in clip:
+                writer.write(np.ascontiguousarray(rgb[:, :, ::-1]))
+            writer.release()
+            os.replace(tmp, out)
+        except VideoError:
+            raise
+        except Exception as exc:  # noqa: BLE001 -- disk full / dir removed mid-build
+            writer.release()
+            tmp.unlink(missing_ok=True)
+            raise VideoError(f"cannot write idle clip to {out}") from exc
     return out

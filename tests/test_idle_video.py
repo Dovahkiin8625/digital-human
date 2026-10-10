@@ -160,3 +160,31 @@ def test_unopenable_writer_is_video_error(monkeypatch, tmp_path):
     with pytest.raises(VideoError):
         build_idle_video(d, d / "source.mp4", SETTINGS)
     assert not (d / "idle.mp4.tmp").exists()
+
+
+def test_writer_failure_is_video_error_and_drops_tmp(monkeypatch, tmp_path):
+    d = _avatar_dir(tmp_path, [0, 1])
+
+    class _BoomWriter(_Writer):
+        def write(self, frame):
+            raise RuntimeError("disk full")
+
+    class _BoomCV2(_FakeCV2):
+        def VideoWriter(self, path, fourcc, fps, size):
+            return _BoomWriter(path, fourcc, fps, size)
+
+    monkeypatch.setattr(video, "_cv2", lambda: _BoomCV2(_solid(5)))
+    with pytest.raises(VideoError):
+        build_idle_video(d, d / "source.mp4", SETTINGS)
+    # The cleanup release() emulates materialising the file at the tmp path;
+    # the unlink must remove it again so no half clip is left behind.
+    assert not (d / "idle.mp4.tmp").exists()
+
+
+def test_malformed_kept_is_video_error(monkeypatch, tmp_path):
+    d = tmp_path / "av"
+    (d / "musetalk").mkdir(parents=True)
+    (d / "musetalk" / "meta.json").write_text(json.dumps({"kept": 5}))
+    _install(monkeypatch, _solid(5))
+    with pytest.raises(VideoError):
+        build_idle_video(d, d / "source.mp4", SETTINGS)
