@@ -528,7 +528,9 @@ class MuseTalkEngine(DriveEngine):
             if avatar is None:
                 return None
             return avatar.frames[cycle_index(int(pos), avatar.cycle_len)]
-        except Exception:  # noqa: BLE001 -- keep-alive survives the engine
+        except Exception as exc:  # noqa: BLE001
+            # Never break the keep-alive loop; leave a trace for diagnosis.
+            _log.debug("idle frame unavailable for %s: %s", pack.avatar_id, exc, exc_info=True)
             return None
 
     def idle_position(self, context: object | None) -> int:
