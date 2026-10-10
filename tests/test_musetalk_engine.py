@@ -697,6 +697,8 @@ def test_frame_selection_is_per_index_and_ping_pongs():
     assert [int(a[0][0, 0, 0]) for a in assets] == [10, 20, 30, 20, 10, 20]
     assert [a[1] for a in assets] == ["latent0", "latent1", "latent2", "latent1", "latent0", "latent1"]
     assert [a[2][0] for a in assets] == [0, 1, 2, 1, 0, 1]
+    assert [int(a[3][0, 0]) for a in assets] == [10, 20, 30, 20, 10, 20]
+    assert [a[4][1] for a in assets] == [0, 1, 2, 1, 0, 1]
 
 
 @pytest.mark.musetalk  # needs torch, which the torch-free .venv does not have
@@ -764,3 +766,88 @@ def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     # not always latents[0]/bboxes[0].
     assert seen_latents == [[0.0, 1.0]]
     assert seen_bboxes == [[0, 0, 8, 8], [1, 0, 8, 8]]
+
+
+# -- video pack loading -------------------------------------------------
+
+def _video_pack(tmp_path, monkeypatch, n_kept=3, decoded=4, kept=None):
+    """A pack.json block in the new video layout, plus the sidecars it names."""
+    import json
+
+    root = tmp_path
+    sidecar = root / "musetalk"
+    (sidecar / "masks").mkdir(parents=True, exist_ok=True)
+    (root / "source.mp4").write_bytes(b"\x00")
+    kept = kept if kept is not None else list(range(n_kept))
+    coords = [{"bbox": [0, 0, 8, 8], "mask_crop_box": [0, 0, 8, 8]} for _ in kept]
+    (sidecar / "coords.json").write_text(json.dumps(coords))
+    (sidecar / "meta.json").write_text(
+        json.dumps({"frame_count": len(kept), "kept": kept, "fps": 25, "source_fps": 25.0, "mode": "video"})
+    )
+    for i in range(len(kept)):
+        Image.new("L", (8, 8), 255).save(sidecar / "masks" / f"{i:08d}.png")
+    with open(sidecar / "latents.pt", "wb") as fh:
+        np.save(fh, np.zeros((len(kept), 8, 32, 32), np.float32))
+
+    class _Loaded:
+        """Stands in for a torch tensor: `.shape` and a no-op `.to()`.
+
+        `_Moved` (used by the legacy test) has no shape, and the video loader
+        validates `latents.shape[0]` against `kept` -- so this stub reads the
+        file the test actually wrote, which is what makes that check meaningful.
+        """
+
+        def __init__(self, path):
+            with open(path, "rb") as fh:
+                self.arr = np.load(fh)
+
+        @property
+        def shape(self):
+            return self.arr.shape
+
+        def to(self, *args, **kwargs):
+            return self
+
+    monkeypatch.setattr(me, "_load_latents", lambda path: _Loaded(path))
+    decoded_frames = np.zeros((decoded, 16, 16, 3), np.uint8)
+    for i in range(decoded):
+        decoded_frames[i] = i + 1
+    monkeypatch.setattr(
+        "server.avatar.video.decode_frames",
+        lambda p, target_fps, max_frames, canvas: (decoded_frames, 25.0),
+    )
+    prep = {
+        "mode": "video",
+        "dir": "musetalk",
+        "source": "source.mp4",
+        "base_image": "normalized.png",
+        "latents": "musetalk/latents.pt",
+        "coords": "musetalk/coords.json",
+        "masks": "musetalk/masks",
+        "bbox": [0, 0, 8, 8],
+        "mask_crop_box": [0, 0, 8, 8],
+    }
+    return _pack(root, prep=prep)
+
+
+def test_load_video_pack_selects_kept_frames(tmp_path, monkeypatch):
+    pack = _video_pack(tmp_path, monkeypatch, n_kept=3, decoded=4, kept=[0, 2, 3])
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+
+    state = eng._load_avatar(_StubRuntime(), pack)
+
+    assert state.cycle_len == 3
+    assert [int(f[0, 0, 0]) for f in state.frames] == [1, 3, 4]  # decoded[kept]
+    assert len(state.masks) == 3
+
+
+def test_load_video_pack_rejects_inconsistent_sidecars(tmp_path, monkeypatch):
+    # coords has 3 rows but kept says 2 -> refuse rather than misalign
+    pack = _video_pack(tmp_path, monkeypatch, n_kept=2, decoded=4, kept=[0, 1])
+    import json
+
+    (tmp_path / "musetalk" / "coords.json").write_text(json.dumps([{"bbox": [0, 0, 8, 8], "mask_crop_box": [0, 0, 8, 8]}] * 3))
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+
+    with pytest.raises(EngineUnavailable, match="inconsistent"):
+        eng._load_avatar(_StubRuntime(), pack)

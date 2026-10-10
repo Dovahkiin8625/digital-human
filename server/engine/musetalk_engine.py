@@ -841,8 +841,6 @@ class MuseTalkEngine(DriveEngine):
         return state
 
     def _load_avatar(self, rt: _Runtime, pack: AvatarPack) -> _AvatarState:
-        from PIL import Image
-
         prep = pack.prep or {}
         if not prep.get("latents") or not (prep.get("coords") or prep.get("mask")):
             raise EngineUnavailable(
@@ -850,6 +848,14 @@ class MuseTalkEngine(DriveEngine):
                 "DH_AVATAR_PIPELINE=musetalk"
             )
         root = Path(pack.root)
+        if prep.get("coords"):
+            return self._load_video_avatar(rt, pack, root, prep)
+        return self._load_legacy_avatar(rt, root, prep)
+
+    def _load_legacy_avatar(self, rt: _Runtime, root: Path, prep: dict) -> _AvatarState:
+        """A single-frame pack written before video support: N=1."""
+        from PIL import Image
+
         base_rgb = np.array(
             Image.open(root / prep.get("base_image", "normalized.png")).convert("RGB")
         )
@@ -860,6 +866,44 @@ class MuseTalkEngine(DriveEngine):
             bboxes=[[int(v) for v in prep["bbox"]]],
             masks=[np.array(Image.open(root / prep["mask"]).convert("L"))],
             mask_boxes=[[int(v) for v in prep["mask_crop_box"]]],
+        )
+
+    def _load_video_avatar(self, rt: _Runtime, pack: AvatarPack, root: Path, prep: dict) -> _AvatarState:
+        import json
+
+        from PIL import Image
+
+        from server.avatar.video import decode_frames
+
+        settings = get_settings()
+        meta = json.loads((root / prep["dir"] / "meta.json").read_text())
+        kept = [int(i) for i in meta["kept"]]
+        coords = json.loads((root / prep["coords"]).read_text())
+        latents = _load_latents(root / prep["latents"]).to(rt.device, dtype=rt.weight_dtype)
+        masks = [
+            np.array(Image.open(root / prep["masks"] / f"{i:08d}.png").convert("L"))
+            for i in range(len(kept))
+        ]
+        decoded, _ = decode_frames(
+            root / prep["source"],
+            target_fps=self.fps,
+            max_frames=settings.avatar_max_video_frames,
+            canvas=(settings.frame_width, settings.frame_height),
+        )
+        if not (
+            len(kept) == len(coords) == int(latents.shape[0]) == len(masks) == int(meta["frame_count"])
+        ) or not kept or max(kept) >= len(decoded):
+            raise EngineUnavailable(
+                f"avatar {pack.avatar_id} video pack is inconsistent "
+                f"(kept={len(kept)}, coords={len(coords)}, latents={int(latents.shape[0])}, "
+                f"decoded={len(decoded)})"
+            )
+        return _AvatarState(
+            frames=np.ascontiguousarray(decoded[kept]),
+            latents=latents,
+            bboxes=[[int(v) for v in c["bbox"]] for c in coords],
+            masks=masks,
+            mask_boxes=[[int(v) for v in c["mask_crop_box"]] for c in coords],
         )
 
     # -- plumbing -------------------------------------------------------
