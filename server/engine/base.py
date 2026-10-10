@@ -79,6 +79,20 @@ class DriveEngine(ABC):
         """
         return None
 
+    async def idle_frame(self, pack: AvatarPack, context: object | None, pos: int):
+        """The source frame at ping-pong position `pos` for an idle track.
+
+        Returns an HWC RGB array, or None when this engine/pack cannot supply
+        source frames; the caller then falls back to its resting canvas. A
+        stateless engine returns None, which keeps the pre-existing static
+        keep-alive behaviour.
+        """
+        return None
+
+    def idle_position(self, context: object | None) -> int:
+        """Ping-pong cycle position after the most recently used frame."""
+        return 0
+
     async def preview(self, pack: AvatarPack, level: float = 0.5) -> np.ndarray:
         """A single frame for the admin debug page's openness slider."""
         await self.prepare(pack)

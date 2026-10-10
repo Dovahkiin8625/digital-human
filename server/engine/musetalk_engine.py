@@ -352,6 +352,11 @@ class _SessionContext:
     # Total 16 kHz samples ever ingested; buf_start is derived from this.
     total16k: int = 0
     emitted: int = 0
+    # Ping-pong cycle position of the frame just before this context's first
+    # speech frame. Speech frames read cycle_index(phase + emitted + j), so a
+    # session whose idle track reached position p starts speaking on that same
+    # frame. Whisper/audio bookkeeping is untouched: it is anchored on emitted.
+    phase: int = 0
     # Counted in whole input samples, not seconds: ten 100 ms blocks summed as
     # floats land on 0.9999999999999999, whose floor(*25) is 24 frames instead
     # of 25. Integer sample counts keep the frame grid exact.
@@ -504,6 +509,32 @@ class MuseTalkEngine(DriveEngine):
 
     def new_context(self, pack: AvatarPack) -> _SessionContext:
         return _SessionContext()
+
+    async def idle_frame(self, pack: AvatarPack, context: object | None, pos: int):
+        """The cached avatar's source frame at cycle position `pos`.
+
+        start() already ran prepare() on the worker thread, so the avatar is
+        cached; an LRU eviction is repaired by re-running prepare -- also on
+        the worker. Never build or load here, on the event-loop thread, where
+        it would stall every session. Anything going wrong returns None: a
+        keep-alive tick must not break the session, and the caller falls back
+        to its static canvas.
+        """
+        try:
+            avatar = self._avatars.get(pack.avatar_id)
+            if avatar is None:
+                await self.prepare(pack)
+                avatar = self._avatars.get(pack.avatar_id)
+            if avatar is None:
+                return None
+            return avatar.frames[cycle_index(int(pos), avatar.cycle_len)]
+        except Exception:  # noqa: BLE001 -- keep-alive survives the engine
+            return None
+
+    def idle_position(self, context: object | None) -> int:
+        if isinstance(context, _SessionContext):
+            return int(context.phase + context.emitted)
+        return 0
 
     async def close(self) -> None:
         if self._closed:
@@ -721,8 +752,14 @@ class MuseTalkEngine(DriveEngine):
                 avatar = work[idxs[0]][1]
                 cycle_idxs: list[int] = []
                 for k in idxs:
-                    _, _, first, pr = work[k]
-                    cycle_idxs += [cycle_index(first + j, avatar.cycle_len) for j in range(int(pr.shape[0]))]
+                    job_i, _, first, pr = work[k]
+                    # Every job uses its OWN session's phase: two sessions share
+                    # the avatar and the UNet call, never the cycle position.
+                    ctx_phase = int(getattr(jobs[job_i].ctx, "phase", 0))
+                    cycle_idxs += [
+                        cycle_index(ctx_phase + first + j, avatar.cycle_len)
+                        for j in range(int(pr.shape[0]))
+                    ]
                 prompts = _cat_prompts([work[k][3] for k in idxs])
                 images = self._render(rt, avatar, cycle_idxs, prompts)
                 pos = 0

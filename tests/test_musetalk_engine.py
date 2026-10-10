@@ -974,3 +974,143 @@ def test_load_image_pack_uses_the_saved_canvas_without_decoding(tmp_path, monkey
 
     assert state.cycle_len == 1
     assert tuple(state.frames[0][0, 0]) == (7, 8, 9)  # the saved normalized.png
+
+
+# -- idle phase / idle surface ------------------------------------------
+
+def _video_state(n=3):
+    return me._AvatarState(
+        frames=np.stack([np.full((1280, 720, 3), 10 * (i + 1), np.uint8) for i in range(n)]),
+        latents=[f"latent{i}" for i in range(n)],
+        bboxes=[[i, 0, 10, 10] for i in range(n)],
+        masks=[np.full((4, 4), 255, np.uint8) for i in range(n)],
+        mask_boxes=[[0, i, 4, 4] for i in range(n)],
+    )
+
+
+def test_phase_shifts_frame_selection(engine, tmp_path):
+    pack = _pack(tmp_path)
+    engine._load_avatar = lambda rt, p: _video_state(3)
+    captured: dict = {}
+
+    def render(rt, avatar, idxs, prompts):
+        captured["idxs"] = list(idxs)
+        return [np.zeros((1280, 720, 3), np.uint8)] * len(idxs)
+
+    engine._render = render
+
+    def run_with_phase(phase):
+        ctx = engine.new_context(pack)
+        ctx.phase = phase
+        job = me._Job(
+            pack=pack, ctx=ctx, audio=np.zeros(4800, np.float32),
+            sample_rate=48000, future=concurrent.futures.Future(),
+        )
+        engine._drive_sync([job])
+
+    # One 100 ms block emits 2 frames; n=3 cycle sequence 0,1,2,1,0,...:
+    # phase 0 -> [0,1], phase 3 -> [1,0].
+    run_with_phase(0)
+    assert captured["idxs"] == [0, 1]
+    run_with_phase(3)
+    assert captured["idxs"] == [1, 0]
+
+
+def test_phase_does_not_change_prompt_anchors(engine, tmp_path):
+    pack = _pack(tmp_path)
+    engine._load_avatar = lambda rt, p: _video_state(3)
+    anchors: list = []
+
+    def prompts_for(rt, ctx, first, target):
+        anchors.append((first, target))
+        return _FakePrompts(np.zeros((2, 50, 384), np.float32))
+
+    engine._prompts_for = prompts_for
+
+    def run_with_phase(phase):
+        ctx = engine.new_context(pack)
+        ctx.phase = phase
+        job = me._Job(
+            pack=pack, ctx=ctx, audio=np.zeros(4800, np.float32),
+            sample_rate=48000, future=concurrent.futures.Future(),
+        )
+        engine._drive_sync([job])
+
+    run_with_phase(0)
+    run_with_phase(3)
+    # Whisper bookkeeping is anchored on emitted only; phase must not appear.
+    assert anchors == [(0, 2), (0, 2)]
+
+
+def test_two_sessions_in_one_batch_keep_their_own_phase(engine, tmp_path):
+    pack = _pack(tmp_path)
+    state = _video_state(3)
+    engine._load_avatar = lambda rt, p: state  # same avatar, two sessions
+    captured: dict = {}
+    engine._render = lambda rt, avatar, idxs, prompts: (
+        captured.setdefault("idxs", []).extend(idxs)
+        or [np.zeros((1280, 720, 3), np.uint8)] * len(idxs)
+    )
+
+    ctx0, ctx1 = engine.new_context(pack), engine.new_context(pack)
+    ctx0.phase, ctx1.phase = 3, 0
+    jobs = [
+        me._Job(pack=pack, ctx=c, audio=np.zeros(4800, np.float32),
+                sample_rate=48000, future=concurrent.futures.Future())
+        for c in (ctx0, ctx1)
+    ]
+    engine._drive_sync(jobs)
+    # Each session contributes frames at its OWN phase: [1,0] then [0,1].
+    assert captured["idxs"] == [1, 0, 0, 1]
+
+
+@pytest.mark.asyncio
+async def test_idle_frame_returns_cached_frames_in_cycle(engine, tmp_path):
+    pack = _pack(tmp_path)
+    engine._avatars["a"] = _video_state(3)
+    frames = [await engine.idle_frame(pack, None, pos) for pos in range(5)]
+    assert [int(f[0, 0, 0]) for f in frames] == [10, 20, 30, 20, 10]
+
+
+@pytest.mark.asyncio
+async def test_idle_frame_reloads_evicted_avatar_via_prepare(engine, tmp_path):
+    pack = _pack(tmp_path)
+    state = _video_state(3)
+    prepared = []
+
+    async def prepare(p):
+        prepared.append(True)
+        engine._avatars["a"] = state
+
+    engine.prepare = prepare
+    frame = await engine.idle_frame(pack, None, 1)
+    assert prepared == [True]
+    assert int(frame[0, 0, 0]) == 20
+
+
+@pytest.mark.asyncio
+async def test_idle_frame_is_none_when_prepare_fails(engine, tmp_path):
+    pack = _pack(tmp_path)
+
+    async def boom(p):
+        raise RuntimeError("weights gone")
+
+    engine.prepare = boom
+    assert await engine.idle_frame(pack, None, 0) is None
+
+
+def test_idle_position(engine):
+    ctx = me._SessionContext()
+    assert engine.idle_position(ctx) == 0
+    ctx.phase, ctx.emitted = 4, 3
+    assert engine.idle_position(ctx) == 7
+    assert engine.idle_position(None) == 0
+
+
+@pytest.mark.asyncio
+async def test_default_engine_idle_surface_is_unsupported():
+    from server.engine.mock_engine import MockEngine
+
+    eng = MockEngine()
+    assert await eng.idle_frame(None, None, 0) is None
+    assert eng.idle_position(None) == 0
