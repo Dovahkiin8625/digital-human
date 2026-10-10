@@ -7,6 +7,11 @@ export default defineConfig({
   base: "/admin/",
   plugins: [react()],
   server: {
-    proxy: { "/api": "http://127.0.0.1:8000" },
+    // `ws: true` is required: the debug console opens WebSocket upgrades under
+    // /api (/api/v1/ws/signal/... and .../audio/...). Without it the dev proxy
+    // forwards only plain HTTP, the upgrade is never answered, and the browser's
+    // WebSocket sits in CONNECTING forever -- no error, no console message, and
+    // the Debug page spins on 开始调试 with the 合成并驱动 button stuck disabled.
+    proxy: { "/api": { target: "http://127.0.0.1:8000", ws: true } },
   },
 });
