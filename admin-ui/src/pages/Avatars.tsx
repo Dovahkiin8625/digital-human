@@ -20,6 +20,7 @@ import { InboxOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { api } from "../api";
 import StatusTag from "../components/StatusTag";
 import type { AvatarInfo } from "../types";
+import { createReentryGuard } from "./reentryGuard";
 
 const ACTIVE = new Set(["pending", "processing"]);
 
@@ -44,7 +45,9 @@ export default function Avatars() {
   const [items, setItems] = useState<AvatarInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const creatingRef = useRef(false);
+  // A stable guard instance for the component's lifetime; `run` acquires
+  // synchronously before its task's first await.
+  const creatingGuard = useRef(createReentryGuard()).current;
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [error, setError] = useState("");
   const [form] = Form.useForm<{ name: string }>();
@@ -85,36 +88,39 @@ export default function Avatars() {
     // Synchronous re-entry guard: `creating` state flips too late to stop a
     // second click -- while video metadata is awaited (can be tens/hundreds
     // of ms on a slow disk) or in the tick before React re-renders -- and two
-    // POSTs land, with two GPU prepare jobs behind them.
-    if (creatingRef.current) return;
-    if (file.type.startsWith("video/")) {
+    // POSTs would land, with two GPU prepare jobs behind them. `run` takes
+    // the lock synchronously before its task reaches its first await, so the
+    // probe-await window is covered; the over-15s early return and probe
+    // failure settle the task and release the lock via `finally`.
+    const { ran } = await creatingGuard.run(async () => {
+      setCreating(true);
       try {
-        const seconds = await videoSeconds(file);
-        if (seconds > 15) {
-          message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
-          return;
+        if (file.type.startsWith("video/")) {
+          try {
+            const seconds = await videoSeconds(file);
+            if (seconds > 15) {
+              message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
+              return;
+            }
+          } catch {
+            // Duration is only a convenience; the server is authoritative.
+          }
         }
-      } catch {
-        // Duration is only a convenience; the server is authoritative.
+        const body = new FormData();
+        body.append("name", name);
+        body.append("file", file);
+        await api("/api/admin/avatars", { method: "POST", form: body });
+        message.success("已提交，正在生成");
+        form.resetFields();
+        setFileList([]);
+        await refresh();
+      } catch (err) {
+        message.error((err as Error).message);
+      } finally {
+        setCreating(false);
       }
-    }
-    creatingRef.current = true;
-    setCreating(true);
-    try {
-      const body = new FormData();
-      body.append("name", name);
-      body.append("file", file);
-      await api("/api/admin/avatars", { method: "POST", form: body });
-      message.success("已提交，正在生成");
-      form.resetFields();
-      setFileList([]);
-      await refresh();
-    } catch (err) {
-      message.error((err as Error).message);
-    } finally {
-      creatingRef.current = false;
-      setCreating(false);
-    }
+    });
+    if (!ran) return;
   }
 
   async function onDelete(id: string) {

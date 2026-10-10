@@ -1,4 +1,6 @@
 import pathlib
+import shutil
+import subprocess
 
 import pytest
 
@@ -94,15 +96,30 @@ def test_avatar_upload_accepts_video():
 
 
 def test_avatar_create_has_synchronous_reentry_guard():
-    # A second click while video metadata is awaited (or before React re-renders)
-    # must not land a second POST; state alone flips too late, so a ref guards.
+    # The create flow must run inside the guard's locked section, with the
+    # button state always cleared; the behavioral test below proves the lock
+    # actually covers the probe await.
     source = _avatars_source()
-    assert "const creatingRef = useRef(false);" in source
-    assert "if (creatingRef.current) return;" in source
-    # The ref is taken only after the early validations, and always reset here:
-    assert (
-        "    } finally {\n"
-        "      creatingRef.current = false;\n"
-        "      setCreating(false);\n"
-        "    }"
-    ) in source
+    assert "createReentryGuard()" in source
+    assert "creatingGuard.run(async () =>" in source
+    assert "setCreating(true);" in source
+    assert "      } finally {\n        setCreating(false);\n      }" in source
+
+
+def test_reentry_guard_blocks_double_submit_behaviorally():
+    # Executes the real guard module with node:test (Node strips TS types):
+    # two calls while the first task is awaiting its probe must run exactly
+    # one task. Source-text assertions cannot detect guard placement; this
+    # test can.
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is required for the behavioral re-entry guard test")
+    ui_root = pathlib.Path(__file__).resolve().parent.parent / "admin-ui"
+    result = subprocess.run(
+        [node, "--test", "src/pages/reentryGuard.test.ts"],
+        cwd=ui_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
