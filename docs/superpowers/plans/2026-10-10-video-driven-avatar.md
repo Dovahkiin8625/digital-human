@@ -893,8 +893,13 @@ def wired(tmp_path, monkeypatch):
 
 def _video(monkeypatch, n_frames):
     def fake_decode(path, target_fps, max_frames, canvas):
-        frames = np.full((n_frames, canvas[1], canvas[0], 3), 120, np.uint8)
-        return frames, 30.0
+        # Distinct per-channel values, not a flat grey. The decoded canvas is RGB,
+        # the preparer wants BGR, and normalized.png is written back as RGB. A flat
+        # grey survives a channel swap unchanged, so only a channel-asymmetric
+        # frame can catch a missing flip in _video_frames.
+        frame = np.zeros((canvas[1], canvas[0], 3), np.uint8)
+        frame[..., 0], frame[..., 1], frame[..., 2] = 10, 20, 30
+        return np.broadcast_to(frame, (n_frames,) + frame.shape).copy(), 30.0
 
     monkeypatch.setattr("server.avatar.video.decode_frames", fake_decode)
 
@@ -921,6 +926,10 @@ def test_video_pack_records_kept_indices(wired, monkeypatch):
     assert len(list((sidecar / "masks").glob("*.png"))) == 10
     assert cfg["musetalk"]["source"] == "clip.mp4"
     assert cfg["musetalk"]["frame_count"] == 10
+    # RGB in -> BGR for the preparer -> RGB out again. Dropping the flip in
+    # _video_frames swaps these two channels and fails only here.
+    resting = np.asarray(Image.open(tmp_path / "out" / "normalized.png"))
+    assert tuple(resting[0, 0]) == (10, 20, 30)
 
 
 def test_video_with_too_few_faces_is_rejected(wired, monkeypatch):
@@ -932,6 +941,18 @@ def test_video_with_too_few_faces_is_rejected(wired, monkeypatch):
     prep = StubPreparer(blank=set(range(5, 12)))  # only 5 usable frames < MIN_FRAMES
     with pytest.raises(PipelineError, match="no usable face frames"):
         MuseTalkAvatarPipeline(preparer=prep).process("v2", src, tmp_path / "out", lambda s, p: None)
+
+
+def test_video_with_no_faces_at_all_reports_the_video_error(wired, monkeypatch):
+    """Zero usable frames is still a *video* failure, not an image one."""
+    _, tmp_path = wired
+    _video(monkeypatch, 12)
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"\x00" * 16)
+
+    prep = StubPreparer(blank=set(range(12)))
+    with pytest.raises(PipelineError, match="no usable face frames"):
+        MuseTalkAvatarPipeline(preparer=prep).process("v3", src, tmp_path / "out", lambda s, p: None)
 ```
 
 - [ ] **Step 2: 运行确认失败**
@@ -958,6 +979,17 @@ In `server/avatar/musetalk_pipeline.py`, replace the `_video_frames` stub:
         # The preparer expects BGR; decode_frames returns the canvas in RGB.
         return [np.ascontiguousarray(f[:, :, ::-1]) for f in frames], source_fps
 ```
+
+Then make the empty-`parts` guard in `process` mode-aware. Today a video whose every frame was dropped reports the image-worded message, which is wrong for the person who uploaded a video:
+
+```python
+        if not parts and mode == "image":
+            raise PipelineError("no face detected in the uploaded image")
+        if mode == "video" and len(parts) < MIN_FRAMES:
+            raise PipelineError(f"no usable face frames in video: found {len(parts)}, need {MIN_FRAMES}")
+```
+
+This replaces the existing pair of guards (`if not parts: raise PipelineError("no face detected ...")` followed by the `mode == "video"` check). Note `len(parts) == 0` now falls into the video branch and reports `found 0, need 8`.
 
 - [ ] **Step 4: 运行确认通过**
 
