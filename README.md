@@ -33,7 +33,7 @@ flowchart LR
   空闲时按帧率推静态保活帧，避免视频轨因无帧可发而冻住。
 - **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `mock` / `musetalk`。
   真引擎把同步 CUDA 工作放到单工作线程池，事件循环不被阻塞；跨会话在 GPU 上串行。
-- **AvatarPipeline**：上传照片 → 形象包的抽象；实现 `mock`（占位产物）/ `musetalk`（真实制作）。
+- **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `mock`（占位产物）/ `musetalk`（真实制作）。
 - **AvatarStore**：形象包管理（SQLite 元数据 + 磁盘资产）。
 - **音频双通道**：RTP audio track 为主，WS 音频分片为备，进入同一 `AudioIngest`，引擎无感知。
 - **会话短生命周期**：显式 DELETE 或 `DH_SESSION_IDLE_TIMEOUT` 秒无音频自动回收。
@@ -95,6 +95,9 @@ curl http://127.0.0.1:8000/healthz
 |---|---|---|
 | `DH_DRIVE_ENGINE` | `musetalk` | 驱动引擎：`mock` 或 `musetalk` |
 | `DH_AVATAR_PIPELINE` | `musetalk` | 形象制作流水线：`mock` 或 `musetalk`。与 `DH_DRIVE_ENGINE` 保持一致：mock 形象包没有真引擎要读的 sidecar，真形象包带着 mock 用不上的张量 |
+| `DH_AVATAR_MAX_VIDEO_SECONDS` | `15.0` | 驱动视频时长上限（秒），超出上传即 422 |
+| `DH_AVATAR_MAX_VIDEO_FRAMES` | `375` | 驱动视频解码帧数上限（15s × 25fps） |
+| `DH_AVATAR_CACHE_SIZE` | `2` | 引擎按形象缓存的份数；视频形象每份常驻约 1GB 内存 |
 | `DH_DATA_DIR` | `data` | 运行时数据目录（SQLite、形象资产、模型权重） |
 | `DH_DATABASE_URL` | `sqlite:///data/digital-human.db` | SQLAlchemy 数据库 URL |
 | `DH_ADMIN_PASSWORD` | `admin123` | 后台调试台登录密码 |
@@ -125,7 +128,7 @@ curl http://127.0.0.1:8000/healthz
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理 |
+| POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动 |
 | GET | `/api/v1/avatars` | 形象列表 |
 | GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
 | DELETE | `/api/v1/avatars/{avatar_id}` | 删除形象及资产（204） |
@@ -336,3 +339,5 @@ cd admin-ui && npm run build            # 前端类型检查 + 构建
 
 统一错误信封：`{"error": {"code", "message", "detail"}}`。形象制作失败置 `status=failed` 并落库 error，
 支持重试；引擎运行时异常令会话置错并推 WS 事件，不拖垮进程；会话空闲自动回收防资源泄漏。
+
+上传环节错误码：`invalid_video`（视频无法解码，422）、`video_too_long`（时长或帧数超限，422）。
