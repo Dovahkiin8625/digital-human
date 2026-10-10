@@ -173,7 +173,7 @@ class RenderSession:
             self.maybe_idle()
             # Check CLOSED/ERROR out here, not only under the lock below. The
             # lock is entered only when this sink wants keep-alive *and* a
-            # resting frame exists, so a session on a NullSink, or one whose
+            # source or resting frame exists, so a session on a NullSink, or one whose
             # pack has no normalized.png, would otherwise skip that check
             # forever -- a 25 Hz no-op task surviving close()/stop()/shutdown.
             if self.state in (SessionState.CLOSED, SessionState.ERROR):

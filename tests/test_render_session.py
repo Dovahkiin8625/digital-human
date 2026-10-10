@@ -404,6 +404,7 @@ async def test_speech_end_reads_back_the_engine_position(tmp_path):
     session.maybe_idle(now=session.last_audio_at + 3.0)
     assert session.state == SessionState.IDLE
     assert session._idle_pos == 10
+    await session.close()
 
 
 @pytest.mark.asyncio
