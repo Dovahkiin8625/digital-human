@@ -114,17 +114,20 @@ def test_mock_pipeline_stages_and_config(tmp_path):
         assert img.size == (720, 1280)
 
 
-def test_save_source_image_validates_decodable(tmp_path):
+def test_save_source_validates_decodable(tmp_path):
     store = AvatarStore(tmp_path / "data")
     ok = tmp_path / "ok.png"
     Image.new("RGB", (300, 300), (1, 2, 3)).save(ok)
 
-    path = store.save_source_image("a1", ok.read_bytes(), ".png")
+    path = store.save_source("a1", ok.read_bytes(), ".png")
     assert path == store.avatar_dir("a1") / "source.png"
     assert path.exists()
 
-    with pytest.raises(PipelineError):
-        store.save_source_image("a2", b"not an image", ".png")
+    from server.core.errors import AppError
+
+    with pytest.raises(AppError) as ei:
+        store.save_source("a2", b"not an image", ".png")
+    assert ei.value.code == "invalid_image"
 
 
 def test_delete_assets_removes_avatar_dir(tmp_path):

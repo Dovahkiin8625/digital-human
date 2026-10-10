@@ -64,10 +64,7 @@ def _create_avatar_rows(db, tenant_id: str, name: str, data: bytes, suffix: str)
     """
     avatar_id = uuid4().hex
     store = _store()
-    try:
-        source_path = store.save_source_image(avatar_id, data, suffix)
-    except Exception as exc:
-        raise AppError("invalid_image", str(exc), 422) from exc
+    source_path = store.save_source(avatar_id, data, suffix)
 
     avatar = Avatar(
         id=avatar_id,
