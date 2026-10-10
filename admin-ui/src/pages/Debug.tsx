@@ -1,5 +1,27 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  App as AntApp,
+  Button,
+  Card,
+  Col,
+  Input,
+  Row,
+  Select,
+  Space,
+  Statistic,
+  Typography,
+} from "antd";
+import {
+  AudioOutlined,
+  CaretRightOutlined,
+  ExperimentOutlined,
+  PauseOutlined,
+  SoundOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import { api, getToken } from "../api";
+import StatusTag from "../components/StatusTag";
 import { ensureDemoKey } from "../demoKey";
 import type { AvatarInfo, SessionInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
@@ -15,6 +37,10 @@ const VOICES = [
   { id: "female-tianmei", label: "甜美女性（女）" },
 ];
 const CUSTOM_VOICE = "__custom__";
+
+function Metric({ title, value, suffix }: { title: string; value: number | string; suffix?: string }) {
+  return <Statistic title={title} value={value} suffix={suffix} />;
+}
 
 export default function Debug() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -34,6 +60,8 @@ export default function Debug() {
   const [voice, setVoice] = useState(VOICES[0].id);
   const [customVoice, setCustomVoice] = useState("");
   const [ttsBusy, setTtsBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const { message } = AntApp.useApp();
 
   useEffect(
     () => () => {
@@ -65,18 +93,30 @@ export default function Debug() {
     return () => clearInterval(timer);
   }, [sessionId]);
 
+  function postSession(key: string) {
+    return fetch("/api/v1/sessions", {
+      method: "POST",
+      headers: { "X-API-Key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ avatar_id: avatarId }),
+    });
+  }
+
   async function start() {
+    setStarting(true);
     try {
       setError("");
-      const key = await ensureDemoKey();
-      keyRef.current = key;
-      const resp = await fetch("/api/v1/sessions", {
-        method: "POST",
-        headers: { "X-API-Key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({ avatar_id: avatarId }),
-      });
+      let key = await ensureDemoKey();
+      let resp = await postSession(key);
+      if (resp.status === 401) {
+        // The cached console key went stale (minting one rotates the "default"
+        // tenant's key, so any other console invalidates ours). Mint a fresh
+        // key and retry once rather than leaving the page stuck on a 401.
+        key = await ensureDemoKey(true);
+        resp = await postSession(key);
+      }
       const body = await resp.json();
       if (!resp.ok) throw new Error(body?.error?.message ?? "create session failed");
+      keyRef.current = key;
       const wsBase = location.origin.replace(/^http/, "ws");
       const client = new DigitalHumanClient(
         `${wsBase}${body.signal_url}?api_key=${key}`,
@@ -85,8 +125,11 @@ export default function Debug() {
       await client.connect(videoRef.current!);
       clientRef.current = client;
       setSessionId(body.session_id);
+      setStatus("active");
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -116,13 +159,13 @@ export default function Debug() {
         body: JSON.stringify({ text, ...(voiceId ? { voice_id: voiceId } : {}) }),
       });
       if (!resp.ok) {
-        let message = resp.statusText;
+        let msg = resp.statusText;
         try {
-          message = (await resp.json())?.error?.message ?? message;
+          msg = (await resp.json())?.error?.message ?? msg;
         } catch {
           /* non-json error */
         }
-        throw new Error(message);
+        throw new Error(msg);
       }
       const blob = await resp.blob();
       // The WebRTC stream carries video only, so play the clip here too;
@@ -135,105 +178,161 @@ export default function Debug() {
         void audioRef.current.play().catch(() => {});
       }
       await client.sendAudioBlob(blob);
+      message.success("已合成并发送");
     } catch (err) {
-      setError((err as Error).message);
+      message.error((err as Error).message);
     } finally {
       setTtsBusy(false);
     }
   }
 
   return (
-    <div>
-      <h2>会话调试</h2>
-      <div className="card">
-        <select value={avatarId} onChange={(e) => setAvatarId(e.target.value)}>
-          <option value="">选择形象…</option>
-          {avatars.map((a) => (
-            <option key={a.avatar_id} value={a.avatar_id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
-        <button onClick={start} disabled={!avatarId || !!sessionId}>
-          开始调试
-        </button>
-        <button onClick={stop} disabled={!sessionId}>
-          停止
-        </button>
-        {error && <p className="error">{error}</p>}
-      </div>
-      <video ref={videoRef} autoPlay playsInline style={{ width: 270, background: "#000" }} />
-      <div className="card">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="输入要让数字人说的话…"
-          rows={3}
-          style={{ width: "100%" }}
-        />
-        <div>
-          <select value={voice} onChange={(e) => setVoice(e.target.value)}>
-            {VOICES.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-            <option value={CUSTOM_VOICE}>自定义 voice_id…</option>
-          </select>
-          {voice === CUSTOM_VOICE && (
-            <input
-              value={customVoice}
-              onChange={(e) => setCustomVoice(e.target.value)}
-              placeholder="MiniMax voice_id"
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Typography.Title level={3} style={{ margin: 0 }}>
+        会话调试
+      </Typography.Title>
+
+      <Card title="会话">
+        <Space wrap>
+          <Select
+            style={{ minWidth: 220 }}
+            value={avatarId || undefined}
+            placeholder="选择形象…"
+            onChange={setAvatarId}
+            options={avatars.map((a) => ({ value: a.avatar_id, label: a.name }))}
+            notFoundContent="没有已就绪的形象"
+          />
+          <Button
+            type="primary"
+            icon={<CaretRightOutlined />}
+            onClick={start}
+            loading={starting}
+            disabled={!avatarId || !!sessionId}
+          >
+            开始调试
+          </Button>
+          <Button icon={<PauseOutlined />} onClick={stop} disabled={!sessionId}>
+            停止
+          </Button>
+          <span>
+            状态：<StatusTag status={status} />
+          </span>
+        </Space>
+        {error && <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} />}
+      </Card>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={10}>
+          <Card title="画面">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              style={{
+                width: "100%",
+                aspectRatio: "9 / 16",
+                maxHeight: 480,
+                background: "#000",
+                borderRadius: 8,
+                display: "block",
+              }}
             />
-          )}
-          <button onClick={speak} disabled={!sessionId || ttsBusy || !text.trim()}>
-            {ttsBusy ? "合成中…" : "合成并驱动"}
-          </button>
-        </div>
-        <audio ref={audioRef} controls />
-      </div>
-      <div className="card">
-        <button onClick={() => clientRef.current?.sendSine()} disabled={!sessionId}>
-          假数据驱动
-        </button>
-        <button onClick={() => clientRef.current?.attachMicrophone()} disabled={!sessionId}>
-          麦克风
-        </button>
-        <input
-          type="file"
-          accept="audio/*"
-          disabled={!sessionId}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) clientRef.current?.sendAudioFile(f);
-          }}
-        />
-      </div>
-      <table>
-        <tbody>
-          <tr>
-            <td>状态</td>
-            <td>{status}</td>
-          </tr>
-          <tr>
-            <td>输出帧</td>
-            <td>{metrics.frames_out ?? 0}</td>
-          </tr>
-          <tr>
-            <td>丢帧</td>
-            <td>{metrics.dropped_frames ?? 0}</td>
-          </tr>
-          <tr>
-            <td>FPS</td>
-            <td>{metrics.fps ?? 0}</td>
-          </tr>
-          <tr>
-            <td>平均延迟 ms</td>
-            <td>{(metrics.avg_latency_ms ?? 0).toFixed(1)}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+          </Card>
+        </Col>
+        <Col xs={24} lg={14}>
+          <Card title="实时指标">
+            <Row gutter={[16, 16]}>
+              <Col span={12}>
+                <Metric title="输出帧" value={metrics.frames_out ?? 0} />
+              </Col>
+              <Col span={12}>
+                <Metric title="丢帧" value={metrics.dropped_frames ?? 0} />
+              </Col>
+              <Col span={12}>
+                <Metric title="FPS" value={metrics.fps ?? 0} />
+              </Col>
+              <Col span={12}>
+                <Metric title="平均延迟" value={(metrics.avg_latency_ms ?? 0).toFixed(1)} suffix="ms" />
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      <Card title="语音合成">
+        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+          <Input.TextArea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="输入要让数字人说的话…"
+            rows={3}
+          />
+          <Space wrap>
+            <Select
+              style={{ minWidth: 200 }}
+              value={voice}
+              onChange={setVoice}
+              options={[
+                ...VOICES.map((v) => ({ value: v.id, label: v.label })),
+                { value: CUSTOM_VOICE, label: "自定义 voice_id…" },
+              ]}
+            />
+            {voice === CUSTOM_VOICE && (
+              <Input
+                style={{ width: 220 }}
+                value={customVoice}
+                onChange={(e) => setCustomVoice(e.target.value)}
+                placeholder="MiniMax voice_id"
+              />
+            )}
+            <Button
+              type="primary"
+              icon={<SoundOutlined />}
+              onClick={speak}
+              loading={ttsBusy}
+              disabled={!sessionId || !text.trim()}
+            >
+              合成并驱动
+            </Button>
+          </Space>
+          <audio ref={audioRef} controls style={{ width: "100%" }} />
+        </Space>
+      </Card>
+
+      <Card title="驱动输入">
+        <Space wrap>
+          <Button
+            icon={<ExperimentOutlined />}
+            onClick={() => clientRef.current?.sendSine()}
+            disabled={!sessionId}
+          >
+            假数据驱动
+          </Button>
+          <Button
+            icon={<AudioOutlined />}
+            onClick={() => clientRef.current?.attachMicrophone()}
+            disabled={!sessionId}
+          >
+            麦克风
+          </Button>
+          <label>
+            <Button icon={<UploadOutlined />} disabled={!sessionId} style={{ pointerEvents: "none" }}>
+              上传音频
+            </Button>
+            <input
+              type="file"
+              accept="audio/*"
+              disabled={!sessionId}
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) clientRef.current?.sendAudioFile(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </Space>
+      </Card>
+    </Space>
   );
 }

@@ -1,17 +1,38 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  Alert,
+  App as AntApp,
+  Button,
+  Card,
+  Empty,
+  Form,
+  Input,
+  Popconfirm,
+  Space,
+  Table,
+  Typography,
+  Upload,
+} from "antd";
+import type { ColumnsType } from "antd/es/table";
+import type { UploadFile } from "antd/es/upload/interface";
+import { InboxOutlined, PlusOutlined, ReloadOutlined } from "@ant-design/icons";
 import { api } from "../api";
+import StatusTag from "../components/StatusTag";
 import type { AvatarInfo } from "../types";
 
 const ACTIVE = new Set(["pending", "processing"]);
 
 export default function Avatars() {
   const [items, setItems] = useState<AvatarInfo[]>([]);
-  const [name, setName] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [error, setError] = useState("");
+  const [form] = Form.useForm<{ name: string }>();
   const timer = useRef<number | null>(null);
   const navigate = useNavigate();
+  const { message } = AntApp.useApp();
 
   async function refresh() {
     const rows = await api<AvatarInfo[]>("/api/admin/avatars");
@@ -28,84 +49,163 @@ export default function Avatars() {
   }
 
   useEffect(() => {
-    refresh().catch(() => undefined);
+    refresh()
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setLoading(false));
     return () => {
       if (timer.current !== null) window.clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
-    if (!file) return;
+  async function onCreate({ name }: { name: string }) {
+    const file = fileList[0]?.originFileObj;
+    if (!file) {
+      message.warning("请先选择一张图片");
+      return;
+    }
+    setCreating(true);
     try {
-      setError("");
-      const form = new FormData();
-      form.append("name", name);
-      form.append("file", file);
-      await api("/api/admin/avatars", { method: "POST", form });
-      setName("");
-      setFile(null);
+      const body = new FormData();
+      body.append("name", name);
+      body.append("file", file);
+      await api("/api/admin/avatars", { method: "POST", form: body });
+      message.success("已提交，正在生成");
+      form.resetFields();
+      setFileList([]);
       await refresh();
     } catch (err) {
-      setError((err as Error).message);
+      message.error((err as Error).message);
+    } finally {
+      setCreating(false);
     }
   }
 
   async function onDelete(id: string) {
-    if (!confirm("删除该形象？")) return;
     try {
       await api(`/api/admin/avatars/${id}`, { method: "DELETE" });
+      message.success("已删除");
       await refresh();
     } catch (err) {
-      setError((err as Error).message);
+      message.error((err as Error).message);
     }
   }
 
+  const columns: ColumnsType<AvatarInfo> = [
+    {
+      title: "名称",
+      dataIndex: "name",
+      render: (_, a) => (
+        <Link to={`/avatars/${a.avatar_id}`} onClick={(e) => e.stopPropagation()}>
+          {a.name}
+        </Link>
+      ),
+    },
+    {
+      title: "状态",
+      dataIndex: "status",
+      width: 110,
+      render: (status: string) => <StatusTag status={status} />,
+    },
+    {
+      title: "创建时间",
+      dataIndex: "created_at",
+      width: 200,
+      render: (v: string) => new Date(v).toLocaleString(),
+    },
+    {
+      title: "操作",
+      width: 100,
+      align: "right",
+      render: (_, a) => (
+        // The row itself navigates on click, and the Popconfirm's popup is a
+        // React portal whose events still bubble up the React tree — so the
+        // whole cell has to swallow clicks, not just the button.
+        <div onClick={(e) => e.stopPropagation()}>
+          <Popconfirm
+            title="删除该形象？"
+            description="删除后不可恢复。"
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => onDelete(a.avatar_id)}
+          >
+            <Button danger size="small">
+              删除
+            </Button>
+          </Popconfirm>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <div>
-      <h2>形象管理</h2>
-      <form onSubmit={onCreate} className="card">
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="名称" />
-        <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <button type="submit">上传创建</button>
-        {error && <p className="error">{error}</p>}
-      </form>
-      <table>
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>状态</th>
-            <th>创建时间</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((a) => (
-            <tr key={a.avatar_id} onClick={() => navigate(`/avatars/${a.avatar_id}`)}>
-              <td>
-                <Link to={`/avatars/${a.avatar_id}`} onClick={(e) => e.stopPropagation()}>
-                  {a.name}
-                </Link>
-              </td>
-              <td>
-                <span className={`badge ${a.status}`}>{a.status}</span>
-              </td>
-              <td>{new Date(a.created_at).toLocaleString()}</td>
-              <td>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(a.avatar_id);
-                  }}
-                >
-                  删除
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Typography.Title level={3} style={{ margin: 0 }}>
+        形象管理
+      </Typography.Title>
+
+      <Card title="新建形象">
+        <Form form={form} layout="vertical" onFinish={onCreate} style={{ maxWidth: 480 }}>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, message: "请输入名称" }]}
+          >
+            <Input placeholder="例如：小美" />
+          </Form.Item>
+          <Form.Item label="驱动图片" required>
+            <Upload.Dragger
+              accept="image/*"
+              maxCount={1}
+              listType="picture"
+              beforeUpload={() => false}
+              fileList={fileList}
+              onChange={({ fileList: next }) => setFileList(next)}
+            >
+              <p className="ant-upload-drag-icon">
+                <InboxOutlined />
+              </p>
+              <p className="ant-upload-text">点击或拖拽图片到此处</p>
+              <p className="ant-upload-hint">支持 JPG / PNG，建议使用清晰正脸照</p>
+            </Upload.Dragger>
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={creating} icon={<PlusOutlined />}>
+            上传创建
+          </Button>
+        </Form>
+      </Card>
+
+      {error && <Alert type="error" message={error} showIcon />}
+
+      <Card
+        title="形象列表"
+        extra={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              setError("");
+              refresh().catch((err) => setError((err as Error).message));
+            }}
+          >
+            刷新
+          </Button>
+        }
+      >
+        <Table
+          rowKey="avatar_id"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          scroll={{ x: 720 }}
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          locale={{ emptyText: <Empty description="暂无形象，先上传一个吧" /> }}
+          onRow={(a) => ({
+            onClick: () => navigate(`/avatars/${a.avatar_id}`),
+            style: { cursor: "pointer" },
+          })}
+        />
+      </Card>
+    </Space>
   );
 }

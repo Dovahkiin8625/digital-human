@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import {
+  Alert,
+  App as AntApp,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Image,
+  Row,
+  Slider,
+  Space,
+  Spin,
+  Typography,
+} from "antd";
+import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
 import { api, getToken } from "../api";
+import StatusTag from "../components/StatusTag";
 import type { AvatarInfo } from "../types";
 
 async function fetchPreviewUrl(avatarId: string, level: number): Promise<string> {
@@ -21,9 +38,18 @@ export default function AvatarDetail() {
   const [mouth, setMouth] = useState(1);
   const [expression, setExpression] = useState(1);
   const [level, setLevel] = useState(0.5);
+  // The level the preview was last fetched for. Kept separate from `level` so
+  // dragging the slider updates the label live while the (expensive) preview
+  // request only fires once the user lets go.
+  const [fetchLevel, setFetchLevel] = useState(0.5);
   const [preview, setPreview] = useState("");
+  const [previewError, setPreviewError] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const previewRef = useRef("");
+  const { message } = AntApp.useApp();
 
   async function refresh() {
     if (!id) return;
@@ -34,14 +60,18 @@ export default function AvatarDetail() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError((err as Error).message));
+    refresh()
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-    fetchPreviewUrl(id, level)
+    setPreviewLoading(true);
+    setPreviewError("");
+    fetchPreviewUrl(id, fetchLevel)
       .then((url) => {
         if (cancelled) {
           URL.revokeObjectURL(url);
@@ -52,11 +82,16 @@ export default function AvatarDetail() {
         previewRef.current = url;
         setPreview(url);
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        if (!cancelled) setPreviewError((err as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [id, level]);
+  }, [id, fetchLevel]);
 
   // Revoke the last object URL when the page unmounts.
   useEffect(() => {
@@ -67,15 +102,19 @@ export default function AvatarDetail() {
 
   async function save() {
     if (!id) return;
+    setSaving(true);
     try {
       setError("");
       await api(`/api/admin/avatars/${id}/config`, {
         method: "PATCH",
         body: { mouth_scale: mouth, expression_intensity: expression },
       });
+      message.success("参数已保存");
       await refresh();
     } catch (err) {
-      setError((err as Error).message);
+      message.error((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -86,57 +125,131 @@ export default function AvatarDetail() {
       await api(`/api/admin/avatars/${id}/retry`, { method: "POST", body: {} });
       await refresh();
     } catch (err) {
-      setError((err as Error).message);
+      message.error((err as Error).message);
     }
   }
 
-  if (!info) return <p>加载中…</p>;
+  if (loading) {
+    return (
+      <div style={{ display: "grid", placeItems: "center", padding: 64 }}>
+        <Spin tip="加载中…">
+          <div style={{ width: 120, height: 60 }} />
+        </Spin>
+      </div>
+    );
+  }
+
+  // The fetch failed or the avatar is gone — show why instead of spinning forever.
+  if (!info) {
+    return (
+      <Space direction="vertical" size={16}>
+        <Alert type="error" showIcon message="无法加载该形象" description={error || "形象不存在或已被删除"} />
+        <Link to="/avatars">
+          <Button icon={<ArrowLeftOutlined />}>返回列表</Button>
+        </Link>
+      </Space>
+    );
+  }
 
   return (
-    <div>
-      <h2>{info.name}</h2>
-      <p>
-        状态：<span className={`badge ${info.status}`}>{info.status}</span>
-      </p>
+    <Space direction="vertical" size={16} style={{ width: "100%" }}>
+      <Space align="center" wrap>
+        <Link to="/avatars">
+          <Button icon={<ArrowLeftOutlined />} type="text">
+            返回
+          </Button>
+        </Link>
+        <Typography.Title level={3} style={{ margin: 0 }}>
+          {info.name}
+        </Typography.Title>
+        <StatusTag status={info.status} />
+      </Space>
+
+      <Descriptions
+        column={{ xs: 1, sm: 2, md: 3 }}
+        bordered
+        size="small"
+        items={[
+          { key: "id", label: "形象 ID", children: info.avatar_id },
+          { key: "created", label: "创建时间", children: new Date(info.created_at).toLocaleString() },
+          {
+            key: "config",
+            label: "当前参数",
+            children: `口型 ${(info.config.mouth_scale ?? 1).toFixed(2)} · 表情 ${(
+              info.config.expression_intensity ?? 1
+            ).toFixed(2)}`,
+          },
+        ]}
+      />
+
       {info.error && (
-        <p className="error">
-          {info.error} <button onClick={retry}>重试</button>
-        </p>
+        <Alert
+          type="error"
+          showIcon
+          message="生成失败"
+          description={info.error}
+          action={
+            <Button size="small" danger onClick={retry}>
+              重试
+            </Button>
+          }
+        />
       )}
-      {error && <p className="error">{error}</p>}
-      <div className="card">
-        <label>口型幅度 {mouth.toFixed(2)}</label>
-        <input
-          type="range"
-          min={0}
-          max={2}
-          step={0.05}
-          value={mouth}
-          onChange={(e) => setMouth(+e.target.value)}
-        />
-        <label>表情强度 {expression.toFixed(2)}</label>
-        <input
-          type="range"
-          min={0}
-          max={2}
-          step={0.05}
-          value={expression}
-          onChange={(e) => setExpression(+e.target.value)}
-        />
-        <button onClick={save}>保存参数</button>
-      </div>
-      <div className="card">
-        <label>驱动电平 {level.toFixed(2)}</label>
-        <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={level}
-          onChange={(e) => setLevel(+e.target.value)}
-        />
-        {preview && <img src={preview} alt="preview" style={{ width: 240 }} />}
-      </div>
-    </div>
+      {error && <Alert type="error" showIcon message={error} />}
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={10}>
+          <Card title="生成参数">
+            <Typography.Text>口型幅度 {mouth.toFixed(2)}</Typography.Text>
+            <Slider min={0} max={2} step={0.05} value={mouth} onChange={setMouth} />
+            <Typography.Text>表情强度 {expression.toFixed(2)}</Typography.Text>
+            <Slider min={0} max={2} step={0.05} value={expression} onChange={setExpression} />
+            <Button type="primary" onClick={save} loading={saving}>
+              保存参数
+            </Button>
+          </Card>
+        </Col>
+        <Col xs={24} lg={14}>
+          <Card title="预览">
+            <Typography.Text>驱动电平 {level.toFixed(2)}</Typography.Text>
+            <Slider
+              min={0}
+              max={1}
+              step={0.05}
+              value={level}
+              onChange={setLevel}
+              onChangeComplete={setFetchLevel}
+            />
+            {previewError ? (
+              <Empty description={previewError}>
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={() => {
+                    setPreviewError("");
+                    setPreviewLoading(true);
+                    fetchPreviewUrl(id!, fetchLevel)
+                      .then((url) => {
+                        if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+                        previewRef.current = url;
+                        setPreview(url);
+                      })
+                      .catch((err) => setPreviewError((err as Error).message))
+                      .finally(() => setPreviewLoading(false));
+                  }}
+                >
+                  重试
+                </Button>
+              </Empty>
+            ) : (
+              <Spin spinning={previewLoading}>
+                <div style={{ minHeight: 120 }}>
+                  {preview && <Image src={preview} alt="preview" width={240} />}
+                </div>
+              </Spin>
+            )}
+          </Card>
+        </Col>
+      </Row>
+    </Space>
   );
 }

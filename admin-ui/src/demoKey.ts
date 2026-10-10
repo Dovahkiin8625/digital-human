@@ -15,10 +15,16 @@ interface TenantRow {
  * create_session requires the avatar to belong to the key's tenant. Issuing a
  * fresh key for that existing tenant (rather than creating a new tenant on every
  * cleared localStorage) keeps the two surfaces pointed at the same tenant.
+ *
+ * Pass `force` to discard the cache and mint a new key. Because issuing a key
+ * rotates it, the cached one is invalidated by any other console signing in (or
+ * by a reset database), so callers that get a 401 must be able to recover.
  */
-export async function ensureDemoKey(): Promise<string> {
-  const cached = localStorage.getItem(KEY);
-  if (cached) return cached;
+export async function ensureDemoKey(force = false): Promise<string> {
+  if (!force) {
+    const cached = localStorage.getItem(KEY);
+    if (cached) return cached;
+  }
 
   const tenants = await api<TenantRow[]>("/api/admin/tenants");
   let tenant = tenants.find((t) => t.name === "default");
