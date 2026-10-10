@@ -75,3 +75,16 @@ def test_browser_router_uses_admin_basename():
         / "main.tsx"
     ).read_text(encoding="utf-8")
     assert 'basename="/admin"' in source
+
+
+def test_avatar_upload_accepts_video():
+    # The upload control must offer videos as well as images; the server enforces
+    # the real limits, but the widget has to let a video be chosen at all.
+    source = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "admin-ui"
+        / "src"
+        / "pages"
+        / "Avatars.tsx"
+    ).read_text(encoding="utf-8")
+    assert 'accept="image/*,video/*"' in source

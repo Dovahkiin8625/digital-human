@@ -23,6 +23,23 @@ import type { AvatarInfo } from "../types";
 
 const ACTIVE = new Set(["pending", "processing"]);
 
+function videoSeconds(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement("video");
+    el.preload = "metadata";
+    el.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(el.duration);
+    };
+    el.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("cannot read video"));
+    };
+    el.src = url;
+  });
+}
+
 export default function Avatars() {
   const [items, setItems] = useState<AvatarInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,8 +78,19 @@ export default function Avatars() {
   async function onCreate({ name }: { name: string }) {
     const file = fileList[0]?.originFileObj;
     if (!file) {
-      message.warning("请先选择一张图片");
+      message.warning("请先选择图片或视频");
       return;
+    }
+    if (file.type.startsWith("video/")) {
+      try {
+        const seconds = await videoSeconds(file);
+        if (seconds > 15) {
+          message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
+          return;
+        }
+      } catch {
+        // Duration is only a convenience; the server is authoritative.
+      }
     }
     setCreating(true);
     try {
@@ -154,9 +182,9 @@ export default function Avatars() {
           >
             <Input placeholder="例如：小美" />
           </Form.Item>
-          <Form.Item label="驱动图片" required>
+          <Form.Item label="驱动图片或视频" required>
             <Upload.Dragger
-              accept="image/*"
+              accept="image/*,video/*"
               maxCount={1}
               listType="picture"
               beforeUpload={() => false}
@@ -166,8 +194,8 @@ export default function Avatars() {
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">点击或拖拽图片到此处</p>
-              <p className="ant-upload-hint">支持 JPG / PNG，建议使用清晰正脸照</p>
+              <p className="ant-upload-text">点击或拖拽图片 / 视频到此处</p>
+              <p className="ant-upload-hint">支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身</p>
             </Upload.Dragger>
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={creating} icon={<PlusOutlined />}>
