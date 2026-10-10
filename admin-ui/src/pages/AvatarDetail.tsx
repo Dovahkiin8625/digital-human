@@ -118,7 +118,7 @@ export default function AvatarDetail() {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+  }, [id]);
 
   async function save() {
     if (!id) return;
