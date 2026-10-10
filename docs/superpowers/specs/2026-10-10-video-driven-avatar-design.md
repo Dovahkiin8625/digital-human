@@ -135,8 +135,8 @@ cycle_len:   int = N
 `server/avatar/video.py`：
 
 ```
-decode_frames(path: Path, target_fps: int, max_frames: int)
-    -> tuple[list[np.ndarray], float]   # (画布空间帧序列, source_fps)
+decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, int])
+    -> tuple[np.ndarray, float]   # (画布空间帧序列 [N,H,W,3] uint8, source_fps)
 ```
 
 - 用 `cv2.VideoCapture`（GPU venv 已有 cv2）按**时间戳**步进到 `target_fps`，保证自然速度且与源帧率无关。

@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     fps: int = 25
     sample_rate: int = 48000
 
+    # Video-driven avatars. A driver video is decoded at the output fps and
+    # capped so its frames can stay resident: 15 s at 25 fps is 375 frames.
+    avatar_max_video_seconds: float = 15.0
+    avatar_max_video_frames: int = 375
+    # Video avatars keep ~1 GB of decoded frames resident each, so the engine's
+    # per-avatar LRU is smaller than it was when every avatar was one frame.
+    avatar_cache_size: int = 2
+
     # MiniMax text-to-speech, used by the console's text-driven debug page.
     # Empty api_key means "not configured": the endpoint returns 503 rather than
     # calling out. group_id is optional -- newer accounts authenticate on the
