@@ -107,6 +107,12 @@ SR16 = 16000
 # MuseTalk's whisper feature stream is 50 fps and each output frame consumes a
 # 10-wide window of it (2 left + 2 right of padding, +/-1).
 WHISPER_FPS = 50
+# get_whisper_chunk zero-pads each side with zeros_like(feature[:, :N]); a
+# slice on a feature shorter than N silently shrinks -- it does NOT pad -- so
+# its 10-wide per-frame clip fails the width assert and the vendored code
+# calls exit(). The left-side N is ceil(WHISPER_FPS/fps) * this multiplier,
+# so the engine hands it at least that many REAL feature frames: 4 at 25 fps.
+WHISPER_PAD_LEFT = 2
 # Left context, in 25 fps output frames, replayed through whisper each block so
 # the prompt for the first new frame is not computed off a truncated window.
 CONTEXT_FRAMES = 5
@@ -542,7 +548,12 @@ class MuseTalkEngine(DriveEngine):
                 # `get()` above -- may be the one that pulls the sentinel.
                 if self._dispatch(item):
                     return
-            except Exception:  # noqa: BLE001 -- the loop must outlive any one job
+            except BaseException:  # noqa: BLE001 -- outlive any one job
+                # BaseException, not Exception: vendored MuseTalk calls exit()
+                # (SystemExit) when its whisper clip width check fails. The
+                # batch layer below settles the in-flight futures before one
+                # can reach here, but that directory is not code we trust to
+                # stay well-behaved -- an unwound worker is a hung engine.
                 _log.exception("musetalk worker: unhandled error, continuing")
 
     def _dispatch(self, item) -> bool:
@@ -613,7 +624,10 @@ class MuseTalkEngine(DriveEngine):
     def _run_batch(self, batch: list[_Job]) -> None:
         try:
             results = self._drive_sync(batch)
-        except Exception as exc:  # noqa: BLE001 -- surfaced to every caller
+        except BaseException as exc:  # noqa: BLE001 -- fail the callers
+            # BaseException on purpose: a SystemExit out of the vendored audio
+            # processor must fail these calls, not kill the worker -- and with
+            # it every session queued behind them.
             for job in batch:
                 _settle(job.future, exc=exc)
             return
@@ -624,7 +638,9 @@ class MuseTalkEngine(DriveEngine):
     def _resolve(call: _Call, fn) -> None:
         try:
             _settle(call.future, result=fn())
-        except Exception as exc:  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001
+            # Same reason as _run_batch: an exit() from vendor code during a
+            # prepare/describe call must fail the call, not kill the worker.
             _settle(call.future, exc=exc)
 
     # -- driving --------------------------------------------------------
@@ -723,6 +739,13 @@ class MuseTalkEngine(DriveEngine):
     def _prompts_for(self, rt: _Runtime, ctx: _SessionContext, first: int, target: int):
         """Whisper prompts for output frames [first, target)."""
         samples_per_frame = SR16 // self.fps  # 640 at 25 fps
+        # Real feature must be long enough that the vendor's zeros_like pad
+        # slices do not shrink: ceil(WHISPER_FPS/fps) * WHISPER_PAD_LEFT real
+        # 50 Hz frames = 4 * 320 = 1280 samples at 25 fps.
+        min_feature_frames = (
+            (WHISPER_FPS + self.fps - 1) // self.fps * WHISPER_PAD_LEFT
+        )
+        min_window_samples = min_feature_frames * (SR16 // WHISPER_FPS)
         # Anchor the window on an output-frame boundary so window-relative frame
         # r maps exactly to absolute frame f0 + r.
         start = max(0, first - CONTEXT_FRAMES) * samples_per_frame
@@ -746,12 +769,18 @@ class MuseTalkEngine(DriveEngine):
         start = max(start, frame_start)
         f0 = start // samples_per_frame
         window = ctx.buf16k[start - ctx.buf_start :]
-        if window.size < samples_per_frame:
-            # Zero-pad to a whole output frame so get_whisper_chunk yields at
-            # least one prompt. Padding goes at the end, which leaves frame f0
-            # aligned with window offset 0 -- the mapping the indices below use.
+        if window.size < min_window_samples:
+            # Zero-pad so the real feature is long enough for get_whisper_chunk's
+            # side padding to be full width (see WHISPER_PAD_LEFT). One output
+            # frame is NOT enough: a 640-sample window gives a 2-row feature,
+            # every pad slice shrinks to those 2 rows, and the 10-wide clip
+            # asserts and exit()s -- SystemExit, on the worker thread. Padding
+            # goes at the end, leaving frame f0 at window offset 0 -- the
+            # mapping the indices below use. The extra prompts describe
+            # silence; the frame math above selects only indices the real
+            # audio actually covers.
             window = np.concatenate(
-                (window, np.zeros(samples_per_frame - window.size, dtype=np.float32))
+                (window, np.zeros(min_window_samples - window.size, dtype=np.float32))
             )
 
         feats = rt.feature_extractor(

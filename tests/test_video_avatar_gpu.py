@@ -80,3 +80,33 @@ def test_video_avatar_prepares_and_streams(tmp_path):
     frames = asyncio.run(eng.drive(pack, np.zeros(4800, np.float32), 48000, context=ctx))
     assert frames, "video avatar produced no frames"
     assert frames[0].image.shape == (1280, 720, 3)
+
+
+@pytest.mark.skipif(not SAMPLE.exists(), reason="MuseTalk sample video not vendored")
+def test_short_audio_session_does_not_kill_the_worker(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    src = _short_video(out / "clip.mp4")
+    cfg = MuseTalkAvatarPipeline().process("v2", src, out, lambda s, p: None)
+
+    from server.engine.base import AvatarPack
+
+    pack = AvatarPack(
+        avatar_id="v2",
+        root=out,
+        source_image_path=out / "normalized.png",
+        config=cfg,
+        prep=cfg["musetalk"],
+    )
+    eng = MuseTalkEngine()
+    import asyncio
+
+    asyncio.run(eng.prepare(pack))
+    ctx = eng.new_context(pack)
+    # 50 ms: shorter than the vendor pad's full width. Before the fix
+    # get_whisper_chunk exit()ed, the worker died, and this drive hung.
+    frames = asyncio.run(eng.drive(pack, np.zeros(2400, np.float32), 48000, context=ctx))
+    assert len(frames) == 1
+    # The worker must still be alive: a following full block drives normally.
+    more = asyncio.run(eng.drive(pack, np.zeros(4800, np.float32), 48000, context=ctx))
+    assert len(more) == 2

@@ -452,6 +452,22 @@ def test_rolling_buffer_is_bounded(engine, tmp_path):
     assert len(ctx.buf16k) <= me.MAX_BUF
 
 
+def test_short_whisper_window_is_padded_to_full_width(engine, tmp_path):
+    """A 50 ms block must hand whisper a 1280-sample window, not a crash width.
+
+    800 real samples give a 2-row 50 Hz feature; vendored zeros_like padding
+    then shrinks to 2 rows and its 10-wide clip exit()s. The engine pads the
+    window to 4 real feature frames (1280 samples) before the call.
+    """
+    pack = _pack(tmp_path)
+    ctx = engine.new_context(pack)
+    frames = asyncio.run(
+        engine.drive(pack, np.zeros(2400, np.float32), 48000, context=ctx)
+    )
+    assert len(frames) == 1
+    assert _StubRuntime.window_lengths[-1] == 1280
+
+
 # -- pack contract ------------------------------------------------------
 
 def test_missing_pack_is_rejected(tmp_path):
@@ -663,6 +679,52 @@ def test_worker_exits_when_the_drain_consumes_the_stop_sentinel(tmp_path, monkey
     worker.start()
     worker.join(timeout=2.0)
     assert not worker.is_alive(), "worker blocked after the drain swallowed the sentinel"
+
+
+def test_worker_survives_systemexit_and_keeps_serving(tmp_path, monkeypatch):
+    """A vendored exit() must fail the one job, not kill the worker.
+
+    Before the fix SystemExit unwound _run_batch and the worker loop (both
+    guarded by `except Exception`), the thread died, and every later drive
+    hung. Queue through the real loop: the first batch's vendor code exits,
+    its future must resolve with the SystemExit, and the next batch must run.
+    """
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # Stop the engine's own worker so this test owns the loop's consumer.
+    eng._jobs.put(None)
+    eng._worker.join()
+
+    calls = 0
+
+    def _fake_drive(jobs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise SystemExit("vendor exit()")
+        return [[] for _ in jobs]
+
+    monkeypatch.setattr(eng, "_drive_sync", _fake_drive)
+
+    def _job():
+        return me._Job(
+            pack=_pack(tmp_path),
+            ctx=eng.new_context(_pack(tmp_path)),
+            audio=np.zeros(4800, np.float32),
+            sample_rate=48000,
+            future=concurrent.futures.Future(),
+        )
+
+    first, second = _job(), _job()
+    worker = threading.Thread(target=eng._worker_loop, daemon=True)
+    worker.start()
+    eng._jobs.put(first)
+    with pytest.raises(SystemExit):
+        first.future.result(timeout=2.0)
+    eng._jobs.put(second)
+    assert second.future.result(timeout=2.0) == []
+    eng._jobs.put(None)
+    worker.join(timeout=2.0)
+    assert not worker.is_alive(), "worker failed to reach the stop sentinel"
 
 
 # -- frame cycle --------------------------------------------------------
