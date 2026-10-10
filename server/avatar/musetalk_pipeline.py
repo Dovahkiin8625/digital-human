@@ -317,7 +317,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
             coords.append({"bbox": out["bbox"], "mask_crop_box": out["mask_crop_box"]})
             masks.append(out["mask"])
 
-        if not parts:
+        if not parts and mode == "image":
             raise PipelineError("no face detected in the uploaded image")
         if mode == "video" and len(parts) < MIN_FRAMES:
             raise PipelineError(f"no usable face frames in video: found {len(parts)}, need {MIN_FRAMES}")
@@ -381,4 +381,15 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         return [np.ascontiguousarray(np.asarray(canvas)[:, :, ::-1])], float(settings.fps)
 
     def _video_frames(self, source_path: Path, settings) -> tuple[list[np.ndarray], float]:
-        raise NotImplementedError  # Task 4
+        from server.avatar.video import decode_frames
+
+        frames, source_fps = decode_frames(
+            source_path,
+            target_fps=settings.fps,
+            max_frames=settings.avatar_max_video_frames,
+            canvas=(settings.frame_width, settings.frame_height),
+        )
+        if frames.shape[0] == 0:
+            raise PipelineError("video has no decodable frames")
+        # The preparer expects BGR; decode_frames returns the canvas in RGB.
+        return [np.ascontiguousarray(f[:, :, ::-1]) for f in frames], source_fps
