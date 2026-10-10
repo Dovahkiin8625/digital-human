@@ -55,7 +55,7 @@ def _serialize(a: Avatar, with_detail: bool = False) -> dict:
     return data
 
 
-def _create_avatar_rows(db, tenant_id: str, name: str, data: bytes, suffix: str) -> tuple[str, str]:
+def _create_avatar_rows(db, tenant_id: str, name: str, stream, suffix: str) -> tuple[str, str]:
     """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
 
     Shared by the tenant upload endpoint here and the admin upload endpoint in
@@ -64,7 +64,7 @@ def _create_avatar_rows(db, tenant_id: str, name: str, data: bytes, suffix: str)
     """
     avatar_id = uuid4().hex
     store = _store()
-    source_path = store.save_source(avatar_id, data, suffix)
+    source_path = store.save_source(avatar_id, stream, suffix)
 
     avatar = Avatar(
         id=avatar_id,
@@ -97,9 +97,18 @@ def create_avatar(
     tenant: Tenant = Depends(get_tenant),
     db=Depends(get_db),
 ) -> dict:
-    data = file.file.read()
     suffix = _derive_suffix(file.filename)
-    avatar_id, job_id = _create_avatar_rows(db, tenant.id, name, data, suffix)
+    # Cheap early refusal when the client declared an oversized body. This is
+    # only an optimization: the counted copy in save_source is authoritative
+    # (declared length can lie), and works when size is unknown.
+    size = getattr(file, "size", None)
+    if size is not None and int(size) > get_settings().avatar_max_upload_bytes:
+        raise AppError(
+            "file_too_large",
+            f"upload is larger than {get_settings().avatar_max_upload_bytes} bytes",
+            413,
+        )
+    avatar_id, job_id = _create_avatar_rows(db, tenant.id, name, file.file, suffix)
     background.add_task(run_job_in_new_session, job_id, _store())
     return {"avatar_id": avatar_id, "status": "pending"}
 

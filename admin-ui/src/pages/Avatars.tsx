@@ -44,6 +44,7 @@ export default function Avatars() {
   const [items, setItems] = useState<AvatarInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [error, setError] = useState("");
   const [form] = Form.useForm<{ name: string }>();
@@ -81,6 +82,11 @@ export default function Avatars() {
       message.warning("请先选择图片或视频");
       return;
     }
+    // Synchronous re-entry guard: `creating` state flips too late to stop a
+    // second click -- while video metadata is awaited (can be tens/hundreds
+    // of ms on a slow disk) or in the tick before React re-renders -- and two
+    // POSTs land, with two GPU prepare jobs behind them.
+    if (creatingRef.current) return;
     if (file.type.startsWith("video/")) {
       try {
         const seconds = await videoSeconds(file);
@@ -92,6 +98,7 @@ export default function Avatars() {
         // Duration is only a convenience; the server is authoritative.
       }
     }
+    creatingRef.current = true;
     setCreating(true);
     try {
       const body = new FormData();
@@ -105,6 +112,7 @@ export default function Avatars() {
     } catch (err) {
       message.error((err as Error).message);
     } finally {
+      creatingRef.current = false;
       setCreating(false);
     }
   }

@@ -159,11 +159,20 @@ def admin_create_avatar(
     tenant_id: str = Form(""),
     db=Depends(get_db),
 ) -> dict:
-    data = file.file.read()
     suffix = _derive_suffix(file.filename)
+    # Cheap early refusal when the client declared an oversized body. This is
+    # only an optimization: the counted copy in save_source is authoritative
+    # (declared length can lie), and works when size is unknown.
+    size = getattr(file, "size", None)
+    if size is not None and int(size) > get_settings().avatar_max_upload_bytes:
+        raise AppError(
+            "file_too_large",
+            f"upload is larger than {get_settings().avatar_max_upload_bytes} bytes",
+            413,
+        )
     if not tenant_id:
         tenant_id = _get_or_create_default_tenant(db).id
-    avatar_id, job_id = _create_avatar_rows(db, tenant_id, name, data, suffix)
+    avatar_id, job_id = _create_avatar_rows(db, tenant_id, name, file.file, suffix)
     background.add_task(run_job_in_new_session, job_id, AvatarStore(get_settings().data_dir))
     return {"avatar_id": avatar_id, "status": "pending"}
 

@@ -77,14 +77,32 @@ def test_browser_router_uses_admin_basename():
     assert 'basename="/admin"' in source
 
 
-def test_avatar_upload_accepts_video():
-    # The upload control must offer videos as well as images; the server enforces
-    # the real limits, but the widget has to let a video be chosen at all.
-    source = (
+def _avatars_source():
+    return (
         pathlib.Path(__file__).resolve().parent.parent
         / "admin-ui"
         / "src"
         / "pages"
         / "Avatars.tsx"
     ).read_text(encoding="utf-8")
-    assert 'accept="image/*,video/*"' in source
+
+
+def test_avatar_upload_accepts_video():
+    # The upload control must offer videos as well as images; the server enforces
+    # the real limits, but the widget has to let a video be chosen at all.
+    assert 'accept="image/*,video/*"' in _avatars_source()
+
+
+def test_avatar_create_has_synchronous_reentry_guard():
+    # A second click while video metadata is awaited (or before React re-renders)
+    # must not land a second POST; state alone flips too late, so a ref guards.
+    source = _avatars_source()
+    assert "const creatingRef = useRef(false);" in source
+    assert "if (creatingRef.current) return;" in source
+    # The ref is taken only after the early validations, and always reset here:
+    assert (
+        "    } finally {\n"
+        "      creatingRef.current = false;\n"
+        "      setCreating(false);\n"
+        "    }"
+    ) in source

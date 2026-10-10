@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Video avatars keep ~1 GB of decoded frames resident each, so the engine's
     # per-avatar LRU is smaller than it was when every avatar was one frame.
     avatar_cache_size: int = 2
+    # Uploads are streamed to disk and counted as they arrive; a body past
+    # this many bytes is refused mid-copy with 413. Generous above a 15 s
+    # clip even at a phone high bitrate (100 Mbps * 15 s ~= 188 MB).
+    avatar_max_upload_bytes: int = 300_000_000
 
     # MiniMax text-to-speech, used by the console's text-driven debug page.
     # Empty api_key means "not configured": the endpoint returns 503 rather than

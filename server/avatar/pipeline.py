@@ -37,6 +37,8 @@ class MockAvatarPipeline(AvatarPipeline):
                 max_frames=1,
                 canvas=(settings.frame_width, settings.frame_height),
             )
+            if frames.shape[0] == 0:
+                raise PipelineError("video has no decodable frames")
             img = Image.fromarray(frames[0])
         else:
             img = Image.open(source_path).convert("RGB")

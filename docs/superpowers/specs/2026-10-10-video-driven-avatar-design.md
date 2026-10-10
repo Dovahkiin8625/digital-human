@@ -195,7 +195,8 @@ decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, i
 | 视频全程无脸 / 有效帧 < 8 | 后台任务失败，`status=failed`，错误落库并在详情页可见 |
 | 加载时重建帧数 ≠ `meta.frame_count` | `EngineUnavailable`，会话创建失败并给出明确信息 |
 | 视频自带音轨 | 忽略；嘴型只由会话音频驱动 |
-| 1 帧视频 / 源帧率非 25 | 正常处理（N=1；按时间戳重采样） |
+| 源帧率非 25 | 正常处理：按时间戳重采样到目标帧率 |
+| 有效帧 < 8（含 1 帧视频） | 后台任务失败（见 §6.2 step 4） |
 
 ## 11. 测试策略
 

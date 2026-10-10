@@ -243,6 +243,66 @@ def test_avatar_video_too_long_is_422(client, monkeypatch):
     assert resp.json()["error"]["code"] == "video_too_long"
 
 
+def test_avatar_oversized_upload_is_413_and_creates_no_rows(client, monkeypatch):
+    # Cap overridden small so the counted copy in save_source aborts
+    # mid-stream; this exercises the authoritative path regardless of whether
+    # the multipart parser populated UploadFile.size.
+    monkeypatch.setenv("DH_AVATAR_MAX_UPLOAD_BYTES", "1024")
+    from server.config import get_settings
+
+    get_settings.cache_clear()
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Big"},
+        files={"file": ("big.png", b"\x00" * 2048, "image/png")},
+    )
+    assert resp.status_code == 413
+    assert resp.json()["error"]["code"] == "file_too_large"
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Avatar
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        assert db.execute(select(Avatar)).scalars().all() == []
+    finally:
+        db.close()
+
+
+def test_avatar_video_with_zero_frames_fails_with_typed_error(client, monkeypatch):
+    import numpy as np
+
+    # Probe accepts the clip, but the decoder yields zero frames (e.g. a
+    # container with a header and no decodable samples).
+    monkeypatch.setattr(
+        "server.avatar.video.probe_video",
+        lambda p: {"fps": 25.0, "frame_count": 0, "duration": 2.0},
+    )
+
+    def zero_decode(p, target_fps, max_frames, canvas):
+        return np.zeros((0, canvas[1], canvas[0], 3), np.uint8), 25.0
+
+    monkeypatch.setattr("server.avatar.video.decode_frames", zero_decode)
+    headers = _seed_tenant(client)
+    resp = client.post(
+        "/api/v1/avatars",
+        headers=headers,
+        data={"name": "Empty"},
+        files={"file": ("empty.mp4", b"\x00" * 64, "video/mp4")},
+    )
+    assert resp.status_code == 201, resp.text
+    avatar_id = resp.json()["avatar_id"]
+
+    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    assert detail["status"] == "failed"
+    assert detail["error"] == "video has no decodable frames"
+
+
 def test_avatar_undecodable_video_is_422(client, monkeypatch):
     from server.avatar.video import VideoError
 
