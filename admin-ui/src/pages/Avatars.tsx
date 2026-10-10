@@ -209,7 +209,7 @@ export default function Avatars() {
                 <InboxOutlined />
               </p>
               <p className="ant-upload-text">点击或拖拽图片 / 视频到此处</p>
-              <p className="ant-upload-hint">支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身</p>
+              <p className="ant-upload-hint">支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身；视频中请保持闭嘴、不说话</p>
             </Upload.Dragger>
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={creating} icon={<PlusOutlined />}>

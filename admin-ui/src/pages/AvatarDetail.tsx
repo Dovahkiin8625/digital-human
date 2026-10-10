@@ -8,7 +8,6 @@ import {
   Col,
   Descriptions,
   Empty,
-  Image,
   Row,
   Slider,
   Space,
@@ -20,16 +19,24 @@ import { api, getToken } from "../api";
 import StatusTag from "../components/StatusTag";
 import type { AvatarInfo } from "../types";
 
-async function fetchPreviewUrl(avatarId: string, level: number): Promise<string> {
-  // A plain <img> cannot attach X-Admin-Token, so fetch the PNG with the header
-  // and hand the browser an object URL of the resulting blob.
-  const resp = await fetch(
-    `/api/admin/avatars/${avatarId}/preview.png?level=${level}&t=${Date.now()}`,
-    { headers: { "X-Admin-Token": getToken() ?? "" } }
-  );
-  if (!resp.ok) throw new Error("preview unavailable");
-  const blob = await resp.blob();
-  return URL.createObjectURL(blob);
+type PreviewKind = "video" | "image";
+
+async function fetchObjectUrl(
+  path: string
+): Promise<{ url: string }> {
+  // A plain <video>/<img> cannot attach X-Admin-Token; fetch with the header
+  // and hand the element an object URL of the blob.
+  const resp = await fetch(path, {
+    headers: { "X-Admin-Token": getToken() ?? "" },
+  });
+  if (!resp.ok) {
+    const err = new Error(`request failed: ${resp.status}`) as Error & {
+      status: number;
+    };
+    err.status = resp.status;
+    throw err;
+  }
+  return { url: URL.createObjectURL(await resp.blob()) };
 }
 
 export default function AvatarDetail() {
@@ -37,12 +44,8 @@ export default function AvatarDetail() {
   const [info, setInfo] = useState<AvatarInfo | null>(null);
   const [mouth, setMouth] = useState(1);
   const [expression, setExpression] = useState(1);
-  const [level, setLevel] = useState(0.5);
-  // The level the preview was last fetched for. Kept separate from `level` so
-  // dragging the slider updates the label live while the (expensive) preview
-  // request only fires once the user lets go.
-  const [fetchLevel, setFetchLevel] = useState(0.5);
   const [preview, setPreview] = useState("");
+  const [previewKind, setPreviewKind] = useState<PreviewKind>("video");
   const [previewError, setPreviewError] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -66,39 +69,47 @@ export default function AvatarDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  useEffect(() => {
+  async function loadPreview() {
     if (!id) return;
-    let cancelled = false;
     setPreviewLoading(true);
     setPreviewError("");
-    fetchPreviewUrl(id, fetchLevel)
-      .then((url) => {
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
+    let url = "";
+    let kind: PreviewKind = "video";
+    try {
+      try {
+        ({ url } = await fetchObjectUrl(
+          `/api/admin/avatars/${id}/idle.mp4?t=${Date.now()}`
+        ));
+      } catch (err) {
+        // 404 = no idle clip (photo avatar): fall back to the resting image.
+        // Any other status is a real failure shown below with a retry.
+        if ((err as { status?: number }).status !== 404) {
+          throw err;
         }
-        // Replace: revoke the object URL we are about to drop so blobs do not leak.
-        if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-        previewRef.current = url;
-        setPreview(url);
-      })
-      .catch((err) => {
-        if (!cancelled) setPreviewError((err as Error).message);
-      })
-      .finally(() => {
-        if (!cancelled) setPreviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, fetchLevel]);
+        ({ url } = await fetchObjectUrl(
+          `/api/admin/avatars/${id}/normalized.png?t=${Date.now()}`
+        ));
+        kind = "image";
+      }
+      // Replace and revoke the previous object URL so blobs do not leak.
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+      previewRef.current = url;
+      setPreviewKind(kind);
+      setPreview(url);
+    } catch (err) {
+      setPreviewError((err as Error).message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
 
-  // Revoke the last object URL when the page unmounts.
   useEffect(() => {
+    void loadPreview();
     return () => {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function save() {
     if (!id) return;
@@ -122,7 +133,10 @@ export default function AvatarDetail() {
     if (!id) return;
     try {
       setError("");
-      await api(`/api/admin/avatars/${id}/retry`, { method: "POST", body: {} });
+      await api(`/api/admin/avatars/${id}/retry`, {
+        method: "POST",
+        body: {},
+      });
       await refresh();
     } catch (err) {
       message.error((err as Error).message);
@@ -143,7 +157,12 @@ export default function AvatarDetail() {
   if (!info) {
     return (
       <Space direction="vertical" size={16}>
-        <Alert type="error" showIcon message="无法加载该形象" description={error || "形象不存在或已被删除"} />
+        <Alert
+          type="error"
+          showIcon
+          message="无法加载该形象"
+          description={error || "形象不存在或已被删除"}
+        />
         <Link to="/avatars">
           <Button icon={<ArrowLeftOutlined />}>返回列表</Button>
         </Link>
@@ -171,7 +190,11 @@ export default function AvatarDetail() {
         size="small"
         items={[
           { key: "id", label: "形象 ID", children: info.avatar_id },
-          { key: "created", label: "创建时间", children: new Date(info.created_at).toLocaleString() },
+          {
+            key: "created",
+            label: "创建时间",
+            children: new Date(info.created_at).toLocaleString(),
+          },
           {
             key: "config",
             label: "当前参数",
@@ -211,30 +234,12 @@ export default function AvatarDetail() {
         </Col>
         <Col xs={24} lg={14}>
           <Card title="预览">
-            <Typography.Text>驱动电平 {level.toFixed(2)}</Typography.Text>
-            <Slider
-              min={0}
-              max={1}
-              step={0.05}
-              value={level}
-              onChange={setLevel}
-              onChangeComplete={setFetchLevel}
-            />
             {previewError ? (
-              <Empty description={previewError}>
+              <Empty description={`预览不可用（${previewError}）`}>
                 <Button
                   icon={<ReloadOutlined />}
                   onClick={() => {
-                    setPreviewError("");
-                    setPreviewLoading(true);
-                    fetchPreviewUrl(id!, fetchLevel)
-                      .then((url) => {
-                        if (previewRef.current) URL.revokeObjectURL(previewRef.current);
-                        previewRef.current = url;
-                        setPreview(url);
-                      })
-                      .catch((err) => setPreviewError((err as Error).message))
-                      .finally(() => setPreviewLoading(false));
+                    void loadPreview();
                   }}
                 >
                   重试
@@ -243,7 +248,19 @@ export default function AvatarDetail() {
             ) : (
               <Spin spinning={previewLoading}>
                 <div style={{ minHeight: 120 }}>
-                  {preview && <Image src={preview} alt="preview" width={240} />}
+                  {preview && previewKind === "video" ? (
+                    <video
+                      src={preview}
+                      controls
+                      muted
+                      autoPlay
+                      playsInline
+                      loop
+                      style={{ width: 240 }}
+                    />
+                  ) : preview ? (
+                    <img src={preview} alt="preview" width={240} />
+                  ) : null}
                 </div>
               </Spin>
             )}

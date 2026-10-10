@@ -129,7 +129,7 @@ curl http://127.0.0.1:8000/healthz
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动 |
+| POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动；空闲时循环播放源视频画面，录制时请保持闭嘴、不说话 |
 | GET | `/api/v1/avatars` | 形象列表 |
 | GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
 | DELETE | `/api/v1/avatars/{avatar_id}` | 删除形象及资产（204） |
@@ -192,7 +192,8 @@ curl http://127.0.0.1:8000/healthz
 | DELETE | `/api/admin/avatars/{avatar_id}` | 删除形象（204） |
 | POST | `/api/admin/avatars/{avatar_id}/retry` | 重试制作（202） |
 | PATCH | `/api/admin/avatars/{avatar_id}/config` | 调优 `mouth_scale` / `expression_intensity` |
-| GET | `/api/admin/avatars/{avatar_id}/preview.png` | 静态预览（可选 `?level=0..1` 驱动口型） |
+| GET | `/api/admin/avatars/{avatar_id}/idle.mp4` | 空闲循环视频（视频形象；首次请求时生成，支持 Range） |
+| GET | `/api/admin/avatars/{avatar_id}/normalized.png` | 静态画面（照片形象与回退） |
 | POST | `/api/admin/tts` | JSON `{"text", "voice_id"?}` → `audio/wav`。调试页用；`text` 为空 400，未配 `DH_MINIMAX_API_KEY` 503，MiniMax 报错 502 |
 | GET | `/api/admin/jobs` | 制作任务（AvatarJob）列表 |
 | GET | `/api/admin/sessions` | 会话列表（含实时指标） |
@@ -341,4 +342,4 @@ cd admin-ui && npm run build            # 前端类型检查 + 构建
 统一错误信封：`{"error": {"code", "message", "detail"}}`。形象制作失败置 `status=failed` 并落库 error，
 支持重试；引擎运行时异常令会话置错并推 WS 事件，不拖垮进程；会话空闲自动回收防资源泄漏。
 
-上传环节错误码：`invalid_video`（视频无法解码，422）、`video_too_long`（时长或帧数超限，422）、`file_too_large`（413）。
+上传环节错误码：`invalid_video`（视频无法解码，422）、`video_too_long`（时长或帧数超限，422）、`file_too_large`（413）、`idle_video_unavailable`（空闲视频生成失败，503）。

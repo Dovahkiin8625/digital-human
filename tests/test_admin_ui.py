@@ -123,3 +123,28 @@ def test_reentry_guard_blocks_double_submit_behaviorally():
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_avatar_upload_hint_asks_for_closed_mouth():
+    assert "视频中请保持闭嘴、不说话" in _avatars_source()
+
+
+def _detail_source():
+    return (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "admin-ui" / "src" / "pages" / "AvatarDetail.tsx"
+    ).read_text(encoding="utf-8")
+
+
+def test_detail_preview_is_a_loop_video_with_image_fallback():
+    source = _detail_source()
+    assert "idle.mp4" in source
+    assert "<video" in source or "video" in source
+    assert "muted" in source and "autoPlay" in source and "loop" in source
+    assert "normalized.png" in source
+    assert "preview.png" not in source
+
+
+def test_detail_has_no_drive_level_slider():
+    source = _detail_source()
+    assert "驱动电平" not in source
