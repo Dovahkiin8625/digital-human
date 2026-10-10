@@ -1953,6 +1953,223 @@ git commit -m "test(engine): gpu end-to-end for a video-driven avatar"
 
 ---
 
+### Task 11: 短音频块不得杀死引擎 worker（Task 10 暴露的既有缺陷）
+
+**背景：** Task 10 的 GPU E2E 实锤了一个既有生产缺陷。`vendor/MuseTalk/musetalk/utils/audio_processor.py:77-90` 每个输出帧取 10 宽 whisper clip，失败时 `except Exception → exit()`。`exit()` 抛 **`SystemExit`（`BaseException`）**，而引擎 worker 只守 `except Exception`，于是：短块 → clip 宽度断言失败 → worker 线程静默死亡 → 该 job future 永不兑现 → `drive()` 永久挂死；worker 进程级唯一，**之后每个会话都挂死**，只能重启。
+
+为什么短块会失败：`get_whisper_chunk` 用 `torch.zeros_like(feature[:, :N])` 造 padding——在比 N 短的张量上切片只会得到同样短的结果（**不会补齐**）。窗口 800 samples @16k（50ms 块）→ `actual_length=2` → 左/右 padding 都缩成 2 行 → 总宽 2+2+2=6 < 10 → 断言失败。真实特征至少要有 `ceil(50/fps) × 2 = 4` 个 50Hz 帧（1280 samples @25fps），padding 才是全宽。生产触发面：`AudioIngest.flush()` 在会话排空时把残余 PCM 作为最后一块发出（`server/core/audio_ingest.py:22-30`）；WS 二进制入口（`server/api/sessions.py:154`）收到一个小块即结束的会话直接命中。
+
+**两层防御：**（1）批处理/worker 层把逃逸的 `BaseException` 转成 job 失败，线程不死、future 必兑现；（2）窗口零填充到全宽阈值再调 `get_whisper_chunk`。**不改 vendor 代码**——引擎必须把 vendor 目录当作行为不可信的边界，且 vendor 可能被整体更新。
+
+**Files:**
+- Modify: `server/engine/musetalk_engine.py`（常量、`_worker_loop`、`_run_batch`、`_resolve`、`_prompts_for`）
+- Modify: `tests/test_musetalk_engine.py`（torch-free：窗口填充 + worker 存活）
+- Modify: `tests/test_video_avatar_gpu.py`（真实回归：50ms 会话）
+
+- [ ] **Step 1: 加常量**
+
+在 `WHISPER_FPS = 50` 之后加：
+
+```python
+# get_whisper_chunk zero-pads each side with zeros_like(feature[:, :N]); a
+# slice on a feature shorter than N silently shrinks -- it does NOT pad -- so
+# its 10-wide per-frame clip fails the width assert and the vendored code
+# calls exit(). The left-side N is ceil(WHISPER_FPS/fps) * this multiplier,
+# so the engine hands it at least that many REAL feature frames: 4 at 25 fps.
+WHISPER_PAD_LEFT = 2
+```
+
+- [ ] **Step 2: worker / batch / call 三处守卫放宽到 BaseException**
+
+`_worker_loop`：
+
+```python
+            except BaseException:  # noqa: BLE001 -- outlive any one job
+                # BaseException, not Exception: vendored MuseTalk calls exit()
+                # (SystemExit) when its whisper clip width check fails. The
+                # batch layer below settles the in-flight futures before one
+                # can reach here, but that directory is not code we trust to
+                # stay well-behaved -- an unwound worker is a hung engine.
+                _log.exception("musetalk worker: unhandled error, continuing")
+```
+
+`_run_batch`：
+
+```python
+        except BaseException as exc:  # noqa: BLE001 -- fail the callers
+            # BaseException on purpose: a SystemExit out of the vendored audio
+            # processor must fail these calls, not kill the worker -- and with
+            # it every session queued behind them.
+            for job in batch:
+                _settle(job.future, exc=exc)
+            return
+```
+
+`_resolve`：
+
+```python
+        except BaseException as exc:  # noqa: BLE001
+            # Same reason as _run_batch: an exit() from vendor code during a
+            # prepare/describe call must fail the call, not kill the worker.
+            _settle(call.future, exc=exc)
+```
+
+- [ ] **Step 3: 写失败测试（default suite）**
+
+在 `tests/test_musetalk_engine.py` 加：
+
+```python
+def test_short_whisper_window_is_padded_to_full_width(engine, tmp_path):
+    """A 50 ms block must hand whisper a 1280-sample window, not a crash width.
+
+    800 real samples give a 2-row 50 Hz feature; vendored zeros_like padding
+    then shrinks to 2 rows and its 10-wide clip exit()s. The engine pads the
+    window to 4 real feature frames (1280 samples) before the call.
+    """
+    pack = _pack(tmp_path)
+    ctx = engine.new_context(pack)
+    frames = asyncio.run(
+        engine.drive(pack, np.zeros(2400, np.float32), 48000, context=ctx)
+    )
+    assert len(frames) == 1
+    assert _StubRuntime.window_lengths[-1] == 1280
+
+
+def test_worker_survives_systemexit_and_keeps_serving(tmp_path, monkeypatch):
+    """A vendored exit() must fail the one job, not kill the worker.
+
+    Before the fix SystemExit unwound _run_batch and the worker loop (both
+    guarded by `except Exception`), the thread died, and every later drive
+    hung. Queue through the real loop: the first batch's vendor code exits,
+    its future must resolve with the SystemExit, and the next batch must run.
+    """
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # Stop the engine's own worker so this test owns the loop's consumer.
+    eng._jobs.put(None)
+    eng._worker.join()
+
+    calls = 0
+
+    def _fake_drive(jobs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise SystemExit("vendor exit()")
+        return [[] for _ in jobs]
+
+    monkeypatch.setattr(eng, "_drive_sync", _fake_drive)
+
+    def _job():
+        return me._Job(
+            pack=_pack(tmp_path),
+            ctx=eng.new_context(_pack(tmp_path)),
+            audio=np.zeros(4800, np.float32),
+            sample_rate=48000,
+            future=concurrent.futures.Future(),
+        )
+
+    first, second = _job(), _job()
+    worker = threading.Thread(target=eng._worker_loop, daemon=True)
+    worker.start()
+    eng._jobs.put(first)
+    with pytest.raises(SystemExit):
+        first.future.result(timeout=2.0)
+    eng._jobs.put(second)
+    assert second.future.result(timeout=2.0) == []
+    eng._jobs.put(None)
+    worker.join(timeout=2.0)
+    assert not worker.is_alive(), "worker failed to reach the stop sentinel"
+```
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_musetalk_engine.py -v`
+Expected: 两个新测试在 Step 4 完成前 FAIL（窗口长度 800 ≠ 1280；`SystemExit` 后 future 超时）。
+
+- [ ] **Step 4: 窗口零填充到全宽**
+
+`_prompts_for` 中 `samples_per_frame` 一行之后加阈值计算：
+
+```python
+        samples_per_frame = SR16 // self.fps  # 640 at 25 fps
+        # Real feature must be long enough that the vendor's zeros_like pad
+        # slices do not shrink: ceil(WHISPER_FPS/fps) * WHISPER_PAD_LEFT real
+        # 50 Hz frames = 4 * 320 = 1280 samples at 25 fps.
+        min_feature_frames = (
+            (WHISPER_FPS + self.fps - 1) // self.fps * WHISPER_PAD_LEFT
+        )
+        min_window_samples = min_feature_frames * (SR16 // WHISPER_FPS)
+```
+
+替换现有填充（阈值从 1 帧改为全宽）：
+
+```python
+        if window.size < min_window_samples:
+            # Zero-pad so the real feature is long enough for get_whisper_chunk's
+            # side padding to be full width (see WHISPER_PAD_LEFT). One output
+            # frame is NOT enough: a 640-sample window gives a 2-row feature,
+            # every pad slice shrinks to those 2 rows, and the 10-wide clip
+            # asserts and exit()s -- SystemExit, on the worker thread. Padding
+            # goes at the end, leaving frame f0 at window offset 0 -- the
+            # mapping the indices below use. The extra prompts describe
+            # silence; the frame math above selects only indices the real
+            # audio actually covers.
+            window = np.concatenate(
+                (window, np.zeros(min_window_samples - window.size, dtype=np.float32))
+            )
+```
+
+Run: `.venv/Scripts/python.exe -m pytest tests/test_musetalk_engine.py -v`
+Expected: PASS（含两个新测试；既有全部不回归）。
+
+- [ ] **Step 5: GPU 真实回归**
+
+在 `tests/test_video_avatar_gpu.py` 末尾加：
+
+```python
+@pytest.mark.skipif(not SAMPLE.exists(), reason="MuseTalk sample video not vendored")
+def test_short_audio_session_does_not_kill_the_worker(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    src = _short_video(out / "clip.mp4")
+    cfg = MuseTalkAvatarPipeline().process("v2", src, out, lambda s, p: None)
+
+    from server.engine.base import AvatarPack
+
+    pack = AvatarPack(
+        avatar_id="v2",
+        root=out,
+        source_image_path=out / "normalized.png",
+        config=cfg,
+        prep=cfg["musetalk"],
+    )
+    eng = MuseTalkEngine()
+    import asyncio
+
+    asyncio.run(eng.prepare(pack))
+    ctx = eng.new_context(pack)
+    # 50 ms: shorter than the vendor pad's full width. Before the fix
+    # get_whisper_chunk exit()ed, the worker died, and this drive hung.
+    frames = asyncio.run(eng.drive(pack, np.zeros(2400, np.float32), 48000, context=ctx))
+    assert len(frames) == 1
+    # The worker must still be alive: a following full block drives normally.
+    more = asyncio.run(eng.drive(pack, np.zeros(4800, np.float32), 48000, context=ctx))
+    assert len(more) == 2
+```
+
+Run: `.venv-musetalk/Scripts/python -m pytest tests/test_video_avatar_gpu.py -m gpu -v`
+Expected: **2 passed**。
+
+- [ ] **Step 6: 全量 default suite + 提交**
+
+Run: `.venv/Scripts/python.exe -m pytest`
+Expected: 全绿（181 + 2 新 = 183 passed 量级）。
+
+```bash
+git add server/engine/musetalk_engine.py tests/test_musetalk_engine.py tests/test_video_avatar_gpu.py
+git commit -m "fix(engine): survive vendor exit() on short audio blocks"
+```
+
+---
+
 ## Self-Review
 
 **Spec coverage：**
