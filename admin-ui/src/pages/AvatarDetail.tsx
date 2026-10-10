@@ -69,7 +69,7 @@ export default function AvatarDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  async function loadPreview() {
+  async function loadPreview(signal?: { ignored: boolean }) {
     if (!id) return;
     setPreviewLoading(true);
     setPreviewError("");
@@ -91,25 +91,34 @@ export default function AvatarDetail() {
         ));
         kind = "image";
       }
+      // The avatar may have changed while these fetches were in flight: this
+      // effect run is then stale. Do not touch the new run's state or ref, and
+      // revoke the blob nobody will render.
+      if (signal?.ignored) {
+        URL.revokeObjectURL(url);
+        return;
+      }
       // Replace and revoke the previous object URL so blobs do not leak.
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
       previewRef.current = url;
       setPreviewKind(kind);
       setPreview(url);
     } catch (err) {
-      setPreviewError((err as Error).message);
+      if (!signal?.ignored) setPreviewError((err as Error).message);
     } finally {
-      setPreviewLoading(false);
+      if (!signal?.ignored) setPreviewLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadPreview();
+    const signal = { ignored: false };
+    void loadPreview(signal);
     return () => {
+      signal.ignored = true;
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    }, [id]);
 
   async function save() {
     if (!id) return;
