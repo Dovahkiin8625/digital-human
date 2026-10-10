@@ -70,9 +70,18 @@ export class DigitalHumanClient {
   }
 
   async sendAudioFile(file: File): Promise<void> {
+    await this.streamAudio(file);
+  }
+
+  /** Same path as an uploaded file, for audio produced in-page (e.g. TTS). */
+  async sendAudioBlob(blob: Blob): Promise<void> {
+    await this.streamAudio(blob);
+  }
+
+  private async streamAudio(source: Blob): Promise<void> {
     const ctx = new AudioContext();
     try {
-      const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+      const buf = await ctx.decodeAudioData(await source.arrayBuffer());
       const pcm = resampleToInt16(buf, 48000);
       const chunk = 4800 * 2;
       for (let i = 0; i < pcm.byteLength; i += chunk) {

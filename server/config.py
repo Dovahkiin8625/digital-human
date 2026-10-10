@@ -18,6 +18,19 @@ class Settings(BaseSettings):
     fps: int = 25
     sample_rate: int = 48000
 
+    # MiniMax text-to-speech, used by the console's text-driven debug page.
+    # Empty api_key means "not configured": the endpoint returns 503 rather than
+    # calling out. group_id is optional -- newer accounts authenticate on the
+    # bearer token alone, and MiniMax ignores the query param when it is absent.
+    minimax_api_key: str = ""
+    minimax_group_id: str = ""
+    minimax_base_url: str = "https://api.minimaxi.com"
+    minimax_model: str = "speech-02-hd"
+    minimax_voice_id: str = "male-qn-qingse"
+    # MiniMax tops out at 44100 Hz, so this is never the render session's 48000;
+    # the browser resamples onto the WS audio channel (webrtc.ts).
+    minimax_sample_rate: int = 32000
+
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env")
 
 

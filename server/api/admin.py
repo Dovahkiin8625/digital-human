@@ -40,6 +40,11 @@ class AvatarConfigIn(BaseModel):
     expression_intensity: float | None = None
 
 
+class TtsIn(BaseModel):
+    text: str
+    voice_id: str | None = None
+
+
 @router.post("/login")
 def login(body: LoginIn) -> dict:
     expected = get_settings().admin_password
@@ -234,6 +239,23 @@ def avatar_preview(avatar_id: str, level: float = Query(0.5, ge=0.0, le=1.0), db
     buf = io.BytesIO()
     Image.fromarray(image).save(buf, format="PNG")
     return Response(buf.getvalue(), media_type="image/png")
+
+
+@admin_router.post("/tts")
+async def synthesize_speech(body: TtsIn) -> Response:
+    """Turn typed text into WAV audio for the console's debug page.
+
+    Session-agnostic on purpose: the console pushes the bytes it gets back down
+    the same audio WebSocket the file-upload path uses, so this endpoint never
+    needs to know which session is being driven.
+    """
+    text = body.text.strip()
+    if not text:
+        raise AppError("empty_text", "text must not be empty", 400)
+    from server.tts.minimax import synthesize
+
+    audio = await synthesize(text, body.voice_id)
+    return Response(audio, media_type="audio/wav")
 
 
 @admin_router.get("/jobs")

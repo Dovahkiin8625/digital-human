@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { ensureDemoKey } from "../demoKey";
 import type { AvatarInfo, SessionInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
+
+// MiniMax's Chinese system voices, plus an escape hatch for a cloned one.
+const VOICES = [
+  { id: "male-qn-qingse", label: "青涩青年（男）" },
+  { id: "male-qn-jingying", label: "精英青年（男）" },
+  { id: "male-qn-badao", label: "霸道青年（男）" },
+  { id: "female-shaonv", label: "少女（女）" },
+  { id: "female-yujie", label: "御姐（女）" },
+  { id: "female-chengshu", label: "成熟女性（女）" },
+  { id: "female-tianmei", label: "甜美女性（女）" },
+];
+const CUSTOM_VOICE = "__custom__";
 
 export default function Debug() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -10,12 +22,25 @@ export default function Debug() {
   // Hold the key issued by ensureDemoKey() so the metrics poller and DELETE use
   // the exact key that created the session (never a raw localStorage read).
   const keyRef = useRef("");
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioUrlRef = useRef("");
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [avatarId, setAvatarId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [metrics, setMetrics] = useState<SessionInfo["metrics"]>({});
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState("");
+  const [text, setText] = useState("");
+  const [voice, setVoice] = useState(VOICES[0].id);
+  const [customVoice, setCustomVoice] = useState("");
+  const [ttsBusy, setTtsBusy] = useState(false);
+
+  useEffect(
+    () => () => {
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    },
+    []
+  );
 
   useEffect(() => {
     api<AvatarInfo[]>("/api/admin/avatars")
@@ -78,6 +103,45 @@ export default function Debug() {
     setStatus("closed");
   }
 
+  async function speak() {
+    const client = clientRef.current;
+    if (!client || !text.trim()) return;
+    setError("");
+    setTtsBusy(true);
+    try {
+      const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice;
+      const resp = await fetch("/api/admin/tts", {
+        method: "POST",
+        headers: { "X-Admin-Token": getToken() ?? "", "Content-Type": "application/json" },
+        body: JSON.stringify({ text, ...(voiceId ? { voice_id: voiceId } : {}) }),
+      });
+      if (!resp.ok) {
+        let message = resp.statusText;
+        try {
+          message = (await resp.json())?.error?.message ?? message;
+        } catch {
+          /* non-json error */
+        }
+        throw new Error(message);
+      }
+      const blob = await resp.blob();
+      // The WebRTC stream carries video only, so play the clip here too;
+      // otherwise you watch the mouth move in silence.
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      const url = URL.createObjectURL(blob);
+      audioUrlRef.current = url;
+      if (audioRef.current) {
+        audioRef.current.src = url;
+        void audioRef.current.play().catch(() => {});
+      }
+      await client.sendAudioBlob(blob);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setTtsBusy(false);
+    }
+  }
+
   return (
     <div>
       <h2>会话调试</h2>
@@ -99,6 +163,36 @@ export default function Debug() {
         {error && <p className="error">{error}</p>}
       </div>
       <video ref={videoRef} autoPlay playsInline style={{ width: 270, background: "#000" }} />
+      <div className="card">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="输入要让数字人说的话…"
+          rows={3}
+          style={{ width: "100%" }}
+        />
+        <div>
+          <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+            {VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+            <option value={CUSTOM_VOICE}>自定义 voice_id…</option>
+          </select>
+          {voice === CUSTOM_VOICE && (
+            <input
+              value={customVoice}
+              onChange={(e) => setCustomVoice(e.target.value)}
+              placeholder="MiniMax voice_id"
+            />
+          )}
+          <button onClick={speak} disabled={!sessionId || ttsBusy || !text.trim()}>
+            {ttsBusy ? "合成中…" : "合成并驱动"}
+          </button>
+        </div>
+        <audio ref={audioRef} controls />
+      </div>
       <div className="card">
         <button onClick={() => clientRef.current?.sendSine()} disabled={!sessionId}>
           假数据驱动

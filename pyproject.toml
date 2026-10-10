@@ -11,10 +11,12 @@ dependencies = [
   "numpy>=1.26",
   "pillow>=10.0",
   "aiortc>=1.9",
+  # MiniMax TTS calls (server/tts/minimax.py); also what TestClient needs.
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-asyncio>=1.0", "httpx>=0.27", "httpx2"]
+dev = ["pytest>=8.0", "pytest-asyncio>=1.0", "httpx2"]
 # The runtime subset of MuseTalk's own requirements.txt, minus what only its
 # training and demo scripts need: tensorflow/tensorboard, gradio, gdown,
 # moviepy, ffmpeg-python, and the SyncNet checkpoint. Those are also what pinned

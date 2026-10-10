@@ -105,6 +105,12 @@ curl http://127.0.0.1:8000/healthz
 | `DH_FRAME_HEIGHT` | `1280` | 输出视频高 |
 | `DH_FPS` | `25` | 输出帧率 |
 | `DH_SAMPLE_RATE` | `48000` | 音频采样率（Hz） |
+| `DH_MINIMAX_API_KEY` | 空 | MiniMax TTS 密钥。留空即禁用调试页的文本合成，端点返回 503 |
+| `DH_MINIMAX_GROUP_ID` | 空 | 可选：老账号需要它作为 `GroupId` query 参数，新账号只认 bearer token |
+| `DH_MINIMAX_BASE_URL` | `https://api.minimaxi.com` | 国内平台；国际版改 `https://api.minimax.io` |
+| `DH_MINIMAX_MODEL` | `speech-02-hd` | 合成模型 |
+| `DH_MINIMAX_VOICE_ID` | `male-qn-qingse` | 默认音色（调试页未选择时使用） |
+| `DH_MINIMAX_SAMPLE_RATE` | `32000` | 合成采样率。MiniMax 上限 44100，故**不可能是** `DH_SAMPLE_RATE`，重采样在浏览器侧完成 |
 
 > 上表是**代码默认值**。`.env.example` 模板里两个引擎项都写成 `mock`，这样
 > `cp .env.example .env` 之后在 torch-free 的 `.venv` 里能直接跑通 —— 若模板发
@@ -151,6 +157,22 @@ curl http://127.0.0.1:8000/healthz
 **块延迟是唯一值得盯的实时性指标**：一个块承载 100ms 音频，所以延迟长期超过 100ms 就意味着
 音频入流速度超过渲染速度、A/V 延迟无界增长。此时先看 `overflows` 与 `queue_depth` 是否同步上升。
 
+#### 调试页文本驱动（MiniMax TTS）
+
+调试页除了麦克风与上传音频文件，还可以**只输入文本**：页面向 `POST /api/admin/tts`
+要一段合成音频，拿到后走与上传文件**完全相同**的那条通道（`sendAudioBlob` →
+`decodeAudioData` → 重采样到 48k → WS 音频分片）。
+
+链路里有两处值得知道：
+
+- **采样率对不上是常态。** MiniMax 最高只到 44100 Hz，而渲染会话固定吃 48000 Hz。
+  所以服务端只把 hex 音频套上 WAV 头原样返回，**重采样放在浏览器**——复用上传路径里
+  已经测过的那段代码，服务端因此不需要任何音频编解码依赖。
+- **WebRTC 只回传视频轨，没有音频。** 调试页会另外用 `<audio>` 本地回放同一段合成音频，
+  否则你只能看见嘴动、听不见声音。
+
+需要 `DH_MINIMAX_API_KEY`；未配置时按钮会报出服务端那句 503 的说明。
+
 ### 管理面 `/api/admin`（除 `login` 外鉴权：`X-Admin-Token` 请求头）
 
 | 方法 | 路径 | 说明 |
@@ -167,6 +189,7 @@ curl http://127.0.0.1:8000/healthz
 | POST | `/api/admin/avatars/{avatar_id}/retry` | 重试制作（202） |
 | PATCH | `/api/admin/avatars/{avatar_id}/config` | 调优 `mouth_scale` / `expression_intensity` |
 | GET | `/api/admin/avatars/{avatar_id}/preview.png` | 静态预览（可选 `?level=0..1` 驱动口型） |
+| POST | `/api/admin/tts` | JSON `{"text", "voice_id"?}` → `audio/wav`。调试页用；`text` 为空 400，未配 `DH_MINIMAX_API_KEY` 503，MiniMax 报错 502 |
 | GET | `/api/admin/jobs` | 制作任务（AvatarJob）列表 |
 | GET | `/api/admin/sessions` | 会话列表（含实时指标） |
 | POST | `/api/admin/sessions/sweep` | 手动触发空闲会话回收 |
@@ -259,9 +282,8 @@ Google / PyTorch 官方 CDN。若换到能直连 HF 的网络，可改用 `HF_EN
 ### 启动
 
 ```bash
-DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \
-  ./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
-  --host 0.0.0.0 --port 8000
+python -m uvicorn --factory server.main:create_app  --host 0.0.0.0 --port 8000
+
 ```
 
 启动时后台任务会预热权重（4.4 GB），避免第一个 `POST /sessions` 付这笔代价；预热失败不致命，
