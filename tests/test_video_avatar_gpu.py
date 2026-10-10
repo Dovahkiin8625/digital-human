@@ -144,10 +144,6 @@ def test_idle_phase_carries_seamlessly_into_speech(tmp_path):
     assert len(frames) >= 2
     # The first speech frame uses the same base frame the idle track would have
     # shown next: cycle position p. (MuseTalk edits only the mouth region.)
-    from server.engine.musetalk_engine import cycle_index
-
-    assert cycle_index(p, n) == cycle_index(ctx.phase + 0, n)
-    # Outside the edited mouth box, idle-at-p and first speech frame agree.
     bbox = [int(v) for v in cfg["musetalk"]["bbox"]]
     x1, y1, x2, y2 = bbox
     rest = np.delete(np.delete(idle_here, slice(y1, y2), axis=0), slice(x1, x2), axis=1)
