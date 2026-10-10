@@ -131,17 +131,19 @@ def engine(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(eng, "_ensure_runtime", lambda: _StubRuntime())
     monkeypatch.setattr(
-        eng, "_render", lambda rt, avatar, prompts: [np.zeros((1280, 720, 3), np.uint8)] * len(prompts.arr)
+        eng,
+        "_render",
+        lambda rt, avatar, idxs, prompts: [np.zeros((1280, 720, 3), np.uint8)] * len(idxs),
     )
     monkeypatch.setattr(
         eng,
         "_load_avatar",
         lambda rt, pack: me._AvatarState(
-            bbox=[100, 200, 300, 400],
-            base_rgb=np.zeros((1280, 720, 3), np.uint8),
+            frames=np.zeros((1, 1280, 720, 3), np.uint8),
             latents=None,
-            mask=np.zeros((272, 272), np.uint8),
-            mask_crop_box=[50, 150, 350, 450],
+            bboxes=[[100, 200, 300, 400]],
+            masks=[np.zeros((272, 272), np.uint8)],
+            mask_boxes=[[50, 150, 350, 450]],
         ),
     )
     return eng
@@ -271,10 +273,10 @@ async def test_concurrent_sessions_share_a_render_batch(engine, tmp_path, monkey
     calls: list[int] = []
     real_render = engine._render
 
-    def spy(rt, avatar, prompts):
+    def spy(rt, avatar, idxs, prompts):
         time.sleep(0.005)  # stand in for the ~60 ms of real render work
         calls.append(int(prompts.shape[0]))
-        return real_render(rt, avatar, prompts)
+        return real_render(rt, avatar, idxs, prompts)
 
     monkeypatch.setattr(engine, "_render", spy)
 
@@ -469,10 +471,11 @@ def test_load_avatar_reads_sidecars(tmp_path, monkeypatch):
 
     state = eng._load_avatar(_StubRuntime(), _pack(tmp_path, prep=prep))
 
-    assert state.bbox == [100, 200, 300, 400]
-    assert state.mask_crop_box == [50, 150, 350, 450]
-    assert state.base_rgb.shape == (1280, 720, 3)
-    assert state.mask.shape == (272, 272)
+    assert state.bboxes[0] == [100, 200, 300, 400]
+    assert state.mask_boxes[0] == [50, 150, 350, 450]
+    assert state.frames[0].shape == (1280, 720, 3)
+    assert state.masks[0].shape == (272, 272)
+    assert state.cycle_len == 1
 
 
 def _pil_reference_blend(base, face, bbox, mask, crop_box):
@@ -571,11 +574,11 @@ async def test_drive_does_not_block_the_event_loop(tmp_path, monkeypatch):
         eng,
         "_load_avatar",
         lambda rt, pack: me._AvatarState(
-            bbox=[100, 200, 300, 400],
-            base_rgb=np.zeros((1280, 720, 3), np.uint8),
+            frames=np.zeros((1, 1280, 720, 3), np.uint8),
             latents=None,
-            mask=np.zeros((272, 272), np.uint8),
-            mask_crop_box=[50, 150, 350, 450],
+            bboxes=[[100, 200, 300, 400]],
+            masks=[np.zeros((272, 272), np.uint8)],
+            mask_boxes=[[50, 150, 350, 450]],
         ),
     )
 
@@ -660,3 +663,70 @@ def test_worker_exits_when_the_drain_consumes_the_stop_sentinel(tmp_path, monkey
     worker.start()
     worker.join(timeout=2.0)
     assert not worker.is_alive(), "worker blocked after the drain swallowed the sentinel"
+
+
+# -- frame cycle --------------------------------------------------------
+
+def test_cycle_index_ping_pongs():
+    assert me.cycle_index(0, 1) == 0
+    assert me.cycle_index(99, 1) == 0
+    for f, want in [(0, 0), (1, 1), (2, 2), (3, 1), (4, 0), (5, 1), (6, 2)]:
+        assert me.cycle_index(f, 3) == want, f
+    # n=2 has no duplicate end frame: 0,1,0,1,...
+    assert [me.cycle_index(f, 2) for f in range(6)] == [0, 1, 0, 1, 0, 1]
+
+
+@pytest.mark.musetalk  # needs torch, which the torch-free .venv does not have
+def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
+    """Two output frames must blend onto two different base frames."""
+    import torch
+
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+
+    seen_bases = []
+
+    def spy_blend(base, face, bbox, mask, crop_box):
+        seen_bases.append(int(base[0, 0, 0]))  # base is CHW; corner pixel tags it
+        return base
+
+    monkeypatch.setattr(me, "_blend_face_gpu", spy_blend)
+
+    class _Model:
+        def __call__(self, latents, timesteps, encoder_hidden_states=None):
+            class _Out:
+                sample = latents
+
+            return _Out()
+
+    class _UNet:
+        model = _Model()
+
+    class _RT:
+        device = "cpu"
+        weight_dtype = torch.float32
+        timesteps = torch.tensor([0])
+        unet = _UNet()
+
+        def pe(self, wb):
+            return wb
+
+    # `_render` reaches the model as `rt.unet.model(...)`, so the stub needs the
+    # `unet` level -- and `_decode_gpu` is stubbed out because the fake UNet
+    # returns latents, not pixels.
+    monkeypatch.setattr(me, "_decode_gpu", lambda rt, pred: pred)
+
+    frames = np.zeros((2, 8, 8, 3), np.uint8)
+    frames[0, :, :, :] = 10
+    frames[1, :, :, :] = 20
+    avatar = me._AvatarState(
+        frames=frames,
+        latents=torch.zeros((2, 8, 32, 32)),
+        bboxes=[[0, 0, 8, 8], [0, 0, 8, 8]],
+        masks=[np.zeros((8, 8), np.uint8), np.zeros((8, 8), np.uint8)],
+        mask_boxes=[[0, 0, 8, 8], [0, 0, 8, 8]],
+    )
+    prompts = _FakePrompts(np.zeros((2, 50, 384), np.float32))
+
+    eng._render(_RT(), avatar, [0, 1], prompts)
+
+    assert seen_bases == [10, 20]

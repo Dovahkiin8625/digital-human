@@ -10,7 +10,9 @@ Model state is layered:
   * global weights   -- VAE/UNet/whisper, loaded once, lock-protected, warmed
                         at startup (cold start is ~34 s of loading + kernel
                         autotune, which must not land on the first session)
-  * per-avatar cache -- latents/mask/base frame, LRU by avatar_id
+  * per-avatar cache -- base frames + per-frame latents/bbox/mask, LRU by
+                        avatar_id. A video avatar holds N frames; an image
+                        avatar is the N=1 case.
 
 Every CUDA call runs on a single-worker ThreadPoolExecutor. Blocking inference
 therefore never stalls the event loop, and concurrent sessions queue on the one
@@ -68,6 +70,19 @@ def _settle(future: concurrent.futures.Future, *, result=None, exc=None) -> None
         pass  # cancelled between the check above and here
 
 
+def cycle_index(frame: int, n: int) -> int:
+    """Ping-pong index into an n-frame cycle: 0..n-1, n-1..1, 0..
+
+    MuseTalk's own `frame_list_cycle = frames + frames[::-1]`, without storing
+    the frames twice. n<=1 collapses to 0 so an image avatar needs no special case.
+    """
+    if n <= 1:
+        return 0
+    period = 2 * n - 2
+    k = frame % period
+    return k if k < n else period - k
+
+
 # whisper and MuseTalk both work at 16 kHz; ingest is 48 kHz.
 SR16 = 16000
 # MuseTalk's whisper feature stream is 50 fps and each output frame consumes a
@@ -79,7 +94,6 @@ CONTEXT_FRAMES = 5
 # 2 s of 16 kHz audio: far more than CONTEXT_FRAMES plus one 100 ms block, and
 # re-trimmed every call so the buffer cannot grow without bound.
 MAX_BUF = SR16 * 2
-AVATAR_CACHE_SIZE = 4
 # Frames per UNet call. Per-frame cost falls steeply to ~8 (15.6 -> 4.5 ms) and
 # flattens after, so this is also the natural chunk for a multi-session batch.
 BATCH_SIZE = 8
@@ -276,18 +290,22 @@ def _load_latents(path: Path):
 
 @dataclass
 class _AvatarState:
-    """One avatar's prepared artifacts, resolved from pack.prep."""
+    """One avatar's prepared artifacts, resolved from pack.prep.
 
-    bbox: list[int]
-    base_rgb: np.ndarray  # HxWx3 uint8, canvas space, in the sink's RGB order
-    latents: object  # torch.Tensor [1,8,32,32] on device, weight dtype
-    mask: np.ndarray  # HxW uint8, sized to mask_crop_box
-    mask_crop_box: list[int]
-    # Device-side twins of base_rgb/mask, built on first render. Deferred out of
-    # `_load_avatar` because the torch-free tests build this dataclass by hand
-    # and must not need a device to do it.
-    base_t: object = None
-    mask_t: object = None
+    A video avatar carries N base frames and their per-frame sidecars; an image
+    avatar is the N=1 case. `frames` stays on the CPU -- a 15 s avatar is ~1 GB
+    -- and only the frames a batch needs are moved to the device.
+    """
+
+    frames: np.ndarray  # [N,H,W,3] uint8, canvas space, sink's RGB order
+    latents: object  # torch.Tensor [N,8,32,32] on device, weight dtype
+    bboxes: list[list[int]]  # length N
+    masks: list[np.ndarray]  # length N, each sized to its frame's mask_crop_box
+    mask_boxes: list[list[int]]  # length N
+
+    @property
+    def cycle_len(self) -> int:
+        return len(self.bboxes)
 
 
 @dataclass
@@ -394,6 +412,7 @@ class MuseTalkEngine(DriveEngine):
             Path(models_dir) if models_dir else Path(settings.data_dir) / "models" / "musetalk"
         )
         self.fps = int(fps or settings.fps)
+        self.cache_size = int(settings.avatar_cache_size)
         # One worker thread owns every CUDA call: it keeps the GPU serialized
         # and, because it drains whatever is queued when it finishes a batch,
         # it coalesces concurrent sessions into shared UNet calls.
@@ -665,8 +684,12 @@ class MuseTalkEngine(DriveEngine):
                 groups.setdefault(id(avatar), []).append(k)
             for idxs in groups.values():
                 avatar = work[idxs[0]][1]
+                cycle_idxs: list[int] = []
+                for k in idxs:
+                    _, _, first, pr = work[k]
+                    cycle_idxs += [cycle_index(first + j, avatar.cycle_len) for j in range(int(pr.shape[0]))]
                 prompts = _cat_prompts([work[k][3] for k in idxs])
-                images = self._render(rt, avatar, prompts)
+                images = self._render(rt, avatar, cycle_idxs, prompts)
                 pos = 0
                 for k in idxs:
                     i, _, first, pr = work[k]
@@ -722,53 +745,50 @@ class MuseTalkEngine(DriveEngine):
         index = [min(max(f - f0, 0), last) for f in range(first, target)]
         return prompts[index]
 
-    def _device_assets(self, rt: _Runtime, avatar: _AvatarState):
-        """The canvas and mask as device tensors, built once per avatar."""
+    def _to_device(self, rt: _Runtime, rgb: np.ndarray):
         import torch
 
-        if avatar.base_t is None:
-            avatar.base_t = (
-                torch.from_numpy(avatar.base_rgb).permute(2, 0, 1).contiguous().to(rt.device)
-            )
-            avatar.mask_t = (
-                torch.from_numpy(avatar.mask)
-                .to(torch.float32)
-                .div_(255.0)
-                .unsqueeze(0)
-                .to(rt.device)
-            )
-        return avatar.base_t, avatar.mask_t
+        return torch.from_numpy(rgb).permute(2, 0, 1).contiguous().to(rt.device)
 
-    def _render(self, rt: _Runtime, avatar: _AvatarState, prompts) -> list[np.ndarray]:
+    def _mask_to_device(self, rt: _Runtime, mask: np.ndarray):
+        import torch
+
+        return (
+            torch.from_numpy(mask).to(torch.float32).div_(255.0).unsqueeze(0).to(rt.device)
+        )
+
+    def _render(self, rt: _Runtime, avatar: _AvatarState, idxs: list[int], prompts) -> list[np.ndarray]:
         import torch
         import torch.nn.functional as F
 
-        x1, y1, x2, y2 = avatar.bbox
-        size = (y2 - y1, x2 - x1)  # interpolate takes (H, W)
-        base_t, mask_t = self._device_assets(rt, avatar)
         out: list[np.ndarray] = []
         with torch.no_grad():
             for i in range(0, prompts.shape[0], BATCH_SIZE):
                 wb = prompts[i : i + BATCH_SIZE].to(rt.device, dtype=rt.weight_dtype)
-                latents = avatar.latents.repeat(wb.shape[0], 1, 1, 1)
-                pred = rt.unet.model(
-                    latents, rt.timesteps, encoder_hidden_states=rt.pe(wb)
-                ).sample
+                lb = avatar.latents[[idxs[i + j] for j in range(wb.shape[0])]]
+                pred = rt.unet.model(lb, rt.timesteps, encoder_hidden_states=rt.pe(wb)).sample
                 recon = _decode_gpu(rt, pred)
-                resized = (
-                    F.interpolate(
-                        recon.to(torch.float32),
-                        size=size,
-                        mode="bilinear",
-                        align_corners=False,
+                for j in range(recon.shape[0]):
+                    c = idxs[i + j]
+                    bbox = avatar.bboxes[c]
+                    x1, y1, x2, y2 = bbox
+                    face = (
+                        F.interpolate(
+                            recon[j : j + 1].to(torch.float32),
+                            size=(y2 - y1, x2 - x1),
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+                        .round()
+                        .clamp_(0.0, 255.0)
+                        .to(torch.uint8)[0]
                     )
-                    .round()
-                    .clamp_(0.0, 255.0)
-                    .to(torch.uint8)
-                )
-                for j in range(resized.shape[0]):
                     frame = _blend_face_gpu(
-                        base_t, resized[j], avatar.bbox, mask_t, avatar.mask_crop_box
+                        self._to_device(rt, avatar.frames[c]),
+                        face,
+                        bbox,
+                        self._mask_to_device(rt, avatar.masks[c]),
+                        avatar.mask_boxes[c],
                     )
                     out.append(frame.permute(1, 2, 0).contiguous().cpu().numpy())
         return out
@@ -795,7 +815,7 @@ class MuseTalkEngine(DriveEngine):
             return state
         state = self._load_avatar(rt, pack)
         self._avatars[pack.avatar_id] = state
-        while len(self._avatars) > AVATAR_CACHE_SIZE:
+        while len(self._avatars) > self.cache_size:
             self._avatars.popitem(last=False)
         return state
 
@@ -803,28 +823,22 @@ class MuseTalkEngine(DriveEngine):
         from PIL import Image
 
         prep = pack.prep or {}
-        if not prep.get("latents") or not prep.get("mask"):
+        if not prep.get("latents") or not (prep.get("coords") or prep.get("mask")):
             raise EngineUnavailable(
                 f"avatar {pack.avatar_id} has no musetalk pack; prepare it with "
                 "DH_AVATAR_PIPELINE=musetalk"
             )
         root = Path(pack.root)
-        # Kept in RGB, the order the sink contract wants: the only frame that
-        # would ever need flipping is the finished 720x1280 canvas, and at
-        # 2.7 MB that flip cost more than the blend it fed.
-        #
-        # `np.array`, not `np.asarray`: PIL hands back a read-only buffer, and
-        # the device twin below is a zero-copy view of whatever we store here.
         base_rgb = np.array(
             Image.open(root / prep.get("base_image", "normalized.png")).convert("RGB")
         )
         latents = _load_latents(root / prep["latents"]).to(rt.device, dtype=rt.weight_dtype)
         return _AvatarState(
-            bbox=[int(v) for v in prep["bbox"]],
-            base_rgb=base_rgb,
+            frames=base_rgb[None, ...],
             latents=latents,
-            mask=np.array(Image.open(root / prep["mask"]).convert("L")),
-            mask_crop_box=[int(v) for v in prep["mask_crop_box"]],
+            bboxes=[[int(v) for v in prep["bbox"]]],
+            masks=[np.array(Image.open(root / prep["mask"]).convert("L"))],
+            mask_boxes=[[int(v) for v in prep["mask_crop_box"]]],
         )
 
     # -- plumbing -------------------------------------------------------
