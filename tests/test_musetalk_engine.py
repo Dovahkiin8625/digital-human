@@ -851,3 +851,64 @@ def test_load_video_pack_rejects_inconsistent_sidecars(tmp_path, monkeypatch):
 
     with pytest.raises(EngineUnavailable, match="inconsistent"):
         eng._load_avatar(_StubRuntime(), pack)
+
+
+def _image_pack(tmp_path, monkeypatch):
+    """A unified-layout PHOTO pack: one coords row, source.png, mode='image'."""
+    import json
+
+    sidecar = tmp_path / "musetalk"
+    (sidecar / "masks").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "source.png").write_bytes(b"\x00")
+    (sidecar / "coords.json").write_text(
+        json.dumps([{"bbox": [0, 0, 8, 8], "mask_crop_box": [0, 0, 8, 8]}])
+    )
+    (sidecar / "meta.json").write_text(json.dumps({"frame_count": 1, "kept": [0], "mode": "image", "fps": 25}))
+    Image.new("L", (8, 8), 255).save(sidecar / "masks" / "00000000.png")
+    with open(sidecar / "latents.pt", "wb") as fh:
+        np.save(fh, np.zeros((1, 8, 32, 32), np.float32))
+
+    class _Loaded:
+        def __init__(self, path):
+            with open(path, "rb") as fh:
+                self.arr = np.load(fh)
+
+        @property
+        def shape(self):
+            return self.arr.shape
+
+        def to(self, *a, **k):
+            return self
+
+    monkeypatch.setattr(me, "_load_latents", lambda path: _Loaded(path))
+
+    def _no_decode(*a, **k):
+        raise AssertionError("loading a photo must never re-decode the source")
+
+    monkeypatch.setattr("server.avatar.video.decode_frames", _no_decode)
+    prep = {
+        "mode": "image",
+        "dir": "musetalk",
+        "source": "source.png",
+        "base_image": "normalized.png",
+        "latents": "musetalk/latents.pt",
+        "coords": "musetalk/coords.json",
+        "masks": "musetalk/masks",
+        "bbox": [0, 0, 8, 8],
+        "mask_crop_box": [0, 0, 8, 8],
+    }
+    pack = _pack(tmp_path, prep=prep)
+    # `_pack` writes its own default normalized.png (5,5,5); restore the tagged
+    # canvas this fixture's assertion is meant to read.
+    Image.new("RGB", (720, 1280), (7, 8, 9)).save(tmp_path / "normalized.png")
+    return pack
+
+
+def test_load_image_pack_uses_the_saved_canvas_without_decoding(tmp_path, monkeypatch):
+    pack = _image_pack(tmp_path, monkeypatch)
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+
+    state = eng._load_avatar(_StubRuntime(), pack)
+
+    assert state.cycle_len == 1
+    assert tuple(state.frames[0][0, 0]) == (7, 8, 9)  # the saved normalized.png

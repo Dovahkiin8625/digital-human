@@ -848,9 +848,36 @@ class MuseTalkEngine(DriveEngine):
                 "DH_AVATAR_PIPELINE=musetalk"
             )
         root = Path(pack.root)
-        if prep.get("coords"):
+        mode = prep.get("mode")
+        if mode == "video":
             return self._load_video_avatar(rt, pack, root, prep)
+        if mode == "image":
+            return self._load_image_avatar(rt, root, prep)
         return self._load_legacy_avatar(rt, root, prep)
+
+    def _load_image_avatar(self, rt: _Runtime, root: Path, prep: dict) -> _AvatarState:
+        """A photo prepared under the unified layout: N=1, no video to rebuild.
+
+        Unlike a video pack the base frame cannot be re-decoded from the
+        source (cv2.VideoCapture does not open PNG/WebP), so the canvas and
+        mask written at prepare time are the load source.
+        """
+        from PIL import Image
+
+        base_rgb = np.array(
+            Image.open(root / prep.get("base_image", "normalized.png")).convert("RGB")
+        )
+        latents = _load_latents(root / prep["latents"]).to(rt.device, dtype=rt.weight_dtype)
+        mask = np.array(
+            Image.open(root / prep["masks"] / "00000000.png").convert("L")
+        )
+        return _AvatarState(
+            frames=base_rgb[None, ...],
+            latents=latents,
+            bboxes=[[int(v) for v in prep["bbox"]]],
+            masks=[mask],
+            mask_boxes=[[int(v) for v in prep["mask_crop_box"]]],
+        )
 
     def _load_legacy_avatar(self, rt: _Runtime, root: Path, prep: dict) -> _AvatarState:
         """A single-frame pack written before video support: N=1."""
