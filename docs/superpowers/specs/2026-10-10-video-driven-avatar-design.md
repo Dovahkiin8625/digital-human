@@ -64,7 +64,7 @@ data/avatars/<avatar_id>/
     latents.pt                   # [N,8,32,32] fp16，逐帧 VAE latent
     coords.json                  # [{"bbox":[x1,y1,x2,y2], "mask_crop_box":[..]}, ...]，长度 N
     masks/00000000.png …         # 逐帧融合掩码（bisenet，尺寸 = 该帧 mask_crop_box）；编号为有效帧序号 0..N-1
-    meta.json                    # version/crop/detector/fps/source_fps/frame_count/mode
+    meta.json                    # version/crop/detector/fps/source_fps/frame_count/mode/kept（kept=解码序列中被采用的有效帧下标）
 ```
 
 照片形象（N=1）写入**同一结构**：`source.png`、单行 `coords.json`、单个 `masks/00000000.png`、`latents.pt` 形状 `[1,8,32,32]`。不再单独产出 `bbox.json` / `landmarks.json` / `mask.png`（旧包仍可读，见 §8）。
@@ -83,6 +83,7 @@ data/avatars/<avatar_id>/
     "fps": 25,
     "source_fps": 30.0,
     "base_image": "normalized.png",
+    "source": "source.mp4",
     "latents": "musetalk/latents.pt",
     "coords": "musetalk/coords.json",
     "masks": "musetalk/masks",
@@ -117,7 +118,8 @@ cycle_len:   int = N
 
 **加载（`_load_avatar`）**
 
-- 读 `meta.json.frame_count`，调用解码函数重建 `frames`，并**校验重建帧数 == frame_count**，否则报 `EngineUnavailable`（防止 coords/latents 与帧错位）。
+- 读 `meta.json`：用 `kept` 从重建的解码序列里**选出有效帧**（流水线丢弃了无脸的帧，`kept[i]` 是第 i 个有效帧在解码序列中的下标），得到与 `coords.json` / `latents` 一一对应的 `frames`。
+- **校验** `len(kept) == frame_count == latents.shape[0] == len(coords)`，且 `max(kept) < len(解码序列)`，否则报 `EngineUnavailable`（防止 coords/latents 与帧错位）。
 - 读 `latents.pt`、`coords.json`、`masks/`。
 - 旧格式回退：无 `coords.json` 时按单帧包加载（见 §8）。
 
