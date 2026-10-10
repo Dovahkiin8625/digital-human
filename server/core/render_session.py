@@ -217,11 +217,18 @@ class RenderSession:
             if self.state in (SessionState.CLOSED, SessionState.ERROR):
                 raise AppError("session_closed", f"session {self.session_id} is {self.state.value}", 409)
             if self.state is not SessionState.SPEAKING:
-                # First audio after idle: hand the idle position to the engine
-                # so its first speech frame is the frame the idle track would
-                # have shown next. Duck-typed: a mock engine's context is None.
+                # First audio after idle: map the idle timeline onto the
+                # engine's cumulative anchor. It selects
+                # cycle_index(phase + emitted + j), and emitted counts frames
+                # for the WHOLE session and is not reset at idle, so seeding
+                # the absolute position would count every earlier utterance
+                # again on the second turn. Seed the delta; the first ever
+                # speech block has both values 0. Duck-typed: a mock engine's
+                # context is None.
                 if self._ctx is not None and hasattr(self._ctx, "phase"):
-                    self._ctx.phase = int(self._idle_pos)
+                    self._ctx.phase = int(self._idle_pos) - int(
+                        getattr(self._ctx, "emitted", 0)
+                    )
             self.last_audio_at = time.monotonic()
             self.state = SessionState.SPEAKING
             for block in self._ingest.push_pcm(data):

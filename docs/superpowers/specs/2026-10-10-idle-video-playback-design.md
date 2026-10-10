@@ -56,9 +56,11 @@
 `_SessionContext` 增加一个字段：
 
 ```python
-    # Ping-pong cycle position of the frame just *before* this context's first
-    # speech frame. Speech frame selection reads cycle_index(phase + emitted + j)
-    # so a session whose idle track reached cycle position p can start speaking
+    # Offset of this context's speech base frames relative to the session's
+    # cumulative emitted anchor: the absolute ping-pong cycle position is
+    # phase + emitted, and speech frame selection reads
+    # cycle_index(phase + emitted + j). Seeding phase = idle position - emitted
+    # lets a session whose idle track reached absolute position p start speaking
     # from the identical frame. Whisper/audio bookkeeping is untouched: it is
     # always anchored on emitted, and phase only shifts which base frame is used.
     phase: int = 0
@@ -148,12 +150,19 @@ mock 引擎沿用默认实现（返回 None），现有测试行为不变。
 
 ```python
             if self.state is not SessionState.SPEAKING:
-                # First audio after an idle stretch: hand the idle cycle
-                # position to the engine so its first speech frame is the frame
-                # the idle track would have shown next.
+                # 引擎按 cycle_index(phase + emitted + j) 选帧，而 emitted
+                # 跨整段会话累计、空闲时不重置，因此种入的是“空闲绝对位置
+                # 减去累计 emitted”的差值；首句两者皆为 0，与直接种位置相同。
                 if self._ctx is not None and hasattr(self._ctx, "phase"):
-                    self._ctx.phase = int(self._idle_pos)
+                    self._ctx.phase = int(self._idle_pos) - int(
+                        getattr(self._ctx, "emitted", 0)
+                    )
 ```
+
+种入的不是空闲绝对位置本身，而是差值 `_idle_pos − emitted`：选帧时 phase
+要叠加会话级**累计**的 emitted（空闲期间也不重置），而空闲时间线是绝对的，
+直接种绝对位置会在第二次开口时把之前每段话再计一次；首句两者皆为 0，
+与直接种位置完全相同。
 
 `_SessionContext` 类型在运行时由引擎产生，RenderSession 不导入引擎内部类，
 统一用鸭子属性判断（mock 引擎的 context 为 None，跳过）。

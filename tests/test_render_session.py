@@ -331,6 +331,7 @@ class _IdleEngine(MockEngine):
             [np.full((1280, 720, 3), 60 + i, np.uint8) for i in range(n)]
         )
         self.idle_calls: list[int] = []
+        self.selections: list[int] = []
 
     class _Ctx:
         phase = 0
@@ -348,11 +349,20 @@ class _IdleEngine(MockEngine):
     async def drive(self, pack, audio, sample_rate, *, context=None):
         frames = await super().drive(pack, audio, sample_rate, context=context)
         if context is not None:
-            context.emitted += len(frames)
+            from server.engine.musetalk_engine import cycle_index
+
+            first = int(context.emitted)
+            # Mirror the real engine: base frames at phase + the cumulative
+            # emitted anchor; emitted advances cumulatively and never resets.
+            self.selections += [
+                cycle_index(int(context.phase) + first + j, self.n)
+                for j in range(len(frames))
+            ]
+            context.emitted = first + len(frames)
         return frames
 
     def idle_position(self, ctx):
-        return int(getattr(ctx, "emitted", 0))
+        return int(getattr(ctx, "phase", 0)) + int(getattr(ctx, "emitted", 0))
 
 
 class _ImageCapture(FrameBufferSink):
@@ -451,4 +461,30 @@ async def test_sink_closed_does_not_advance_position(tmp_path):
     await asyncio.sleep(0.15)
     assert session._idle_pos == 0
     assert session.metrics["dropped_frames"] > 0
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_second_speech_stretch_continues_without_double_counting(tmp_path):
+    from server.engine.musetalk_engine import cycle_index
+
+    engine = _IdleEngine(n=8)
+    session, _ = _session(tmp_path, engine=engine, sink=_LiveSink())
+    await session.start()
+    # Turn 1: five 100 ms blocks -> 10 frames; phase seeded at 0, emitted 10.
+    await session.push_pcm(np.zeros(24000, np.int16).tobytes())
+    session.maybe_idle(now=session.last_audio_at + 3.0)
+    assert session.state == SessionState.IDLE
+    assert session._idle_pos == 10
+    # The idle track advanced three positions (10 -> 13) before speech resumes.
+    session._idle_pos = 13
+    await session.push_pcm(np.zeros(4800, np.int16).tobytes())  # 2 frames
+    # Seamless edge: turn 2 starts on the frame the idle track would show
+    # next, absolute position 13. The old absolute seed (phase = 13) composed
+    # with the still-cumulative emitted (10) would select positions 23/24.
+    assert session._ctx.phase == 3  # 13 - 10
+    assert engine.selections[-2:] == [cycle_index(13, 8), cycle_index(14, 8)]
+    # Readback after turn 2 stays on one continuous timeline: phase 3 + 12.
+    session.maybe_idle(now=session.last_audio_at + 3.0)
+    assert session._idle_pos == 15
     await session.close()
