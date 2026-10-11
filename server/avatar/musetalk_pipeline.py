@@ -35,6 +35,7 @@ from PIL import Image
 
 from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 from server.avatar.pipeline import AvatarPipeline, PipelineError
+from server.avatar.quality import assess as assess_quality
 from server.avatar.video import is_video_suffix
 from server.config import get_settings
 
@@ -305,6 +306,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
 
         prep = self._get_preparer()
         parts, coords, masks, kept = [], [], [], []
+        warnings: list[str] = []
         for i, bgr in enumerate(frames):
             try:
                 out = prep(bgr)
@@ -312,6 +314,10 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
                 if mode == "image":
                     raise  # an image with no face is a plain error, not a skip
                 continue
+            if not kept:
+                # First usable frame stands for the source: one advisory
+                # assessment per job, on the prepared canvas, in RGB.
+                warnings = list(assess_quality(np.ascontiguousarray(bgr[:, :, ::-1]), out["landmarks"]))
             kept.append(i)
             parts.append(out["latents"])
             coords.append({"bbox": out["bbox"], "mask_crop_box": out["mask_crop_box"]})
@@ -351,7 +357,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
                 }
             )
         )
-        return {
+        config = {
             "musetalk": {
                 "mode": mode,
                 "dir": SUBDIR,
@@ -370,6 +376,9 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
                 "mask_crop_box": coords[0]["mask_crop_box"],
             }
         }
+        if warnings:
+            config["warnings"] = warnings
+        return config
 
     def _image_frames(self, source_path: Path, settings) -> tuple[list[np.ndarray], float]:
         img = Image.open(source_path).convert("RGB")

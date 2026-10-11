@@ -1,5 +1,4 @@
 import hmac
-import json
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
@@ -32,11 +31,6 @@ class LoginIn(BaseModel):
 
 class TenantIn(BaseModel):
     name: str
-
-
-class AvatarConfigIn(BaseModel):
-    mouth_scale: float | None = None
-    expression_intensity: float | None = None
 
 
 class TtsIn(BaseModel):
@@ -209,23 +203,6 @@ def retry_avatar(avatar_id: str, background: BackgroundTasks, db=Depends(get_db)
     db.commit()
     background.add_task(run_job_in_new_session, job.id, AvatarStore(get_settings().data_dir))
     return {"job_id": job.id}
-
-
-@admin_router.patch("/avatars/{avatar_id}/config")
-def patch_avatar_config(avatar_id: str, body: AvatarConfigIn, db=Depends(get_db)) -> dict:
-    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
-    if avatar is None:
-        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
-    cfg = dict(avatar.config_json or {})
-    if body.mouth_scale is not None:
-        cfg["mouth_scale"] = body.mouth_scale
-    if body.expression_intensity is not None:
-        cfg["expression_intensity"] = body.expression_intensity
-    avatar.config_json = cfg
-    if avatar.pack_path:
-        Path(avatar.pack_path).write_text(json.dumps(cfg))
-    db.commit()
-    return {"avatar_id": avatar_id, "config": cfg}
 
 
 @admin_router.get("/avatars/{avatar_id}/idle.mp4")

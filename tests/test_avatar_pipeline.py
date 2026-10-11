@@ -50,7 +50,7 @@ def test_pipeline_produces_pack(tmp_path, db):
     assert avatar.pack_path == str(pack_dir / "pack.json")
     assert (pack_dir / "normalized.png").exists()
     cfg = json.loads((pack_dir / "pack.json").read_text())
-    assert cfg["mouth_scale"] == 1.0
+    assert cfg == {"crop": {"mode": "center"}}
     pack = store.load_pack(avatar)
     assert pack.avatar_id == avatar.id
     assert pack.source_image_path.exists()
@@ -110,7 +110,7 @@ def test_mock_pipeline_stages_and_config(tmp_path):
     cfg = MockAvatarPipeline().process("a", src, out, lambda s, p: stages.append((s, p)))
 
     assert stages == [("detect_face", 10), ("align", 40), ("normalize", 70), ("build_pack", 100)]
-    assert cfg == {"mouth_scale": 1.0, "expression_intensity": 1.0, "crop": {"mode": "center"}}
+    assert cfg == {"crop": {"mode": "center"}}
     with Image.open(out / "normalized.png") as img:
         assert img.size == (720, 1280)
 

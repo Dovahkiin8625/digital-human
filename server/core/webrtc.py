@@ -139,6 +139,23 @@ class WebRTCSink(StreamSink):
         self.closed = True
 
 
+def configure_h264_bitrate(target: int, ceiling: int) -> None:
+    """Raise aiortc's OpenH264 bitrate above its 1 Mbps / 3 Mbps defaults.
+
+    aiortc exposes no per-sender bitrate parameter. ``H264Encoder.__init__``
+    reads the module's ``DEFAULT_BITRATE`` global when a sender builds its
+    encoder, and the REMB feedback setter clamps to ``MAX_BITRATE`` at runtime,
+    so patching both module attributes is the only seam. Must run at startup,
+    before any RTCPeerConnection has encoded a frame.
+    """
+    import aiortc.codecs.h264 as h264
+
+    target = int(target)
+    ceiling = max(int(ceiling), target)
+    h264.DEFAULT_BITRATE = target
+    h264.MAX_BITRATE = ceiling
+
+
 async def consume_audio_track(track: MediaStreamTrack, push_pcm) -> None:
     """Drain an inbound RTP audio track into the session's PCM ingest.
 

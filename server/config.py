@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     frame_height: int = 1280
     fps: int = 25
     sample_rate: int = 48000
+    # Outbound H.264. aiortc's OpenH264 defaults to 1 Mbps with a 3 Mbps REMB
+    # ceiling; at 720x1280@25 the talking mouth is the busiest region in the
+    # frame and 1 Mbps turns it into blocky noise. Raised to 3.5/4 Mbps at
+    # startup (see server.core.webrtc.configure_h264_bitrate).
+    video_bitrate: int = 3_500_000
+    video_max_bitrate: int = 4_000_000
 
     # Video-driven avatars. A driver video is decoded at the output fps and
     # capped so its frames can stay resident: 15 s at 25 fps is 375 frames.

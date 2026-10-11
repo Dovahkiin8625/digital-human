@@ -108,7 +108,9 @@ def test_system_info(client):
     assert body["gpu"] is False
 
 
-def test_avatar_config(client):
+def test_avatar_config_endpoint_removed(client):
+    # The mouth/expression sliders never reached the real MuseTalk engine, so
+    # their endpoint was removed rather than left pretending to work.
     client.post("/api/admin/tenants", headers=ADMIN, json={"name": "t"})
     api_key = client.post("/api/admin/tenants", headers=ADMIN, json={"name": "t2"}).json()["api_key"]
     avatar_id = client.post(
@@ -119,8 +121,9 @@ def test_avatar_config(client):
     resp = client.patch(
         f"/api/admin/avatars/{avatar_id}/config", headers=ADMIN, json={"mouth_scale": 1.5}
     )
-    assert resp.status_code == 200
-    assert resp.json()["config"]["mouth_scale"] == 1.5
+    # The /config child route existed only for the sliders' PATCH; with it
+    # gone, nothing matches the path at all.
+    assert resp.status_code == 404
 
 
 def _make_video_mode(client, avatar_id):
@@ -316,7 +319,7 @@ def test_admin_get_avatar_detail_and_error(client):
         "created_at",
     }
     assert detail["avatar_id"] == good
-    assert detail["config"]["mouth_scale"] == 1.0
+    assert detail["config"] == {"crop": {"mode": "center"}}
     assert detail["error"] is None
 
     bad = client.post(

@@ -36,7 +36,7 @@ def test_avatar_lifecycle(client):
 
     detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
     assert detail["status"] == "ready"
-    assert detail["config"]["mouth_scale"] == 1.0
+    assert detail["config"] == {"crop": {"mode": "center"}}
 
     listing = client.get("/api/v1/avatars", headers=headers).json()
     assert [a["avatar_id"] for a in listing] == [avatar_id]

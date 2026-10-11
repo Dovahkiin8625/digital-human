@@ -1,0 +1,904 @@
+{
+  "sha": "26545cc2dd95bc3d27f056016300673bdeee78f5",
+  "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/26545cc2dd95bc3d27f056016300673bdeee78f5",
+  "tree": [
+    {
+      "path": ".github",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "3b330fa43d749c89491ae03459f2c16dd9852cb0",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/3b330fa43d749c89491ae03459f2c16dd9852cb0"
+    },
+    {
+      "path": ".github/workflows",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1855eda9abee7de8be70ec5fdd5da35ee2fea6b0",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/1855eda9abee7de8be70ec5fdd5da35ee2fea6b0"
+    },
+    {
+      "path": ".github/workflows/publish.yml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eb5b7d5f5484abc954a89dde2b97d327de44b43b",
+      "size": 649,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/eb5b7d5f5484abc954a89dde2b97d327de44b43b"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c16001cc49079aaeba0e41bb39dcbf6c4ac3733d",
+      "size": 29,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/c16001cc49079aaeba0e41bb39dcbf6c4ac3733d"
+    },
+    {
+      "path": "All_in_one_v1_3.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "091ccfafbc3372ff77b35f6d0ef9a15e2342f0a6",
+      "size": 1462273,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/091ccfafbc3372ff77b35f6d0ef9a15e2342f0a6"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2a8000ad9540222a0f8f50ac7fb8b04fa8dd0cd3",
+      "size": 1066,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/2a8000ad9540222a0f8f50ac7fb8b04fa8dd0cd3"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f1e65fad45dc7d5c297041932643ae2c283e4b7e",
+      "size": 7710,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/f1e65fad45dc7d5c297041932643ae2c283e4b7e"
+    },
+    {
+      "path": "__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "83bfe0f369137104a462d36a839dcce1e9389cef",
+      "size": 1640,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/83bfe0f369137104a462d36a839dcce1e9389cef"
+    },
+    {
+      "path": "config.yaml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b99d4a76ab08cc1157e349745770dd1f37c9ffca",
+      "size": 127,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/b99d4a76ab08cc1157e349745770dd1f37c9ffca"
+    },
+    {
+      "path": "demo_frames",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "1caafa3fc0b31c680b6ac88dd0e8d97ed64fe00b",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/1caafa3fc0b31c680b6ac88dd0e8d97ed64fe00b"
+    },
+    {
+      "path": "demo_frames/anime0.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "14ced4fca7312f54170865de3eada135d3e1de6e",
+      "size": 340936,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/14ced4fca7312f54170865de3eada135d3e1de6e"
+    },
+    {
+      "path": "demo_frames/anime1.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1e0c70c7cb802e0e505e8339164b738c4822a1ad",
+      "size": 329357,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/1e0c70c7cb802e0e505e8339164b738c4822a1ad"
+    },
+    {
+      "path": "demo_frames/bocchi0.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8585b7ecca56e40c6eb8f923b00f1d4e048dc965",
+      "size": 129774,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/8585b7ecca56e40c6eb8f923b00f1d4e048dc965"
+    },
+    {
+      "path": "demo_frames/bocchi1.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "27890f7fd25013b40073e3444c20e963247b8e84",
+      "size": 139543,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/27890f7fd25013b40073e3444c20e963247b8e84"
+    },
+    {
+      "path": "demo_frames/real0.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6bf29abe4abfefcb2d85b3ab7ac0fa86428bdf28",
+      "size": 1230238,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/6bf29abe4abfefcb2d85b3ab7ac0fa86428bdf28"
+    },
+    {
+      "path": "demo_frames/real1.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b563e061586891f78b102f19868ac267bf707424",
+      "size": 1213845,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/b563e061586891f78b102f19868ac267bf707424"
+    },
+    {
+      "path": "demo_frames/rick",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "ecdd45121bca4a4a8c776d581c0e0a424d4bc954",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/ecdd45121bca4a4a8c776d581c0e0a424d4bc954"
+    },
+    {
+      "path": "demo_frames/rick/00003.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "181e260efa842a0789204ed099e7501b2faacaf5",
+      "size": 456245,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/181e260efa842a0789204ed099e7501b2faacaf5"
+    },
+    {
+      "path": "demo_frames/rick/00004.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "80ebc6fe8f3ea1d2a6c32892f494611470ab76c6",
+      "size": 354894,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/80ebc6fe8f3ea1d2a6c32892f494611470ab76c6"
+    },
+    {
+      "path": "demo_frames/rick/00005.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a63737d651d79c2835229450358a5ef887c9b686",
+      "size": 357224,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/a63737d651d79c2835229450358a5ef887c9b686"
+    },
+    {
+      "path": "demo_frames/violet0.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e2aee63e5d74778c69182b0b0118e0e2033637bc",
+      "size": 888543,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e2aee63e5d74778c69182b0b0118e0e2033637bc"
+    },
+    {
+      "path": "demo_frames/violet1.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0582b712a1333ff2c9dcc6bad23dae99b6be2a9b",
+      "size": 951287,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/0582b712a1333ff2c9dcc6bad23dae99b6be2a9b"
+    },
+    {
+      "path": "example.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dbd370165d90ccbe4afd63181758fdcd4418ce6f",
+      "size": 182103,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/dbd370165d90ccbe4afd63181758fdcd4418ce6f"
+    },
+    {
+      "path": "install-taichi.bat",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d601f71c20e8ea2d768ee710a277666f2bd68643",
+      "size": 199,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/d601f71c20e8ea2d768ee710a277666f2bd68643"
+    },
+    {
+      "path": "install.bat",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "84e0f7eb536a2c9bfc3313a377086b9cf4aa508f",
+      "size": 345,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/84e0f7eb536a2c9bfc3313a377086b9cf4aa508f"
+    },
+    {
+      "path": "install.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ecbe35da8bd39829134a6ee7759251e0a203d25b",
+      "size": 2092,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ecbe35da8bd39829134a6ee7759251e0a203d25b"
+    },
+    {
+      "path": "interpolation_schedule.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ff92add09e66b8f967a72cc78efca4b1bca073d6",
+      "size": 378153,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ff92add09e66b8f967a72cc78efca4b1bca073d6"
+    },
+    {
+      "path": "other_nodes.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "75b76fe109424a389eb4802dc4aa8c59c53329ec",
+      "size": 4303,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/75b76fe109424a389eb4802dc4aa8c59c53329ec"
+    },
+    {
+      "path": "pyproject.toml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "69715511bbfbc3bf6cab53e3cf9bc0d568b10273",
+      "size": 358,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/69715511bbfbc3bf6cab53e3cf9bc0d568b10273"
+    },
+    {
+      "path": "requirements-no-cupy.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c490ca515d47b6623861b051fd822d24bc2ecd7e",
+      "size": 77,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/c490ca515d47b6623861b051fd822d24bc2ecd7e"
+    },
+    {
+      "path": "requirements-with-cupy.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bdfeb47253006b2897a2dd3ff1e7c91ccb41e1b2",
+      "size": 88,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/bdfeb47253006b2897a2dd3ff1e7c91ccb41e1b2"
+    },
+    {
+      "path": "test.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3c06ae20dc974344ed091dce2e410666a9fdd56f",
+      "size": 1682,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3c06ae20dc974344ed091dce2e410666a9fdd56f"
+    },
+    {
+      "path": "test_vfi_schedule.gif",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9097cddceaf1824c0b35fc7003fdeeb57c34bfa7",
+      "size": 8409697,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/9097cddceaf1824c0b35fc7003fdeeb57c34bfa7"
+    },
+    {
+      "path": "vfi_models",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c9700c2eca5051415876abbc2c4c0d04af8d6f2a",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/c9700c2eca5051415876abbc2c4c0d04af8d6f2a"
+    },
+    {
+      "path": "vfi_models/amt",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "fb0759c9497abbb43b97c97164c8da844ffcab87",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/fb0759c9497abbb43b97c97164c8da844ffcab87"
+    },
+    {
+      "path": "vfi_models/amt/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "20740c2a4d9d669a625db6f729ef11b18c449e9a",
+      "size": 3115,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/20740c2a4d9d669a625db6f729ef11b18c449e9a"
+    },
+    {
+      "path": "vfi_models/amt/amt_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "448c4d56193a833d3a1c89ea3e8475258f11958a",
+      "size": 59029,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/448c4d56193a833d3a1c89ea3e8475258f11958a"
+    },
+    {
+      "path": "vfi_models/atm",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "29612e7ec5a84af375c3e190e010cac2c77aa0bc",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/29612e7ec5a84af375c3e190e010cac2c77aa0bc"
+    },
+    {
+      "path": "vfi_models/atm/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5e021d6463645c3bb195bbed10c4411b55e70ce9",
+      "size": 6854,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/5e021d6463645c3bb195bbed10c4411b55e70ce9"
+    },
+    {
+      "path": "vfi_models/atm/attention.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e51f1ff6b9bf6f7f6b5f8e47e5a8dec705ad65a2",
+      "size": 21833,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e51f1ff6b9bf6f7f6b5f8e47e5a8dec705ad65a2"
+    },
+    {
+      "path": "vfi_models/atm/flow_warp.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "50bfb23d80fdda10c17a99216a1d02ff335c1e51",
+      "size": 1826,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/50bfb23d80fdda10c17a99216a1d02ff335c1e51"
+    },
+    {
+      "path": "vfi_models/atm/network_base.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "db9bf4204ff202a860cda60946d51afe7140cef4",
+      "size": 29217,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/db9bf4204ff202a860cda60946d51afe7140cef4"
+    },
+    {
+      "path": "vfi_models/atm/network_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ccbaa7637a7489f87831d8ffc491b02bae2181d0",
+      "size": 29091,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ccbaa7637a7489f87831d8ffc491b02bae2181d0"
+    },
+    {
+      "path": "vfi_models/cain",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "804e30d84a9515fd90194d543f6db972e9d82ca7",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/804e30d84a9515fd90194d543f6db972e9d82ca7"
+    },
+    {
+      "path": "vfi_models/cain/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8d1166d1fad2639bb9ce49a2e2ff3471ef6a6415",
+      "size": 2363,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/8d1166d1fad2639bb9ce49a2e2ff3471ef6a6415"
+    },
+    {
+      "path": "vfi_models/cain/cain_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "abd8db30b7f4260ea847da249d4d4114f8091d95",
+      "size": 1914,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/abd8db30b7f4260ea847da249d4d4114f8091d95"
+    },
+    {
+      "path": "vfi_models/cain/cain_encdec_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ea10ed87e38bee995f435bb4305e221e4c13a4a6",
+      "size": 2911,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ea10ed87e38bee995f435bb4305e221e4c13a4a6"
+    },
+    {
+      "path": "vfi_models/cain/cain_noca_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "08fbb117e9acef30d49627d5c906622b13197623",
+      "size": 1850,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/08fbb117e9acef30d49627d5c906622b13197623"
+    },
+    {
+      "path": "vfi_models/cain/common.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "aa1600a231d32eec39785883cb26b93fd9c64e62",
+      "size": 11971,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/aa1600a231d32eec39785883cb26b93fd9c64e62"
+    },
+    {
+      "path": "vfi_models/eisai",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "36858359e130b48c8fb49260903b3385b8c04e5a",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/36858359e130b48c8fb49260903b3385b8c04e5a"
+    },
+    {
+      "path": "vfi_models/eisai/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3602505192621731e00acde67489c6a51360adb8",
+      "size": 3144,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3602505192621731e00acde67489c6a51360adb8"
+    },
+    {
+      "path": "vfi_models/eisai/eisai_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a3abae7187b26fedd86219058a7e8e024e59e30",
+      "size": 80381,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/4a3abae7187b26fedd86219058a7e8e024e59e30"
+    },
+    {
+      "path": "vfi_models/film",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e0d5e38f3258b8a5c2d264471c70f879324be2cb",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/e0d5e38f3258b8a5c2d264471c70f879324be2cb"
+    },
+    {
+      "path": "vfi_models/film/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1f89f1bdc63d149a36c72614b3f1c7ed7ffa7962",
+      "size": 4645,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/1f89f1bdc63d149a36c72614b3f1c7ed7ffa7962"
+    },
+    {
+      "path": "vfi_models/film/film_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a527e842f8e97d2c0f2c6997d8fa4d3134e59167",
+      "size": 31578,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/a527e842f8e97d2c0f2c6997d8fa4d3134e59167"
+    },
+    {
+      "path": "vfi_models/flavr",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b7d0bc04b65ada7b258064c302d956ffb088f04f",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/b7d0bc04b65ada7b258064c302d956ffb088f04f"
+    },
+    {
+      "path": "vfi_models/flavr/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "64a4b6bed3ba40712317708b175214bd773633fd",
+      "size": 4988,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/64a4b6bed3ba40712317708b175214bd773633fd"
+    },
+    {
+      "path": "vfi_models/flavr/flavr_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3f26be0968f1192a95005900a081ac84b229323e",
+      "size": 7007,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3f26be0968f1192a95005900a081ac84b229323e"
+    },
+    {
+      "path": "vfi_models/flavr/resnet_3D.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ba8b9a85a9edcf24ed8ff685c667dbcdbff55e69",
+      "size": 9234,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ba8b9a85a9edcf24ed8ff685c667dbcdbff55e69"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "671801b19c62215ce6451d516600f4ff47196a22",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/671801b19c62215ce6451d516600f4ff47196a22"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna/GMFSS_Fortuna.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "949e5130c59b3cf090666dff229bfa9a2be3a072",
+      "size": 599,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/949e5130c59b3cf090666dff229bfa9a2be3a072"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna/GMFSS_Fortuna_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "062489675ef58d541c0311a8a88f3510a737075f",
+      "size": 58553,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/062489675ef58d541c0311a8a88f3510a737075f"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna/GMFSS_Fortuna_union.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "41e92ddfa62fae5877eb12b43677d28ee9d3e29e",
+      "size": 594,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/41e92ddfa62fae5877eb12b43677d28ee9d3e29e"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna/GMFSS_Fortuna_union_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "665e56534b647fe884d236693833f12060daa148",
+      "size": 58815,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/665e56534b647fe884d236693833f12060daa148"
+    },
+    {
+      "path": "vfi_models/gmfss_fortuna/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3e55bb606f30d7d42eeac118fe8832bd7493957f",
+      "size": 5450,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3e55bb606f30d7d42eeac118fe8832bd7493957f"
+    },
+    {
+      "path": "vfi_models/ifrnet",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e63d7671e9d238eea97dcba40eaac8d27865e75d",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/e63d7671e9d238eea97dcba40eaac8d27865e75d"
+    },
+    {
+      "path": "vfi_models/ifrnet/IFRNet_L_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f9554a0bbfbe274ccfa021c618512f5220bbb220",
+      "size": 9202,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/f9554a0bbfbe274ccfa021c618512f5220bbb220"
+    },
+    {
+      "path": "vfi_models/ifrnet/IFRNet_S_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a2282b93b74eddf5792190f77dff0de457ff8b4",
+      "size": 9189,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/4a2282b93b74eddf5792190f77dff0de457ff8b4"
+    },
+    {
+      "path": "vfi_models/ifrnet/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "38a9b771f535dbf081c3a2f32af4e8079cb6203b",
+      "size": 2361,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/38a9b771f535dbf081c3a2f32af4e8079cb6203b"
+    },
+    {
+      "path": "vfi_models/ifunet",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "58ab3c0c64c786a95e11d9e3001ef3bfc0ed2946",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/58ab3c0c64c786a95e11d9e3001ef3bfc0ed2946"
+    },
+    {
+      "path": "vfi_models/ifunet/IFUNet_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "82066132e8fb370d8016afbedb47afed7779c9bb",
+      "size": 26308,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/82066132e8fb370d8016afbedb47afed7779c9bb"
+    },
+    {
+      "path": "vfi_models/ifunet/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bec98675f6cc459a026a0837c90915016c058d79",
+      "size": 2394,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/bec98675f6cc459a026a0837c90915016c058d79"
+    },
+    {
+      "path": "vfi_models/m2m",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "415e79dc68093029fadab5403d21c7272f1140f5",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/415e79dc68093029fadab5403d21c7272f1140f5"
+    },
+    {
+      "path": "vfi_models/m2m/M2M_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "536f915efa4678bd55884852ad6e3ea386fd3ffe",
+      "size": 33540,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/536f915efa4678bd55884852ad6e3ea386fd3ffe"
+    },
+    {
+      "path": "vfi_models/m2m/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "88e489e7825b005010e85009843b122aee8edbd6",
+      "size": 2234,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/88e489e7825b005010e85009843b122aee8edbd6"
+    },
+    {
+      "path": "vfi_models/momo",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "73c60d33e9b0b80e2c1a85c9fee7dd37d0b6a950",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/73c60d33e9b0b80e2c1a85c9fee7dd37d0b6a950"
+    },
+    {
+      "path": "vfi_models/momo/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "67d50a40eda56d0160e2c04fb9f4ebb6295fa56f",
+      "size": 6662,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/67d50a40eda56d0160e2c04fb9f4ebb6295fa56f"
+    },
+    {
+      "path": "vfi_models/momo/flow.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "23c90004ae7830f50f7db14b6949009beb9bb98a",
+      "size": 3486,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/23c90004ae7830f50f7db14b6949009beb9bb98a"
+    },
+    {
+      "path": "vfi_models/momo/momo.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5b0d554486359d4af83cb61dbab7591b8b596e7d",
+      "size": 8613,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/5b0d554486359d4af83cb61dbab7591b8b596e7d"
+    },
+    {
+      "path": "vfi_models/momo/synthesis.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e3cd75bdbb0bbe2ec8e9e05b3bdcd6f8eb70f499",
+      "size": 8808,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e3cd75bdbb0bbe2ec8e9e05b3bdcd6f8eb70f499"
+    },
+    {
+      "path": "vfi_models/momo/unet.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e5ed2eb3d78751a87d884e27136fe4a63826029a",
+      "size": 17414,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e5ed2eb3d78751a87d884e27136fe4a63826029a"
+    },
+    {
+      "path": "vfi_models/ops",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4ea932be2e9e6e568c8945b4990d7b54c1c4fe1e",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/4ea932be2e9e6e568c8945b4990d7b54c1c4fe1e"
+    },
+    {
+      "path": "vfi_models/ops/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "25b13b405172ab46f9b45769520c58f5c098286d",
+      "size": 947,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/25b13b405172ab46f9b45769520c58f5c098286d"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "d8605e5e78e1b3246cadb8027b2f6958a43b6022",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/d8605e5e78e1b3246cadb8027b2f6958a43b6022"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "10090797e7a12b14bafe26d0c3235d6e80f82158",
+      "size": 442,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/10090797e7a12b14bafe26d0c3235d6e80f82158"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/adacof.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "378469045ab9dcb31df62080ba80b2cf5aa9b616",
+      "size": 17699,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/378469045ab9dcb31df62080ba80b2cf5aa9b616"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/batch_edt.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3c3542c7dc9332417ed898de2f7da5e3f750b298",
+      "size": 3226,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3c3542c7dc9332417ed898de2f7da5e3f750b298"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/correlation.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d1e69e2dbbba453ab367dc76a1c3c566d2f5540c",
+      "size": 14683,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/d1e69e2dbbba453ab367dc76a1c3c566d2f5540c"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/costvol.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "070dd483be1716de1a3986034eaaeb9cddda9ee9",
+      "size": 12211,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/070dd483be1716de1a3986034eaaeb9cddda9ee9"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/sepconv.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c334cdca77674f2566dd0075903e4d590e6d9eca",
+      "size": 12841,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/c334cdca77674f2566dd0075903e4d590e6d9eca"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/softsplat.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a2ae47a638c5d025e85169759b587947640e012",
+      "size": 17198,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/4a2ae47a638c5d025e85169759b587947640e012"
+    },
+    {
+      "path": "vfi_models/ops/cupy_ops/utils.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ec29a48e11955eb9f9f8aa36b1542721dd362345",
+      "size": 7310,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ec29a48e11955eb9f9f8aa36b1542721dd362345"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4710258be621129fae9a759b616e7cf03c18df15",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/4710258be621129fae9a759b616e7cf03c18df15"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e36bb6cf71d64b17637b96712784de777eef1b28",
+      "size": 4324,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e36bb6cf71d64b17637b96712784de777eef1b28"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/adacof.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "acf2672e84b32f843018ee617b7800b9b884d4b1",
+      "size": 191,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/acf2672e84b32f843018ee617b7800b9b884d4b1"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/batch_edt.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c1fe1fd4e2e6eb51cbad9d76d29cf2191c194d14",
+      "size": 63,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/c1fe1fd4e2e6eb51cbad9d76d29cf2191c194d14"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/correlation.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3782d1a930219681996d3e48361acf82b8866edc",
+      "size": 449,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/3782d1a930219681996d3e48361acf82b8866edc"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/costvol.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a82b7273cd38b7ea19c99356ea762a6e4b58ff99",
+      "size": 1102,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/a82b7273cd38b7ea19c99356ea762a6e4b58ff99"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/raw_softsplat.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0cfd3fd52484afa930939541c10c94c7b270d7bf",
+      "size": 5292,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/0cfd3fd52484afa930939541c10c94c7b270d7bf"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/sepconv.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f9d8909befa072646f4077b10bd18f735c928218",
+      "size": 1411,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/f9d8909befa072646f4077b10bd18f735c928218"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/utils.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ee42b2fb05c2230930d0fe4557db361a47b54708",
+      "size": 499,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/ee42b2fb05c2230930d0fe4557db361a47b54708"
+    },
+    {
+      "path": "vfi_models/ops/taichi_ops/worker_process.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "586d06a9e310247fcdd2368f8e362eeaaddac1fd",
+      "size": 951,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/586d06a9e310247fcdd2368f8e362eeaaddac1fd"
+    },
+    {
+      "path": "vfi_models/rife",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "adff9d01c9a8b760ebaf3782fcfceda9ee3d5ebf",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/adff9d01c9a8b760ebaf3782fcfceda9ee3d5ebf"
+    },
+    {
+      "path": "vfi_models/rife/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7de2adc1b69839b7827ad30731be56b59172f244",
+      "size": 12140,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/7de2adc1b69839b7827ad30731be56b59172f244"
+    },
+    {
+      "path": "vfi_models/rife/rife_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2ebf59b43ce94c799a43d57bf14a6bf2e41642e6",
+      "size": 25796,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/2ebf59b43ce94c799a43d57bf14a6bf2e41642e6"
+    },
+    {
+      "path": "vfi_models/sepconv",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "eaf5cb0916f12e90665221a0b0cfb400d6ad2c5f",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/eaf5cb0916f12e90665221a0b0cfb400d6ad2c5f"
+    },
+    {
+      "path": "vfi_models/sepconv/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eb62e76289052ff8a0bc7c9260b664c62e2e033a",
+      "size": 2082,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/eb62e76289052ff8a0bc7c9260b664c62e2e033a"
+    },
+    {
+      "path": "vfi_models/sepconv/sepconv_enhanced.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e5a747ee5053bd7b1053e1a432cf86a0164a2223",
+      "size": 23283,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e5a747ee5053bd7b1053e1a432cf86a0164a2223"
+    },
+    {
+      "path": "vfi_models/stmfnet",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "c4dc9637d26d8f8d5f58389edec2930210b8c4df",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/c4dc9637d26d8f8d5f58389edec2930210b8c4df"
+    },
+    {
+      "path": "vfi_models/stmfnet/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2d10f1ec96f25df510245e87bb7a41938ed4768b",
+      "size": 4508,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/2d10f1ec96f25df510245e87bb7a41938ed4768b"
+    },
+    {
+      "path": "vfi_models/stmfnet/stmfnet_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1e495e0eabf68a39af6bc7eceef554c3777d9d5f",
+      "size": 98149,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/1e495e0eabf68a39af6bc7eceef554c3777d9d5f"
+    },
+    {
+      "path": "vfi_models/xvfi",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "e9d9cbd150a9915d657cafbce25b63136f732b25",
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/trees/e9d9cbd150a9915d657cafbce25b63136f732b25"
+    },
+    {
+      "path": "vfi_models/xvfi/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e52fc1a85dfadc84dd517875abd7d592e3c087e2",
+      "size": 4345,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/e52fc1a85dfadc84dd517875abd7d592e3c087e2"
+    },
+    {
+      "path": "vfi_models/xvfi/xvfi_arch.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dae013e749616c9b6b2e2767db08b8c8dab6046f",
+      "size": 17391,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/dae013e749616c9b6b2e2767db08b8c8dab6046f"
+    },
+    {
+      "path": "vfi_utils.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9f006bd9a47b4e91d651302531ba6c741ed8d9dc",
+      "size": 17925,
+      "url": "https://api.github.com/repos/Fannovel16/ComfyUI-Frame-Interpolation/git/blobs/9f006bd9a47b4e91d651302531ba6c741ed8d9dc"
+    }
+  ],
+  "truncated": false
+}

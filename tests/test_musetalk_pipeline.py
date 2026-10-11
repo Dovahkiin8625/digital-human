@@ -59,6 +59,9 @@ def wired(tmp_path, monkeypatch):
             np.save(fh, arr)
 
     monkeypatch.setattr(mp, "_save_latents", fake_save_latents)
+    # The stub's all-zero landmarks are not a real face; quality has its own
+    # suite, so keep the pack-contract test focused on the pack layout.
+    monkeypatch.setattr(mp, "assess_quality", lambda rgb, pts: [])
     stub = StubPreparer()
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
@@ -101,6 +104,18 @@ def test_pack_contract_is_complete(wired):
     assert cfg["musetalk"]["coords"] == "musetalk/coords.json"
     assert cfg["musetalk"]["masks"] == "musetalk/masks"
     assert cfg["musetalk"]["bbox"] == [100, 200, 300, 400]
+
+
+def test_quality_warnings_land_in_pack_config(wired, monkeypatch):
+    pipeline, _, src, out, _ = wired
+    monkeypatch.setattr(mp, "assess_quality", lambda rgb, pts: ["人脸偏小", "建议正脸"])
+
+    cfg = pipeline.process("a1", src, out, lambda s, p: None)
+
+    # run_avatar_job writes the whole config dict as pack.json; process() just
+    # has to carry the warnings at top level next to the musetalk block.
+    assert cfg["warnings"] == ["人脸偏小", "建议正脸"]
+    assert cfg["musetalk"]["frame_count"] == 1
 
 
 def test_detection_runs_on_the_canvas_not_the_raw_photo(wired):
@@ -168,36 +183,3 @@ def test_fit_to_canvas_letterboxes_without_distortion():
     tall = fit_to_canvas(Image.new("RGB", (500, 2000), (0, 255, 0)), 720, 1280)
     assert tall.size == (720, 1280)
     assert tall.getpixel((5, 640)) == (16, 16, 24)
-
-
-def test_patch_avatar_config_preserves_musetalk_block(client):
-    """`patch_avatar_config` rewrites pack.json; it must not drop the engine's block."""
-    from sqlalchemy.orm import sessionmaker
-
-    from server.api.deps import hash_api_key
-    from server.db.models import Avatar
-    from server.db.session import get_engine
-
-    db = sessionmaker(bind=get_engine())()
-    try:
-        db.add(Avatar(id="keepme", name="a", tenant_id="t", status="ready",
-                      source_image_path="unused.png",
-                      config_json={"musetalk": {"crop": 256, "bbox": [1, 2, 3, 4]}}))
-        db.commit()
-    finally:
-        db.close()
-
-    resp = client.patch(
-        "/api/admin/avatars/keepme/config",
-        headers={"X-Admin-Token": "dev-admin-token"},
-        json={"mouth_scale": 2.0},
-    )
-    assert resp.status_code == 200, resp.text
-
-    db = sessionmaker(bind=get_engine())()
-    try:
-        avatar = db.get(Avatar, "keepme")
-        assert avatar.config_json["musetalk"] == {"crop": 256, "bbox": [1, 2, 3, 4]}
-        assert avatar.config_json["mouth_scale"] == 2.0
-    finally:
-        db.close()

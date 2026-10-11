@@ -56,7 +56,7 @@ class MockAvatarPipeline(AvatarPipeline):
         canvas.paste(resized, (0, 280))
         canvas.save(out_dir / "normalized.png")
         progress("build_pack", 100)
-        return {"mouth_scale": 1.0, "expression_intensity": 1.0, "crop": {"mode": "center"}}
+        return {"crop": {"mode": "center"}}
 
 
 def create_pipeline(name: str | None = None, settings: Settings | None = None) -> AvatarPipeline:

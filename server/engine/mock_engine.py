@@ -29,14 +29,13 @@ class MockEngine(DriveEngine):
         n_frames = max(1, round(duration * self.fps))
         samples_per_frame = sample_rate / self.fps
         base = Image.open(pack.source_image_path).convert("RGB").resize((self.width, self.height))
-        scale = float(pack.config.get("mouth_scale", 1.0))
         frames: list[DriveFrame] = []
         for i in range(n_frames):
             start = int(i * samples_per_frame)
             end = min(len(audio), int((i + 1) * samples_per_frame))
             seg = audio[start:end] if end > start else np.zeros(1, dtype=np.float32)
             rms = float(np.sqrt(np.mean(seg**2))) if len(seg) else 0.0
-            openness = min(1.0, rms * 4.0) * scale
+            openness = min(1.0, rms * 4.0)
             img = base.copy()
             draw = ImageDraw.Draw(img)
             cx, cy = self.width // 2, int(self.height * 0.72)

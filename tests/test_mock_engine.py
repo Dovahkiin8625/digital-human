@@ -10,7 +10,7 @@ def _pack(tmp_path):
 
     img_path = tmp_path / "src.png"
     Image.new("RGB", (720, 1280), (30, 60, 90)).save(img_path)
-    return AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img_path, config={"mouth_scale": 1.0})
+    return AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img_path, config={})
 
 
 @pytest.mark.asyncio

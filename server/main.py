@@ -76,6 +76,13 @@ def create_app() -> FastAPI:
     global _app
     settings = get_settings()
 
+    # Before any RTCPeerConnection exists: encoders read the aiortc module
+    # globals at construction, so doing this lazily on the first session would
+    # miss that session's encoder. Idempotent and cheap.
+    from server.core.webrtc import configure_h264_bitrate
+
+    configure_h264_bitrate(settings.video_bitrate, settings.video_max_bitrate)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         from sqlalchemy.orm import sessionmaker

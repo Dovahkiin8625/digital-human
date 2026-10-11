@@ -1,0 +1,661 @@
+{
+  "sha": "3488617283db7c428a83ba4a19382285da698b6a",
+  "url": "https://api.github.com/repos/HolyWu/vs-rife/git/trees/3488617283db7c428a83ba4a19382285da698b6a",
+  "tree": [
+    {
+      "path": ".gitattributes",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dfe0770424b2a19faf507a501ebfc23be8f54e7b",
+      "size": 66,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/dfe0770424b2a19faf507a501ebfc23be8f54e7b"
+    },
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e15106e38fcfbb5539a05bafed10272160ba69ed",
+      "size": 4562,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e15106e38fcfbb5539a05bafed10272160ba69ed"
+    },
+    {
+      "path": "LICENSE",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "af35ac3901165dfdf20454e731eec815b553aaf3",
+      "size": 1063,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/af35ac3901165dfdf20454e731eec815b553aaf3"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c74dbd8cddf95388a96db1af436b35553b533604",
+      "size": 1057,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c74dbd8cddf95388a96db1af436b35553b533604"
+    },
+    {
+      "path": "pyproject.toml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f813271103ece9e86b41fe0b6d2eac0fd83c3327",
+      "size": 812,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/f813271103ece9e86b41fe0b6d2eac0fd83c3327"
+    },
+    {
+      "path": "vsrife",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b46bd3f12624d50631f46926b92a26a85f9b10ab",
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/trees/b46bd3f12624d50631f46926b92a26a85f9b10ab"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_0.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "17ce50de424b672dfe64441ec4b5470f198377ca",
+      "size": 4368,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/17ce50de424b672dfe64441ec4b5470f198377ca"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_1.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "17ce50de424b672dfe64441ec4b5470f198377ca",
+      "size": 4368,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/17ce50de424b672dfe64441ec4b5470f198377ca"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_10.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "caf5234057f95ce9f43278c108916ae201b11fcd",
+      "size": 4704,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/caf5234057f95ce9f43278c108916ae201b11fcd"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_11.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "caf5234057f95ce9f43278c108916ae201b11fcd",
+      "size": 4704,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/caf5234057f95ce9f43278c108916ae201b11fcd"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_12.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "caf5234057f95ce9f43278c108916ae201b11fcd",
+      "size": 4704,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/caf5234057f95ce9f43278c108916ae201b11fcd"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_12_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "829083a2331bf5d4fa408f81090df02f6e04cae2",
+      "size": 4699,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/829083a2331bf5d4fa408f81090df02f6e04cae2"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_13.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_13_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "829083a2331bf5d4fa408f81090df02f6e04cae2",
+      "size": 4699,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/829083a2331bf5d4fa408f81090df02f6e04cae2"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_14.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_14_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6b5455c79f1902c7ed491ed8ee326925cff7f71e",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/6b5455c79f1902c7ed491ed8ee326925cff7f71e"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_15.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_15_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d08919e4fd3834eda2fa1281668bd0be674cd975",
+      "size": 5050,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/d08919e4fd3834eda2fa1281668bd0be674cd975"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_16_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d08919e4fd3834eda2fa1281668bd0be674cd975",
+      "size": 5050,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/d08919e4fd3834eda2fa1281668bd0be674cd975"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_17.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_17_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d08919e4fd3834eda2fa1281668bd0be674cd975",
+      "size": 5050,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/d08919e4fd3834eda2fa1281668bd0be674cd975"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_18.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_19.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_2.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b9c7981e57305b48aa29084bc0ee67b030685587",
+      "size": 3753,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/b9c7981e57305b48aa29084bc0ee67b030685587"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_20.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2c87877e3e6ec4ed27342019e0e9b884ea49a1df",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/2c87877e3e6ec4ed27342019e0e9b884ea49a1df"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_21.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "01df668c42fe2a520da92e39355ea6131bcc7ad7",
+      "size": 4527,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/01df668c42fe2a520da92e39355ea6131bcc7ad7"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_22.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "76c17f35181620a40f5c283debadb132ebde84b6",
+      "size": 4527,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/76c17f35181620a40f5c283debadb132ebde84b6"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_22_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "977feaafd0af177e365acf6000ce97bdb434daa8",
+      "size": 4528,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/977feaafd0af177e365acf6000ce97bdb434daa8"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_23.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3f8174cdd1041e204e0c5cb2a9ab68a1634c8472",
+      "size": 4527,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/3f8174cdd1041e204e0c5cb2a9ab68a1634c8472"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_24.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c138a8022717fd59bdb19720549bcdc6c012f39a",
+      "size": 5055,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c138a8022717fd59bdb19720549bcdc6c012f39a"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_25.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0c4797c7ae8b64e122d6b192d902b7e4d45359dd",
+      "size": 4599,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/0c4797c7ae8b64e122d6b192d902b7e4d45359dd"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_25_heavy.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb7578bf472a2d04a818d1383d7bb042fbc0e329",
+      "size": 4625,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/bb7578bf472a2d04a818d1383d7bb042fbc0e329"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_25_lite.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1a655a54b1494b338159377281092392783647b1",
+      "size": 4605,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/1a655a54b1494b338159377281092392783647b1"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_26.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dbd1bdcd070a572643f6a285e2ea90a247e3e9e2",
+      "size": 4599,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/dbd1bdcd070a572643f6a285e2ea90a247e3e9e2"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_26_heavy.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "32468aa4cc10282d75599ece933ee1212ca2655b",
+      "size": 4611,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/32468aa4cc10282d75599ece933ee1212ca2655b"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_3.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b9c7981e57305b48aa29084bc0ee67b030685587",
+      "size": 3753,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/b9c7981e57305b48aa29084bc0ee67b030685587"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_4.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b9c7981e57305b48aa29084bc0ee67b030685587",
+      "size": 3753,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/b9c7981e57305b48aa29084bc0ee67b030685587"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_5.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2836f6a9050dce652cf744e17920d12e690ebed2",
+      "size": 4177,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/2836f6a9050dce652cf744e17920d12e690ebed2"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_6.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "66dea151ee4e8d6d257d02316fb080c1fa60f5ed",
+      "size": 4177,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/66dea151ee4e8d6d257d02316fb080c1fa60f5ed"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_7.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d",
+      "size": 4474,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_8.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d",
+      "size": 4474,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d"
+    },
+    {
+      "path": "vsrife/IFNet_HDv3_v4_9.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d",
+      "size": 4474,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/c0a5f0f4d5664c98b46d1b4e5c4b0053be1c9c9d"
+    },
+    {
+      "path": "vsrife/__init__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9643d2028ed7102674ef43fb3814872b41ee37fa",
+      "size": 30125,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/9643d2028ed7102674ef43fb3814872b41ee37fa"
+    },
+    {
+      "path": "vsrife/__main__.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7929ae1ec364f9fa159d60a2f928b8cc8e2aaaa0",
+      "size": 1759,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/7929ae1ec364f9fa159d60a2f928b8cc8e2aaaa0"
+    },
+    {
+      "path": "vsrife/models",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "24365cf4d7c1db5e9ec20a502fa295c08d28d40c",
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/trees/24365cf4d7c1db5e9ec20a502fa295c08d28d40c"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.0.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.1.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.10.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.11.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.12.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.12.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.13.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.13.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.14.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.14.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.15.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.15.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.16.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.17.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.17.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.18.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.19.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.2.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.20.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.21.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.22.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.22.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.23.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.24.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.25.heavy.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.25.lite.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.25.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.26.heavy.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.26.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.3.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.4.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.5.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.6.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.7.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.8.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/models/flownet_v4.9.pkl",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "size": 0,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+    },
+    {
+      "path": "vsrife/warplayer.py",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a1427e5bad093cd9350788f79fd9cd4449bd4a2d",
+      "size": 486,
+      "url": "https://api.github.com/repos/HolyWu/vs-rife/git/blobs/a1427e5bad093cd9350788f79fd9cd4449bd4a2d"
+    }
+  ],
+  "truncated": false
+}

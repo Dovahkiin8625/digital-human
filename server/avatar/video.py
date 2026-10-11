@@ -55,6 +55,36 @@ def _letterbox(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
     return np.asarray(fit_to_canvas(Image.fromarray(rgb), width, height))
 
 
+def decode_native(
+    path: Path, max_frames: int, canvas: tuple[int, int]
+) -> tuple[np.ndarray, float]:
+    """Decode every source frame in storage order, capped at `max_frames`.
+
+    Used by the RIFE path: the interpolator -- not the decoder -- places frames
+    onto the 25 fps timeline, so the source must arrive at its native fps
+    without nearest-frame repeats. Frames are letterboxed to `canvas` exactly
+    like `decode_frames`, so both paths hand the pipeline identical geometry.
+    """
+    cv2 = _cv2()
+    info = probe_video(path)
+    width, height = canvas
+    collected = np.zeros((min(max_frames, info["frame_count"]), height, width, 3), dtype=np.uint8)
+    n = 0
+    cap = cv2.VideoCapture(str(path))
+    try:
+        if not cap.isOpened():
+            raise VideoError("cannot open video")
+        while n < max_frames:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            collected[n] = _letterbox(np.ascontiguousarray(frame[:, :, ::-1]), width, height)
+            n += 1
+    finally:
+        cap.release()
+    return collected[:n].copy(), info["fps"]
+
+
 def decode_frames(
     path: Path, target_fps: int, max_frames: int, canvas: tuple[int, int]
 ) -> tuple[np.ndarray, float]:
@@ -110,7 +140,33 @@ def decode_frames(
 _idle_locks: dict[str, threading.Lock] = {}
 
 
-def _encode_h264(path: Path, frames: np.ndarray, fps: int) -> None:
+def read_all_frames(path: Path) -> np.ndarray:
+    """Decode every frame of a clip we encoded ourselves (``[N,H,W,3]`` RGB).
+
+    The engine loads a baked avatar's ``base.mp4`` through here: the clip is
+    already on the 720x1280 canvas and encoded at the render fps, so frames are
+    read in storage order with no probing, retiming, or letterboxing. Raises
+    `VideoError` on an empty/unreadable clip.
+    """
+    cv2 = _cv2()
+    cap = cv2.VideoCapture(str(path))
+    out = []
+    try:
+        if not cap.isOpened():
+            raise VideoError("cannot open video")
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            out.append(np.ascontiguousarray(frame[:, :, ::-1]))
+    finally:
+        cap.release()
+    if not out:
+        raise VideoError(f"no frames decoded from {path}")
+    return np.stack(out)
+
+
+def _encode_h264(path: Path, frames: np.ndarray, fps: int, crf: str = "18") -> None:
     """Write RGB uint8 ``frames`` ``[N,H,W,3]`` to ``path`` as H.264/yuv420p.
 
     H.264 rather than cv2's ``mp4v`` fourcc on purpose: Chromium has no
@@ -131,7 +187,7 @@ def _encode_h264(path: Path, frames: np.ndarray, fps: int) -> None:
         stream.width = width
         stream.height = height
         stream.pix_fmt = "yuv420p"
-        stream.options = {"crf": "18", "preset": "veryfast"}
+        stream.options = {"crf": crf, "preset": "veryfast"}
         for rgb in frames:
             vframe = av.VideoFrame.from_ndarray(
                 np.ascontiguousarray(rgb), format="rgb24"

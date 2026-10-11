@@ -9,7 +9,6 @@ import {
   Descriptions,
   Empty,
   Row,
-  Slider,
   Space,
   Spin,
   Typography,
@@ -42,13 +41,10 @@ async function fetchObjectUrl(
 export default function AvatarDetail() {
   const { id } = useParams();
   const [info, setInfo] = useState<AvatarInfo | null>(null);
-  const [mouth, setMouth] = useState(1);
-  const [expression, setExpression] = useState(1);
   const [preview, setPreview] = useState("");
   const [previewKind, setPreviewKind] = useState<PreviewKind>("video");
   const [previewError, setPreviewError] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const previewRef = useRef("");
@@ -58,8 +54,6 @@ export default function AvatarDetail() {
     if (!id) return;
     const data = await api<AvatarInfo>(`/api/admin/avatars/${id}`);
     setInfo(data);
-    setMouth(data.config.mouth_scale ?? 1);
-    setExpression(data.config.expression_intensity ?? 1);
   }
 
   useEffect(() => {
@@ -119,24 +113,6 @@ export default function AvatarDetail() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-
-  async function save() {
-    if (!id) return;
-    setSaving(true);
-    try {
-      setError("");
-      await api(`/api/admin/avatars/${id}/config`, {
-        method: "PATCH",
-        body: { mouth_scale: mouth, expression_intensity: expression },
-      });
-      message.success("参数已保存");
-      await refresh();
-    } catch (err) {
-      message.error((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function retry() {
     if (!id) return;
@@ -204,13 +180,6 @@ export default function AvatarDetail() {
             label: "创建时间",
             children: new Date(info.created_at).toLocaleString(),
           },
-          {
-            key: "config",
-            label: "当前参数",
-            children: `口型 ${(info.config.mouth_scale ?? 1).toFixed(2)} · 表情 ${(
-              info.config.expression_intensity ?? 1
-            ).toFixed(2)}`,
-          },
         ]}
       />
 
@@ -228,20 +197,21 @@ export default function AvatarDetail() {
         />
       )}
       {error && <Alert type="error" showIcon message={error} />}
+      {(info.config.warnings ?? []).length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="素材质量提示（形象已生成，更换更合适的素材可进一步提升效果）"
+          description={
+            <ul style={{ margin: 0, paddingInlineStart: 18 }}>
+              {info.config.warnings?.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+          }
+        />
+      )}
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} lg={10}>
-          <Card title="生成参数">
-            <Typography.Text>口型幅度 {mouth.toFixed(2)}</Typography.Text>
-            <Slider min={0} max={2} step={0.05} value={mouth} onChange={setMouth} />
-            <Typography.Text>表情强度 {expression.toFixed(2)}</Typography.Text>
-            <Slider min={0} max={2} step={0.05} value={expression} onChange={setExpression} />
-            <Button type="primary" onClick={save} loading={saving}>
-              保存参数
-            </Button>
-          </Card>
-        </Col>
-        <Col xs={24} lg={14}>
+        <Col xs={24}>
           <Card title="预览">
             {previewError ? (
               <Empty description={`预览不可用（${previewError}）`}>

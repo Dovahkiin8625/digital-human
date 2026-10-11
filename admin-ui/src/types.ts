@@ -3,7 +3,12 @@ export interface AvatarInfo {
   tenant_id: string;
   name: string;
   status: "pending" | "processing" | "ready" | "failed";
-  config: { mouth_scale?: number; expression_intensity?: number };
+  // The pipeline's pack.json: the MuseTalk block plus, for new packs, a
+  // top-level `warnings` list of non-blocking source-quality findings.
+  config: {
+    warnings?: string[];
+    [key: string]: unknown;
+  };
   error: string | null;
   created_at: string;
 }
