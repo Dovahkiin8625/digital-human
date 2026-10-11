@@ -110,6 +110,40 @@ def decode_frames(
 _idle_locks: dict[str, threading.Lock] = {}
 
 
+def _encode_h264(path: Path, frames: np.ndarray, fps: int) -> None:
+    """Write RGB uint8 ``frames`` ``[N,H,W,3]`` to ``path`` as H.264/yuv420p.
+
+    H.264 rather than cv2's ``mp4v`` fourcc on purpose: Chromium has no
+    MPEG-4 Part 2 decoder, so an mp4v clip fetches successfully and the
+    <video> element then dies with NO_SUPPORTED_STREAMS, showing only a black
+    player. OpenCV's bundled FFmpeg cannot mux H.264 either (its libopenh264
+    DLL is absent), so the encoder is PyAV -- already installed everywhere via
+    the core ``aiortc`` dependency -- whose bundled libx264 needs nothing
+    extra. RGB comes in and ``rgb24 -> yuv420p`` is the encoder's own
+    conversion, so no BGR flip at the boundary.
+    """
+    import av
+
+    _, height, width, _ = frames.shape
+    container = av.open(str(path), "w")
+    try:
+        stream = container.add_stream("libx264", rate=fps)
+        stream.width = width
+        stream.height = height
+        stream.pix_fmt = "yuv420p"
+        stream.options = {"crf": "18", "preset": "veryfast"}
+        for rgb in frames:
+            vframe = av.VideoFrame.from_ndarray(
+                np.ascontiguousarray(rgb), format="rgb24"
+            )
+            for packet in stream.encode(vframe):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+    finally:
+        container.close()
+
+
 def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
     """Render ``<avatar_dir>/idle.mp4``: the kept source frames ping-ponged.
 
@@ -117,8 +151,10 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
     track plays -- decode with the prepare pipeline's arguments and select the
     frames named by ``musetalk/meta.json``'s ``kept`` -- then write
     ``seq + seq[-2:0:-1]``, the same 2N-2 period ``cycle_index`` walks. The
-    file is built via ``idle.mp4.tmp`` and atomically replaced so a reader can
-    never see a partial clip.
+    file is built via ``idle.tmp.mp4`` and atomically replaced so a reader can
+    never see a partial clip. The tmp name keeps an ``.mp4`` suffix on purpose:
+    the muxer is picked from the filename extension, and a name ending in
+    ``.tmp`` makes the container fail to open.
     """
     import json
     import os
@@ -148,27 +184,13 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
             )
         seq = frames[kept]
         clip = np.concatenate((seq, seq[-2:0:-1]), axis=0)
-        tmp = out.with_name("idle.mp4.tmp")
-        cv2 = _cv2()
-        writer = cv2.VideoWriter(
-            str(tmp),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            settings.fps,
-            (settings.frame_width, settings.frame_height),
-        )
-        if not writer.isOpened():
-            writer.release()
-            tmp.unlink(missing_ok=True)
-            raise VideoError("cannot open idle video writer")
+        tmp = out.with_name("idle.tmp.mp4")
         try:
-            for rgb in clip:
-                writer.write(np.ascontiguousarray(rgb[:, :, ::-1]))
-            writer.release()
+            _encode_h264(tmp, clip, settings.fps)
             os.replace(tmp, out)
         except VideoError:
             raise
-        except Exception as exc:  # noqa: BLE001 -- disk full / dir removed mid-build
-            writer.release()
+        except Exception as exc:  # noqa: BLE001 -- encoder/disk failure mid-build
             tmp.unlink(missing_ok=True)
             raise VideoError(f"cannot write idle clip to {out}") from exc
     return out

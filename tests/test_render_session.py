@@ -45,6 +45,28 @@ class _RecordingSink(FrameBufferSink):
         await super().push(image, pts)
 
 
+class _AudioSink(_RecordingSink):
+    """A live sink that also asks for audio return, like WebRTCSink."""
+
+    keepalive = True
+    wants_audio = True
+
+    def __init__(self):
+        super().__init__()
+        self.audio: list[tuple[float, int, int]] = []
+        self.audio_samples: list[np.ndarray] = []
+        self.events: list[tuple[str, float]] = []
+
+    async def push(self, image, pts):
+        self.events.append(("v", pts))
+        await super().push(image, pts)
+
+    async def push_audio(self, samples, pts, sample_rate):
+        self.audio.append((float(pts), len(samples), sample_rate))
+        self.audio_samples.append(np.asarray(samples))
+        self.events.append(("a", float(pts)))
+
+
 class _BoomEngine(MockEngine):
     async def drive(self, pack, audio, sample_rate, *, context=None):
         raise RuntimeError("engine exploded")
@@ -88,6 +110,51 @@ async def test_pts_tracks_audio_time(tmp_path):
     assert pts[-1] < 0.5
     assert all(b > a for a, b in zip(pts, pts[1:]))  # monotonic
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_drive_block_forwards_its_audio_to_the_sink(tmp_path):
+    sink = _AudioSink()
+    session, _ = _session(tmp_path, sink=sink)
+    await session.start()
+    await session.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())  # 0.5 s, five blocks
+    # Each 100 ms engine block is returned as audio at its own timeline origin.
+    assert [p for p, _, _ in sink.audio] == pytest.approx([0.0, 0.1, 0.2, 0.3, 0.4])
+    assert {n for _, n, _ in sink.audio} == {4800}
+    assert {rate for _, _, rate in sink.audio} == {48000}
+    # The engine receives the same float32 samples the listener's browser will.
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_block_audio_leaves_before_its_video_frames(tmp_path):
+    sink = _AudioSink()
+    session, _ = _session(tmp_path, sink=sink)
+    await session.start()
+    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())  # one block
+    # Audio packet must precede that block's video packets so the browser, which
+    # treats audio as its master clock, never gets video ahead of the sound.
+    assert sink.events[0] == ("a", 0.0)
+    assert sink.events[1][0] == "v"
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_keepalive_fills_idle_audio_with_silence_on_matching_pts(tmp_path):
+    sink = _AudioSink()
+    session, _ = _session_with_canvas(tmp_path, sink=sink)
+    await session.start()
+    await asyncio.sleep(0.2)  # ~5 keep-alive ticks at 25 fps (40 ms each)
+    audio_before = list(sink.audio)
+    video_pts = list(sink.pts_list)
+    await session.close()
+
+    assert audio_before, "idle session must keep the audio timeline populated"
+    # Every tick: one 40 ms silence buffer (1920 samples @ 48 kHz) ...
+    assert all(n == 1920 and rate == 48000 for _, n, rate in audio_before)
+    assert all(np.all(s == 0) for s in sink.audio_samples)  # ... actually silent
+    # ... sharing exactly the video frames' pts -- no audio/video clock offset.
+    assert [p for p, _, _ in audio_before] == pytest.approx(video_pts)
 
 
 @pytest.mark.asyncio

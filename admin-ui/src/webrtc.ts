@@ -5,18 +5,17 @@ export type SignalMessage =
   | { type: "bye" };
 
 /**
- * Drives one render session: a WebRTC peer connection for the video preview plus
- * a raw-PCM audio WebSocket for the driving signal.
+ * Drives one render session.
  *
- * Audio reaches the render session two ways: over the sendonly audio RTP
- * transceiver (microphone) and over the audio WebSocket (file / sine bytes).
- * Both feed the same server-side ingest.
+ * Both media directions ride one RTCPeerConnection: the server sends video AND
+ * the avatar audio back on a single (shared-msid) MediaStream, so the browser's
+ * RTCP lip-sync aligns mouth movement and sound. The raw-PCM audio WebSocket is
+ * the only driving input (TTS clips, uploads, recordings, sine bytes).
  */
 export class DigitalHumanClient {
   private pc: RTCPeerConnection | null = null;
   private ws: WebSocket | null = null;
   private audioWs: WebSocket | null = null;
-  private audioTransceiver: RTCRtpTransceiver | null = null;
 
   constructor(
     private signalUrl: string,
@@ -65,7 +64,13 @@ export class DigitalHumanClient {
 
     this.pc = new RTCPeerConnection();
     this.pc.ontrack = (ev) => {
-      video.srcObject = ev.streams[0];
+      // Audio and video arrive as separate track events but share one stream
+      // (server-side addTrack gives both the same msid), so assign it once; the
+      // <video> plays both tracks of its srcObject.
+      if (!video.srcObject && ev.streams[0]) {
+        video.srcObject = ev.streams[0];
+      }
+      this.autoplay(video);
     };
     this.pc.onicecandidate = (ev) => {
       ws.send(JSON.stringify({ type: "candidate", candidate: ev.candidate }));
@@ -78,24 +83,27 @@ export class DigitalHumanClient {
     };
 
     // Transceivers must be added BEFORE createOffer so the offer carries both
-    // m-lines (video recvonly, audio sendonly). The server attaches its video
-    // track before answering, so the answer always has a video m-line.
+    // m-lines. Both are recvonly: the server answers sendonly and returns the
+    // avatar's video and its lip-synced audio on the same MediaStream.
     this.pc.addTransceiver("video", { direction: "recvonly" });
-    this.audioTransceiver = this.pc.addTransceiver("audio", { direction: "sendonly" });
+    this.pc.addTransceiver("audio", { direction: "recvonly" });
 
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     ws.send(JSON.stringify({ type: "offer", sdp: offer.sdp }));
   }
 
-  async attachMicrophone(): Promise<void> {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const track = stream.getAudioTracks()[0];
-    // Reuse the sendonly audio transceiver from connect(): adding the whole
-    // stream with addTrack would negotiate a second, conflicting audio m-line.
-    if (this.audioTransceiver && track) {
-      await this.audioTransceiver.sender.replaceTrack(track);
-    }
+  /**
+   * Start (or keep) playback. WebRTC media arriving right after the 开始调试
+   * click usually plays with sound; if the browser's autoplay policy still
+   * blocks it, fall back to muted playback so the preview never freezes — the
+   * element's own unmute control restores sound.
+   */
+  private autoplay(video: HTMLVideoElement): void {
+    void video.play().catch(() => {
+      video.muted = true;
+      void video.play().catch(() => {});
+    });
   }
 
   sendAudio(pcm16: ArrayBuffer): void {
@@ -153,7 +161,6 @@ export class DigitalHumanClient {
     this.ws = null;
     this.audioWs = null;
     this.pc = null;
-    this.audioTransceiver = null;
   }
 
   private flush(): void {

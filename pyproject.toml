@@ -33,6 +33,9 @@ musetalk = [
   "mediapipe>=0.10",
   "diffusers>=0.30",
   "transformers>=4.39",
+  # diffusers loads the VAE with low_cpu_mem_usage=True when accelerate is
+  # present; without it every load prints a fallback warning and spikes RAM.
+  "accelerate>=1.0",
   "huggingface-hub>=0.30",
   "safetensors>=0.4",
   "einops>=0.8",

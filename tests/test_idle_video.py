@@ -1,8 +1,9 @@
 """Contract tests for the idle-video generator.
 
 cv2 lives only in the GPU venv, so it is stubbed with a fake capture (solid
-source frames) plus a fake VideoWriter that records the encoded frames; a
-centre pixel identifies each source frame.
+source frames); the H.264 encoder seam ``_encode_h264`` is stubbed with a
+recorder for the structural tests, while one test exercises the real PyAV
+encoder and decodes the artifact back (the browser-playback contract).
 """
 import json
 import types
@@ -41,25 +42,28 @@ class _FakeCap:
         pass
 
 
-class _Writer:
-    instances: list["_Writer"] = []
+class _Encoder:
+    """Recorder standing in for the real H.264 encoder seam."""
 
-    def __init__(self, path, fourcc, fps, size, opened=True):
-        self.path, self.fps, self.size = path, fps, size
+    instances: list["_Encoder"] = []
+
+    def __init__(self, fail: bool = False):
+        self.path = None
+        self.fps = None
         self.frames: list[np.ndarray] = []
-        self.opened = opened
-        _Writer.instances.append(self)
+        self.fail = fail
+        _Encoder.instances.append(self)
 
-    def isOpened(self):
-        return self.opened
-
-    def write(self, frame):
-        self.frames.append(np.array(frame))
-
-    def release(self):
-        # The real writer materialises the file; emulate so the exists() reuse
+    def __call__(self, path, frames, fps):
+        if self.fail:
+            raise RuntimeError("encoder exploded")
+        self.path = path
+        self.fps = fps
+        for frame in frames:
+            self.frames.append(np.array(frame))
+        # The real encoder materialises the file; emulate so the exists() reuse
         # check in build_idle_video works.
-        Path(self.path).write_bytes(b"FAKEMP4")
+        Path(path).write_bytes(b"FAKEMP4")
 
 
 class _FakeCV2:
@@ -71,12 +75,6 @@ class _FakeCV2:
 
     def VideoCapture(self, path):
         return _FakeCap(self.frames, 25.0)
-
-    def VideoWriter(self, path, fourcc, fps, size):
-        return _Writer(path, fourcc, fps, size)
-
-    def VideoWriter_fourcc(self, *a):
-        return "mp4v"
 
 
 def _solid(n):
@@ -91,13 +89,41 @@ def _avatar_dir(tmp_path, kept):
 
 
 @pytest.fixture(autouse=True)
-def _reset_writers():
-    _Writer.instances = []
+def _reset_encoders():
+    _Encoder.instances = []
     yield
 
 
-def _install(monkeypatch, frames):
+def _install(monkeypatch, frames, encoder=None):
     monkeypatch.setattr(video, "_cv2", lambda: _FakeCV2(frames))
+    # Default to the recorder; the real-encoder test passes the real function.
+    monkeypatch.setattr(video, "_encode_h264", encoder or _Encoder())
+
+
+def test_idle_clip_is_h264_yuv420p_and_keeps_frames(monkeypatch, tmp_path):
+    # Browser playback contract: Chromium ships no MPEG-4 Part 2 decoder, so
+    # cv2's mp4v clips fetched fine but rendered as a silent black player
+    # (MediaError NO_SUPPORTED_STREAMS). Encode for real via the PyAV path and
+    # decode the artifact back to prove the ping-pong frames survived.
+    import av
+
+    values = [20, 90, 160, 230]
+    frames = [np.full((CANVAS[1], CANVAS[0], 3), v, np.uint8) for v in values]
+    d = _avatar_dir(tmp_path, [0, 1, 2, 3])
+    _install(monkeypatch, frames, video._encode_h264)
+    out = build_idle_video(d, d / "source.mp4", SETTINGS)
+
+    with av.open(str(out)) as container:
+        stream = container.streams.video[0]
+        codec = stream.codec_context
+        assert codec.name == "h264"
+        assert codec.format.name == "yuv420p"
+        assert codec.width == CANVAS[0] and codec.height == CANVAS[1]
+        decoded = [f.to_ndarray(format="rgb24") for f in container.decode(stream)]
+    # 2N-2 ping-pong period.
+    assert len(decoded) == 6
+    centres = [int(f[640, 360, 0]) for f in decoded]
+    assert centres == pytest.approx([20, 90, 160, 230, 160, 90], abs=12)
 
 
 def test_idle_video_writes_kept_frames_ping_pong(monkeypatch, tmp_path):
@@ -105,24 +131,37 @@ def test_idle_video_writes_kept_frames_ping_pong(monkeypatch, tmp_path):
     _install(monkeypatch, _solid(10))
     out = build_idle_video(d, d / "source.mp4", SETTINGS)
     assert out == d / "idle.mp4"
-    writer = _Writer.instances[0]
-    assert writer.size == CANVAS
+    encoder = _Encoder.instances[0]
+    assert encoder.fps == SETTINGS.fps
     # seq (4 frames) + seq[-2:0:-1] (2 frames) = 6 frames, 2N-2 period.
-    centre = [int(f[640, 360, 0]) for f in writer.frames]
+    centre = [int(f[640, 360, 0]) for f in encoder.frames]
     assert centre == [0, 2, 4, 6, 4, 2]
-    assert not (d / "idle.mp4.tmp").exists()
+    assert not (d / "idle.tmp.mp4").exists()
 
 
-def test_idle_video_flips_rgb_to_bgr_for_the_writer(monkeypatch, tmp_path):
+def test_tmp_clip_keeps_an_mp4_suffix(monkeypatch, tmp_path):
+    # The muxer is picked from the filename extension: a tmp path ending in
+    # anything but .mp4 makes the container refuse to open, and a leftover tmp
+    # must never be visible to readers.
+    d = _avatar_dir(tmp_path, [0, 1])
+    _install(monkeypatch, _solid(5))
+    build_idle_video(d, d / "source.mp4", SETTINGS)
+    tmp_path_used = Path(_Encoder.instances[0].path)
+    assert tmp_path_used.suffix == ".mp4"
+    assert tmp_path_used.parent == d
+    assert not tmp_path_used.exists()
+
+
+def test_idle_video_passes_rgb_frames_to_the_encoder(monkeypatch, tmp_path):
     # The capture is BGR (as real cv2 delivers): B=30 G=20 R=10, so decoded RGB
-    # is (10,20,30). After the decode/encode round trip the writer must receive
-    # the same BGR (30,20,10) back.
+    # is (10,20,30). The PyAV encoder takes rgb24 directly, so it must receive
+    # the decoded RGB -- no BGR flip at the boundary.
     frames = [np.zeros((CANVAS[1], CANVAS[0], 3), np.uint8)]
     frames[0][:, :] = (30, 20, 10)  # BGR: cv2 captures arrive as BGR
     d = _avatar_dir(tmp_path, [0])
     _install(monkeypatch, frames)
     build_idle_video(d, d / "source.mp4", SETTINGS)
-    assert tuple(_Writer.instances[0].frames[0][640, 360]) == (30, 20, 10)
+    assert tuple(_Encoder.instances[0].frames[0][640, 360]) == (10, 20, 30)
 
 
 def test_idle_video_is_built_once_then_reused(monkeypatch, tmp_path):
@@ -130,7 +169,7 @@ def test_idle_video_is_built_once_then_reused(monkeypatch, tmp_path):
     _install(monkeypatch, _solid(5))
     build_idle_video(d, d / "source.mp4", SETTINGS)
     build_idle_video(d, d / "source.mp4", SETTINGS)
-    assert len(_Writer.instances) == 1
+    assert len(_Encoder.instances) == 1
 
 
 def test_missing_meta_is_video_error(monkeypatch, tmp_path):
@@ -148,37 +187,21 @@ def test_kept_outside_decoded_range_is_video_error(monkeypatch, tmp_path):
         build_idle_video(d, d / "source.mp4", SETTINGS)
 
 
-def test_unopenable_writer_is_video_error(monkeypatch, tmp_path):
-    d = _avatar_dir(tmp_path, [0, 1])
-    _install(monkeypatch, _solid(5))
-
-    class _BrokenCV2(_FakeCV2):
-        def VideoWriter(self, path, fourcc, fps, size):
-            return _Writer(path, fourcc, fps, size, opened=False)
-
-    monkeypatch.setattr(video, "_cv2", lambda: _BrokenCV2(_solid(5)))
-    with pytest.raises(VideoError):
-        build_idle_video(d, d / "source.mp4", SETTINGS)
-    assert not (d / "idle.mp4.tmp").exists()
-
-
-def test_writer_failure_is_video_error_and_drops_tmp(monkeypatch, tmp_path):
+def test_encoder_failure_is_video_error_and_drops_tmp(monkeypatch, tmp_path):
     d = _avatar_dir(tmp_path, [0, 1])
 
-    class _BoomWriter(_Writer):
-        def write(self, frame):
-            raise RuntimeError("disk full")
+    def boom(path, frames, fps):
+        # Emulate an encoder dying mid-clip after materialising a partial tmp
+        # file (disk full, dir removed, libx264 init failure, ...).
+        Path(path).write_bytes(b"HALF")
+        raise RuntimeError("disk full")
 
-    class _BoomCV2(_FakeCV2):
-        def VideoWriter(self, path, fourcc, fps, size):
-            return _BoomWriter(path, fourcc, fps, size)
-
-    monkeypatch.setattr(video, "_cv2", lambda: _BoomCV2(_solid(5)))
+    _install(monkeypatch, _solid(5), boom)
     with pytest.raises(VideoError):
         build_idle_video(d, d / "source.mp4", SETTINGS)
-    # The cleanup release() emulates materialising the file at the tmp path;
-    # the unlink must remove it again so no half clip is left behind.
-    assert not (d / "idle.mp4.tmp").exists()
+    # The unlink must remove the partial clip so it is never served.
+    assert not (d / "idle.tmp.mp4").exists()
+    assert not (d / "idle.mp4").exists()
 
 
 def test_malformed_kept_is_video_error(monkeypatch, tmp_path):

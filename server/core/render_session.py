@@ -199,6 +199,17 @@ class RenderSession:
                 try:
                     pushed = source_frame if source_frame is not None else frame
                     await self.sink.push(pushed, self._audio_pts)
+                    if self.sink.wants_audio:
+                        # Keep the audio RTP timeline alive exactly like the
+                        # video one: one tick of silence at this frame's pts, so
+                        # no audio-timestamp gap opens between utterances and
+                        # the browser's A/V offset stays put.
+                        silence = np.zeros(
+                            int(round(period * self.sample_rate)), dtype=np.float32
+                        )
+                        await self.sink.push_audio(
+                            silence, self._audio_pts, self.sample_rate
+                        )
                 except SinkClosed:
                     self._metrics["dropped_frames"] += 1
                     continue
@@ -252,14 +263,21 @@ class RenderSession:
         except Exception as exc:
             self.mark_error(str(exc))
             raise
-        for j, frame in enumerate(frames):
-            frame.pts = block_start + j * block_duration / len(frames)
-            try:
+        try:
+            # Audio first: queued just before its video frames, so the sender
+            # tasks packetize the block's audio before its video. The browser
+            # anchors lip-sync on the audio clock, so never let video lead.
+            if self.sink.wants_audio:
+                await self.sink.push_audio(block, block_start, self.sample_rate)
+            for j, frame in enumerate(frames):
+                frame.pts = block_start + j * block_duration / len(frames)
                 await self.sink.push(frame.image, frame.pts)
                 self._metrics["frames_out"] += 1
-            except SinkClosed:
-                self._metrics["dropped_frames"] += 1
-                return
+        except SinkClosed:
+            # A sink that died on the audio half of a block must be handled the
+            # same as one dying on video: count one drop and stop the block.
+            self._metrics["dropped_frames"] += 1
+            return
         latency_ms = (time.perf_counter() - t0) * 1000.0
         self._blocks += 1
         with self._latencies_lock:

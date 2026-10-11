@@ -273,13 +273,21 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
 `seq = kept_frames; pingpong = seq + seq[-2:0:-1]`（长度 2N−2，与
 `cycle_index` 周期一致）。
 
-- 编码：`cv2.VideoWriter(str(out), cv2.VideoWriter_fourcc(*"mp4v"), fps, (W,H))`，
-  逐帧写入 BGR（解码得到 RGB，写入前翻转）。
-- 输出先写到 `idle.mp4.tmp`，写完后 `os.replace` 为 `idle.mp4`，避免并发请求
-  读到半截文件；生成过程加一个进程内 `threading.Lock`（模块级 dict，按
+- 编码：PyAV（`av`，随核心依赖 aiortc 安装）的 `libx264`，`pix_fmt=yuv420p`，
+  逐帧以 `rgb24` ndarray 送入（解码即 RGB，无需 BGR 翻转），`crf=18 /
+  preset=veryfast`。**不能用 `cv2.VideoWriter` 的 `mp4v`**：产物是 MPEG-4
+  Part 2，Chromium 无解码器——HTTP 200、容器合法，前端 fetch 不报错，但
+  `<video>` 触发 MediaError NO_SUPPORTED_STREAMS，只剩黑色播放框；而 OpenCV
+  自带 FFmpeg 写 H.264 所需的 openh264 DLL 在运行机上缺失。PyAV 自带
+  libx264，无额外系统依赖。
+- 输出先写到 `idle.tmp.mp4`（必须保留 `.mp4` 后缀：封装器按文件扩展名选择
+  容器格式，`.tmp` 结尾会拒绝打开），写完后 `os.replace` 为
+  `idle.mp4`，避免并发请求读到半截文件；生成过程加一个进程内 `threading.Lock`（模块级 dict，按
   avatar_dir 加锁），第二个并发请求等锁后复用结果。
-- meta.json 不存在/无法解析、kept 越界、decoder 返回 0 帧、VideoWriter 打不开：
+- meta.json 不存在/无法解析、kept 越界、decoder 返回 0 帧、编码器打开/写入失败：
   抛 `VideoError`，由 API 层翻译为 503。
+- 前端 `<video>` 必须挂 `onError`：fetch 成功只代表字节到达，编码不被支持时
+  fetch 不会失败，只有媒体元素会报错；不接 onError 就会表现为无声黑框。
 - 已有形象（本次变更前创建）：首次打开详情页时自动补生成，无需迁移脚本。
 
 ### 6.4 前端（AvatarDetail.tsx）

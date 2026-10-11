@@ -3,10 +3,16 @@ import json
 from fractions import Fraction
 
 import numpy as np
-from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc import (
+    AudioStreamTrack,
+    MediaStreamTrack,
+    RTCPeerConnection,
+    RTCSessionDescription,
+    VideoStreamTrack,
+)
 from aiortc.mediastreams import VIDEO_CLOCK_RATE
 from aiortc.sdp import candidate_from_sdp
-from av import VideoFrame
+from av import AudioFrame, VideoFrame
 from av.audio.resampler import AudioResampler
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -45,21 +51,89 @@ class EngineVideoTrack(VideoStreamTrack):
         return frame
 
 
+#: Opus at 48 kHz ships 20 ms / 960-sample frames; the encoder resamples to
+#: that size (opus.py SAMPLES_PER_FRAME), so feed exactly that.
+AUDIO_CLOCK_RATE = 48000
+AUDIO_FRAME_SAMPLES = 960
+
+
+class EngineAudioTrack(AudioStreamTrack):
+    """Outbound audio mirror of EngineVideoTrack.
+
+    Queued chunks carry pts on the session timeline (the same seconds-axis the
+    video frames use, expressed in 48 kHz samples), so RTP timestamps and RTCP
+    sender reports line up with video and the browser plays both as one
+    lip-synced MediaStream.
+    """
+
+    def __init__(self, maxsize: int = 3000):
+        super().__init__()
+        self._queue: asyncio.Queue[tuple[int, np.ndarray]] = asyncio.Queue(
+            maxsize=maxsize
+        )
+        self.overflows = 0
+
+    async def push(self, pcm: np.ndarray, pts: int) -> None:
+        try:
+            self._queue.put_nowait((pts, pcm))
+        except asyncio.QueueFull:
+            self.overflows += 1
+            try:
+                self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+            self._queue.put_nowait((pts, pcm))
+
+    async def recv(self) -> AudioFrame:
+        pts, pcm = await self._queue.get()
+        frame = AudioFrame.from_ndarray(pcm[None, :], format="s16", layout="mono")
+        frame.sample_rate = AUDIO_CLOCK_RATE
+        frame.pts = pts
+        frame.time_base = Fraction(1, AUDIO_CLOCK_RATE)
+        return frame
+
+
 class WebRTCSink(StreamSink):
     keepalive = True
 
-    def __init__(self, track: EngineVideoTrack):
-        self.track = track
+    def __init__(self, video_track: EngineVideoTrack, audio_track: EngineAudioTrack):
+        self.video_track = video_track
+        self.audio_track = audio_track
+        # Flipped off by the signaling handler when the answer negotiated no
+        # outbound audio (an old sendonly console): nothing would drain the
+        # audio queue then, so it must not be fed.
+        self.wants_audio = True
         self.closed = False
 
     @property
     def overflows(self) -> int:
-        return self.track.overflows
+        return self.video_track.overflows + self.audio_track.overflows
 
     async def push(self, image: np.ndarray, pts: float) -> None:
         if self.closed:
             raise SinkClosed("webrtc sink closed")
-        await self.track.push(image, pts)
+        await self.video_track.push(image, pts)
+
+    async def push_audio(
+        self, samples: np.ndarray, pts: float, sample_rate: int
+    ) -> None:
+        if self.closed:
+            raise SinkClosed("webrtc sink closed")
+        if not self.wants_audio or sample_rate != AUDIO_CLOCK_RATE:
+            return
+        pcm = samples
+        if pcm.dtype != np.int16:
+            pcm = (np.clip(pcm.astype(np.float32), -1.0, 1.0) * 32767).astype(np.int16)
+        start = int(round(pts * AUDIO_CLOCK_RATE))
+        for off in range(0, len(pcm), AUDIO_FRAME_SAMPLES):
+            chunk = pcm[off : off + AUDIO_FRAME_SAMPLES]
+            if len(chunk) < AUDIO_FRAME_SAMPLES:
+                # Flush tail (a short final block): pad with silence so the last
+                # words are encoded now instead of waiting for more samples.
+                chunk = np.concatenate(
+                    (chunk, np.zeros(AUDIO_FRAME_SAMPLES - len(chunk), dtype=np.int16))
+                )
+            await self.audio_track.push(chunk, start + off)
 
     async def close(self) -> None:
         self.closed = True
@@ -99,11 +173,13 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
         await websocket.close(code=4404)
         return
 
-    track = EngineVideoTrack()
-    sink = WebRTCSink(track)
+    video_track = EngineVideoTrack()
+    audio_track = EngineAudioTrack()
+    sink = WebRTCSink(video_track, audio_track)
     manager.attach_sink(session_id, sink)
     pc = RTCPeerConnection()
-    pc.addTrack(track)
+    pc.addTrack(video_track)
+    pc.addTrack(audio_track)
 
     @pc.on("track")
     def on_track(inbound):
@@ -118,6 +194,16 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
                 await pc.setRemoteDescription(RTCSessionDescription(sdp=msg["sdp"], type="offer"))
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
+                # Only feed the audio track when the answer actually SENDS audio
+                # (console offered audio recvonly/sendrecv). A legacy sendonly
+                # console yields a recvonly answer: its sender never runs and
+                # would leave every pushed frame queued forever.
+                for transceiver in pc.getTransceivers():
+                    if transceiver.kind == "audio":
+                        sink.wants_audio = transceiver.currentDirection in (
+                            "sendonly",
+                            "sendrecv",
+                        )
                 await websocket.send_text(json.dumps({"type": "answer", "sdp": pc.localDescription.sdp}))
             elif msg.get("type") == "candidate":
                 cand = msg.get("candidate") or {}

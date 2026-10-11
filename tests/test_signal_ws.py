@@ -1,10 +1,67 @@
+import asyncio
 import io
+import json
 
 import pytest
 from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
 from server.api.deps import hash_api_key
+
+
+def _offer(*kinds):
+    """Build a client offer with (kind, direction) transceivers; SDP only."""
+
+    async def build():
+        from aiortc import RTCPeerConnection
+
+        pc = RTCPeerConnection()
+        for kind, direction in kinds:
+            pc.addTransceiver(kind, direction=direction)
+        try:
+            return (await pc.createOffer()).sdp
+        finally:
+            await pc.close()
+
+    return asyncio.run(build())
+
+
+def _mline_section(sdp: str, kind: str) -> str:
+    """Return one m= block (lines from its m= up to the next m=)."""
+    lines = sdp.splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.startswith(f"m={kind} "))
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("m=")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def _mline_direction(sdp: str, kind: str) -> str | None:
+    for line in _mline_section(sdp, kind).splitlines():
+        if line in ("a=sendonly", "a=recvonly", "a=sendrecv"):
+            return line[2:]
+    return None
+
+
+def _msid(sdp: str, kind: str) -> str:
+    """The m-line's WMS stream id (first token of a=msid)."""
+    for line in _mline_section(sdp, kind).splitlines():
+        if line.startswith("a=msid:"):
+            return line.split(":", 1)[1].split(" ", 1)[0]
+    raise AssertionError(f"no a=msid in {kind} m-line")
+
+
+def _cname(sdp: str, kind: str) -> str:
+    """The SSRC-level cname the browser uses to align A/V RTCP timelines."""
+    for line in _mline_section(sdp, kind).splitlines():
+        if " cname:" in line:
+            return line.split("cname:", 1)[1].strip()
+    raise AssertionError(f"no cname in {kind} m-line")
+
+
+def _bundle_mids(sdp: str) -> list[str]:
+    for line in sdp.splitlines():
+        if line.startswith("a=group:BUNDLE "):
+            return line.split(" ", 1)[1].split(" ")
+    raise AssertionError("no BUNDLE group in SDP")
 
 
 def _seed(client):
@@ -87,6 +144,62 @@ def test_signal_ws_owner_key_attaches_sink(client):
     with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
         # The owner's valid key attaches the live video sink.
         assert isinstance(manager.get_render(sid).sink, WebRTCSink)
+        ws.send_text('{"type": "bye"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+
+def test_recvonly_offer_enables_server_audio_return(client):
+    # The console offers audio recvonly: the answer must send audio back on the
+    # same peer connection as video, and the sink must start feeding its track.
+    from server.core.webrtc import WebRTCSink
+
+    api_key, avatar_id = _seed(client)
+    sid = _new_session(client, api_key, avatar_id)
+    offer = _offer(("video", "recvonly"), ("audio", "recvonly"))
+    manager = client.app.state.session_manager
+
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+        ws.send_text(json.dumps({"type": "offer", "sdp": offer}))
+        answer = json.loads(ws.receive_text())["sdp"]
+        sink = manager.get_render(sid).sink
+
+        assert _mline_direction(answer, "video") == "sendonly"
+        assert _mline_direction(answer, "audio") == "sendonly"
+        # One MediaStream (shared msid) over one BUNDLE with a shared cname: the
+        # three SDP facts the browser uses to play audio and video in sync.
+        assert _msid(answer, "audio") == _msid(answer, "video")
+        assert _cname(answer, "audio") == _cname(answer, "video")
+        assert set(_bundle_mids(answer)) == {
+            ln.split(":", 1)[1].split(" ", 1)[0]
+            for ln in answer.splitlines()
+            if ln.startswith("a=mid:")
+        }
+        assert isinstance(sink, WebRTCSink)
+        assert sink.wants_audio is True
+
+        ws.send_text('{"type": "bye"}')
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_text()
+
+
+def test_legacy_sendonly_offer_disables_audio_return(client):
+    # Backwards compatibility: an older console only offers to SEND audio (the
+    # server has nothing to play back on it). The answer stays recvonly and,
+    # with no consumer draining the audio track, the sink must not feed it.
+    api_key, avatar_id = _seed(client)
+    sid = _new_session(client, api_key, avatar_id)
+    offer = _offer(("video", "recvonly"), ("audio", "sendonly"))
+    manager = client.app.state.session_manager
+
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+        ws.send_text(json.dumps({"type": "offer", "sdp": offer}))
+        answer = json.loads(ws.receive_text())["sdp"]
+        sink = manager.get_render(sid).sink
+
+        assert _mline_direction(answer, "audio") == "recvonly"
+        assert sink.wants_audio is False
+
         ws.send_text('{"type": "bye"}')
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()

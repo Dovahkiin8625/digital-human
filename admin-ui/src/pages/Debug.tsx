@@ -48,8 +48,10 @@ export default function Debug() {
   // Hold the key issued by ensureDemoKey() so the metrics poller and DELETE use
   // the exact key that created the session (never a raw localStorage read).
   const keyRef = useRef("");
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const audioUrlRef = useRef("");
+  // Microphone recording lives in refs: the recorder's onstop closure is
+  // registered once and must not capture stale React state.
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [avatarId, setAvatarId] = useState("");
   const [sessionId, setSessionId] = useState("");
@@ -60,12 +62,16 @@ export default function Debug() {
   const [voice, setVoice] = useState(VOICES[0].id);
   const [customVoice, setCustomVoice] = useState("");
   const [ttsBusy, setTtsBusy] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [micBusy, setMicBusy] = useState(false);
   const [starting, setStarting] = useState(false);
   const { message } = AntApp.useApp();
 
   useEffect(
     () => () => {
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      // Stop an in-flight recording and release the mic on unmount.
+      recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
     },
     []
   );
@@ -134,6 +140,9 @@ export default function Debug() {
   }
 
   async function stop() {
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    recorderRef.current = null;
+    setRecording(false);
     clientRef.current?.close();
     clientRef.current = null;
     if (sessionId) {
@@ -167,22 +176,58 @@ export default function Debug() {
         }
         throw new Error(msg);
       }
+      // The clip is sent as driving PCM; the server returns it as audio on the
+      // WebRTC MediaStream, in sync with the generated mouth movement.
       const blob = await resp.blob();
-      // The WebRTC stream carries video only, so play the clip here too;
-      // otherwise you watch the mouth move in silence.
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      const url = URL.createObjectURL(blob);
-      audioUrlRef.current = url;
-      if (audioRef.current) {
-        audioRef.current.src = url;
-        void audioRef.current.play().catch(() => {});
-      }
       await client.sendAudioBlob(blob);
       message.success("已合成并发送");
     } catch (err) {
       message.error((err as Error).message);
     } finally {
       setTtsBusy(false);
+    }
+  }
+
+  async function toggleMic() {
+    const client = clientRef.current;
+    if (!client) return;
+    if (recording) {
+      // onstop ships the recording through the same driving path as TTS.
+      recorderRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "";
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorderRef.current = recorder;
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordedChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+        if (!clientRef.current) return; // session stopped while recording
+        setMicBusy(true);
+        try {
+          await clientRef.current.sendAudioBlob(blob);
+          message.success("录音已发送");
+        } catch (err) {
+          message.error((err as Error).message);
+        } finally {
+          setMicBusy(false);
+        }
+      };
+      recorder.start();
+      setRecording(true);
+    } catch (err) {
+      message.error(`无法使用麦克风：${(err as Error).message}`);
     }
   }
 
@@ -226,6 +271,7 @@ export default function Debug() {
           <Card title="画面">
             <video
               ref={videoRef}
+              controls
               autoPlay
               playsInline
               style={{
@@ -295,7 +341,6 @@ export default function Debug() {
               合成并驱动
             </Button>
           </Space>
-          <audio ref={audioRef} controls style={{ width: "100%" }} />
         </Space>
       </Card>
 
@@ -310,10 +355,12 @@ export default function Debug() {
           </Button>
           <Button
             icon={<AudioOutlined />}
-            onClick={() => clientRef.current?.attachMicrophone()}
-            disabled={!sessionId}
+            onClick={toggleMic}
+            loading={micBusy}
+            danger={recording}
+            disabled={!sessionId && !recording}
           >
-            麦克风
+            {recording ? "停止录制并发送" : "麦克风录制"}
           </Button>
           <label>
             <Button icon={<UploadOutlined />} disabled={!sessionId} style={{ pointerEvents: "none" }}>

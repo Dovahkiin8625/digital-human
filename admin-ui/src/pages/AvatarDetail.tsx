@@ -266,9 +266,20 @@ export default function AvatarDetail() {
                       playsInline
                       loop
                       style={{ width: 240 }}
+                      onError={() =>
+                        // A successful fetch only proves the bytes arrived: an
+                        // unsupported codec still leaves a black player. Show
+                        // the retry UI instead of a silent black box.
+                        setPreviewError("视频无法解码播放")
+                      }
                     />
                   ) : preview ? (
-                    <img src={preview} alt="preview" width={240} />
+                    <img
+                      src={preview}
+                      alt="preview"
+                      width={240}
+                      onError={() => setPreviewError("图片无法解码显示")}
+                    />
                   ) : null}
                 </div>
               </Spin>
