@@ -21,8 +21,8 @@ class SessionManager:
         self._renders: dict[str, RenderSession] = {}
         self._engine_closed = False
 
-    async def create(self, db: Session, tenant_id: str, avatar: Avatar) -> StreamSession:
-        row = StreamSession(tenant_id=tenant_id, avatar_id=avatar.id, status="idle")
+    async def create(self, db: Session, avatar: Avatar) -> StreamSession:
+        row = StreamSession(avatar_id=avatar.id, status="idle")
         db.add(row)
         db.commit()
         pack = self.store.load_pack(avatar)

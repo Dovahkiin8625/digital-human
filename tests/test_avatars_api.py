@@ -10,66 +10,49 @@ def _png_bytes(w=640, h=800):
     return buf.getvalue()
 
 
-def _seed_tenant(client, api_key="key-1"):
-    from server.api.deps import hash_api_key
-    from server.db.models import Tenant
-    from server.db.session import get_engine
-    from sqlalchemy.orm import sessionmaker
-
-    db = sessionmaker(bind=get_engine())()
-    db.add(Tenant(name="t1", api_key_hash=hash_api_key(api_key)))
-    db.commit()
-    db.close()
-    return {"X-API-Key": api_key}
-
 
 def test_avatar_lifecycle(client):
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Alice"},
+            data={"name": "Alice"},
         files={"file": ("alice.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 201
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
     assert detail["status"] == "ready"
-    assert detail["config"] == {"crop": {"mode": "center"}}
+    # The audit row is keyed separately; the original config block is preserved.
+    assert {"crop", "_effective_params"} <= set(detail["config"])
+    assert detail["config"]["crop"] == {"mode": "center"}
 
-    listing = client.get("/api/v1/avatars", headers=headers).json()
+    listing = client.get("/api/v1/avatars").json()
     assert [a["avatar_id"] for a in listing] == [avatar_id]
 
-    assert client.delete(f"/api/v1/avatars/{avatar_id}", headers=headers).status_code == 204
-    assert client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).status_code == 404
+    assert client.delete(f"/api/v1/avatars/{avatar_id}").status_code == 204
+    assert client.get(f"/api/v1/avatars/{avatar_id}").status_code == 404
 
 
 def test_avatar_tiny_image_becomes_failed(client):
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "bad"},
+            data={"name": "bad"},
         files={"file": ("bad.png", _png_bytes(50, 50), "image/png")},
     )
     avatar_id = resp.json()["avatar_id"]
-    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
     assert detail["status"] == "failed"
     assert detail["error"]
 
 
 def test_avatar_not_found(client):
-    headers = _seed_tenant(client)
-    assert client.get("/api/v1/avatars/nope", headers=headers).status_code == 404
+    assert client.get("/api/v1/avatars/nope").status_code == 404
 
 
 def test_upload_rejects_path_separator_in_suffix(client):
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "evil"},
+            data={"name": "evil"},
         files={"file": ("x.foo/bar", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 400
@@ -83,11 +66,9 @@ def test_upload_rejects_path_separator_in_suffix(client):
 
 
 def test_upload_rejects_backslash_dotdot_in_suffix(client):
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "evil"},
+            data={"name": "evil"},
         files={"file": ("x.foo\\..\\bar", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 400
@@ -146,11 +127,9 @@ def test_avatar_job_id_fits_pk_column_contract(client):
     from server.db.models import AvatarJob
     from server.db.session import get_engine
 
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Alice"},
+            data={"name": "Alice"},
         files={"file": ("alice.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 201
@@ -166,14 +145,13 @@ def test_avatar_job_id_fits_pk_column_contract(client):
 
 
 def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
-    headers = _seed_tenant(client)
     called = []
 
     def fake_delete(self, avatar_id):
         called.append(avatar_id)
 
     monkeypatch.setattr("server.avatar.store.AvatarStore.delete_assets", fake_delete)
-    resp = client.delete("/api/v1/avatars/not-a-uuid", headers=headers)
+    resp = client.delete("/api/v1/avatars/not-a-uuid")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
     assert called == []
@@ -200,17 +178,15 @@ def _stub_video(monkeypatch, duration=2.0, fps=25.0):
 
 def test_avatar_video_lifecycle(client, monkeypatch):
     _stub_video(monkeypatch)
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Video Alice"},
+            data={"name": "Video Alice"},
         files={"file": ("alice.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
     assert detail["status"] == "ready"
 
 
@@ -220,11 +196,9 @@ def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeyp
     # legal -- a cap on raw source frames would wrongly reject it. Without this
     # case, capping on `info["frame_count"]` passes every other test.
     _stub_video(monkeypatch, duration=15.0, fps=30.0)
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "30fps"},
+            data={"name": "30fps"},
         files={"file": ("clip.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
@@ -232,11 +206,9 @@ def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeyp
 
 def test_avatar_video_too_long_is_422(client, monkeypatch):
     _stub_video(monkeypatch, duration=20.0)
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Too long"},
+            data={"name": "Too long"},
         files={"file": ("long.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 422
@@ -251,11 +223,9 @@ def test_avatar_oversized_upload_is_413_and_creates_no_rows(client, monkeypatch)
     from server.config import get_settings
 
     get_settings.cache_clear()
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Big"},
+            data={"name": "Big"},
         files={"file": ("big.png", b"\x00" * 2048, "image/png")},
     )
     assert resp.status_code == 413
@@ -288,17 +258,15 @@ def test_avatar_video_with_zero_frames_fails_with_typed_error(client, monkeypatc
         return np.zeros((0, canvas[1], canvas[0], 3), np.uint8), 25.0
 
     monkeypatch.setattr("server.avatar.video.decode_frames", zero_decode)
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Empty"},
+            data={"name": "Empty"},
         files={"file": ("empty.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}", headers=headers).json()
+    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
     assert detail["status"] == "failed"
     assert detail["error"] == "video has no decodable frames"
 
@@ -310,11 +278,9 @@ def test_avatar_undecodable_video_is_422(client, monkeypatch):
         raise VideoError("cannot open video")
 
     monkeypatch.setattr("server.avatar.video.probe_video", boom)
-    headers = _seed_tenant(client)
     resp = client.post(
         "/api/v1/avatars",
-        headers=headers,
-        data={"name": "Bad"},
+            data={"name": "Bad"},
         files={"file": ("bad.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 422

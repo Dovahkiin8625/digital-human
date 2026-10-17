@@ -4,9 +4,8 @@ from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy import select
 from starlette.responses import Response
 
-from server.api.deps import get_tenant, hash_api_key
 from server.core.errors import AppError
-from server.db.models import Avatar, StreamSession, Tenant
+from server.db.models import Avatar, StreamSession
 from server.db.session import get_db
 
 router = APIRouter(tags=["sessions"])
@@ -32,14 +31,14 @@ def _serialize(row: StreamSession, render=None) -> dict:
 
 
 @router.post("/api/v1/sessions", status_code=201)
-async def create_session(body: dict, tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> dict:
+async def create_session(body: dict, db=Depends(get_db)) -> dict:
     avatar_id = body.get("avatar_id", "")
     avatar = db.execute(
-        select(Avatar).where(Avatar.id == avatar_id, Avatar.tenant_id == tenant.id)
+        select(Avatar).where(Avatar.id == avatar_id)
     ).scalar_one_or_none()
     if avatar is None or avatar.status != "ready":
         raise AppError("avatar_not_ready", f"avatar {avatar_id} is not ready", 409)
-    row = await _manager().create(db, tenant.id, avatar)
+    row = await _manager().create(db, avatar)
     return {
         "session_id": row.id,
         "status": row.status,
@@ -49,12 +48,10 @@ async def create_session(body: dict, tenant: Tenant = Depends(get_tenant), db=De
 
 
 @router.get("/api/v1/sessions")
-def list_sessions(tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> list[dict]:
+def list_sessions(db=Depends(get_db)) -> list[dict]:
     rows = (
         db.execute(
-            select(StreamSession)
-            .where(StreamSession.tenant_id == tenant.id)
-            .order_by(StreamSession.started_at.desc())
+            select(StreamSession).order_by(StreamSession.started_at.desc())
         )
         .scalars()
         .all()
@@ -71,9 +68,9 @@ def list_sessions(tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> l
 
 
 @router.get("/api/v1/sessions/{session_id}")
-def get_session(session_id: str, tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> dict:
+def get_session(session_id: str, db=Depends(get_db)) -> dict:
     row = db.execute(
-        select(StreamSession).where(StreamSession.id == session_id, StreamSession.tenant_id == tenant.id)
+        select(StreamSession).where(StreamSession.id == session_id)
     ).scalar_one_or_none()
     if row is None:
         raise AppError("not_found", f"session {session_id} not found", 404)
@@ -85,9 +82,9 @@ def get_session(session_id: str, tenant: Tenant = Depends(get_tenant), db=Depend
 
 
 @router.delete("/api/v1/sessions/{session_id}", status_code=204)
-async def delete_session(session_id: str, tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> Response:
+async def delete_session(session_id: str, db=Depends(get_db)) -> Response:
     row = db.execute(
-        select(StreamSession).where(StreamSession.id == session_id, StreamSession.tenant_id == tenant.id)
+        select(StreamSession).where(StreamSession.id == session_id)
     ).scalar_one_or_none()
     if row is None:
         raise AppError("not_found", f"session {session_id} not found", 404)
@@ -95,34 +92,34 @@ async def delete_session(session_id: str, tenant: Tenant = Depends(get_tenant), 
     return Response(status_code=204)
 
 
-def _ws_tenant(api_key: str) -> Tenant | None:
-    """WebSocket auth: REST uses the X-API-Key header, WS uses ?api_key=.
-
-    Returns the authenticated tenant, or None when the key is missing/unknown.
-    """
+@router.websocket("/api/v1/ws/signal/{session_id}")
+async def signal_ws(websocket: WebSocket, session_id: str) -> None:
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Tenant
     from server.db.session import get_engine
 
+    # No auth/tenant checks after the no-tenant refactor: WS endpoints trust
+    # anyone who knows the session id. Still, the session has to exist --
+    # otherwise accept and immediately close so the browser can surface a
+    # meaningful close reason.
     db = sessionmaker(bind=get_engine())()
     try:
-        tenant = db.query(Tenant).filter(Tenant.api_key_hash == hash_api_key(api_key)).first()
-        if tenant is None:
-            return None
-        # Touch the PK while the session is live so the returned instance stays usable.
-        _ = tenant.id
-        return tenant
+        row = db.get(StreamSession, session_id)
+        if row is None:
+            await websocket.close(code=4404)
+            return
     finally:
         db.close()
+    from server.core.webrtc import handle_signal_websocket
+
+    await handle_signal_websocket(websocket, _manager(), session_id)
 
 
-def _ws_session_owned(session_id: str, tenant_id: str) -> bool:
-    """True only when ``session_id`` names a session owned by ``tenant_id``.
-
-    Missing and other-tenant sessions both return False so callers cannot use the
-    WS close code to probe for the existence of another tenant's session.
-    """
+@router.websocket("/api/v1/ws/audio/{session_id}")
+async def audio_ws(websocket: WebSocket, session_id: str) -> None:
+    """Backup PCM ingress: binary frames are raw s16le mono 48kHz chunks fed to
+    the same RenderSession.push_pcm as the RTP audio track; a text {"type":"flush"}
+    drains the ingest's partial tail block."""
     from sqlalchemy.orm import sessionmaker
 
     from server.db.session import get_engine
@@ -130,42 +127,16 @@ def _ws_session_owned(session_id: str, tenant_id: str) -> bool:
     db = sessionmaker(bind=get_engine())()
     try:
         row = db.get(StreamSession, session_id)
-        return row is not None and row.tenant_id == tenant_id
+        if row is None:
+            await websocket.close(code=4404)
+            return
+        try:
+            render = _manager().get_render(session_id)
+        except AppError:
+            await websocket.close(code=4404)
+            return
     finally:
         db.close()
-
-
-@router.websocket("/api/v1/ws/signal/{session_id}")
-async def signal_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> None:
-    tenant = _ws_tenant(api_key)
-    if tenant is None:
-        await websocket.close(code=4401)
-        return
-    if not _ws_session_owned(session_id, tenant.id):
-        await websocket.close(code=4404)
-        return
-    from server.core.webrtc import handle_signal_websocket
-
-    await handle_signal_websocket(websocket, _manager(), session_id)
-
-
-@router.websocket("/api/v1/ws/audio/{session_id}")
-async def audio_ws(websocket: WebSocket, session_id: str, api_key: str = "") -> None:
-    """Backup PCM ingress: binary frames are raw s16le mono 48kHz chunks fed to
-    the same RenderSession.push_pcm as the RTP audio track; a text {"type":"flush"}
-    drains the ingest's partial tail block."""
-    tenant = _ws_tenant(api_key)
-    if tenant is None:
-        await websocket.close(code=4401)
-        return
-    if not _ws_session_owned(session_id, tenant.id):
-        await websocket.close(code=4404)
-        return
-    try:
-        render = _manager().get_render(session_id)
-    except AppError:
-        await websocket.close(code=4404)
-        return
     await websocket.accept()
     try:
         while True:

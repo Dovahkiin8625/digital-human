@@ -14,15 +14,10 @@ TEST_DOUBLES = {
 }
 
 # Settings the tests assert against that a local .env would otherwise override:
-# pydantic-settings ranks real environment variables above the .env file, and
-# the quickstart tells you to `cp .env.example .env`, whose admin token is
-# "change-me-too". Without pinning these, every admin test 401s on a machine set
-# up exactly as the README describes.
+# pydantic-settings ranks real environment variables above the .env file. Empty
+# = "not configured", the state the TTS tests assert on; a real key in .env
+# must not silently turn the 503 test into a live network call.
 PINNED = {
-    "DH_ADMIN_TOKEN": "dev-admin-token",
-    "DH_ADMIN_PASSWORD": "admin123",
-    # Empty = "not configured", the state the TTS tests assert on; a real key in
-    # .env must not silently turn the 503 test into a live network call.
     "DH_MINIMAX_API_KEY": "",
 }
 

@@ -41,6 +41,10 @@ musetalk = [
   "einops>=0.8",
   "librosa>=0.11",
   "soundfile>=0.12",
+  # diffusers' Wan pipeline (Wan 2.x) calls ``ftfy.fix_text`` without importing
+  # the module -- a known omission in some pipeline files. Ship it explicitly
+  # so the first ``pipe(...)`` call doesn't crash with NameError.
+  "ftfy>=6.0",
 ]
 
 [build-system]

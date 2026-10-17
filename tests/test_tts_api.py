@@ -229,10 +229,6 @@ def test_tts_endpoint_returns_wav(client, monkeypatch):
     assert captured == {"text": "你好", "voice_id": "female-shaonv"}
 
 
-def test_tts_endpoint_requires_admin_token(client):
-    assert client.post("/api/admin/tts", json={"text": "hi"}).status_code == 401
-
-
 def test_tts_endpoint_rejects_blank_text(client):
     resp = client.post("/api/admin/tts", headers=ADMIN, json={"text": "   "})
     assert resp.status_code == 400

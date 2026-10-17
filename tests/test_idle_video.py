@@ -54,11 +54,12 @@ class _Encoder:
         self.fail = fail
         _Encoder.instances.append(self)
 
-    def __call__(self, path, frames, fps):
+    def __call__(self, path, frames, fps, **kwargs):
         if self.fail:
             raise RuntimeError("encoder exploded")
         self.path = path
         self.fps = fps
+        self.kwargs = kwargs
         for frame in frames:
             self.frames.append(np.array(frame))
         # The real encoder materialises the file; emulate so the exists() reuse

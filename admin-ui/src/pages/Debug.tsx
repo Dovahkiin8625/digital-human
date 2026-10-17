@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   App as AntApp,
   Button,
   Card,
   Col,
+  Descriptions,
   Input,
   Row,
   Select,
@@ -20,10 +21,10 @@ import {
   SoundOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { api, getToken } from "../api";
+import { api } from "../api";
 import StatusTag from "../components/StatusTag";
-import { ensureDemoKey } from "../demoKey";
-import type { AvatarInfo, SessionInfo } from "../types";
+import LatencyHistogram from "../components/LatencyHistogram";
+import type { AvatarInfo, SessionInfo, SystemInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
 
 // MiniMax's Chinese system voices, plus an escape hatch for a cloned one.
@@ -42,12 +43,17 @@ function Metric({ title, value, suffix }: { title: string; value: number | strin
   return <Statistic title={title} value={value} suffix={suffix} />;
 }
 
+// Look up an avatar display name from a list, falling back to the bare id when
+// the session was for an avatar that's been deleted since.
+function nameFor(avatars: AvatarInfo[], id?: string): string {
+  if (!id) return "—";
+  const a = avatars.find((x) => x.avatar_id === id);
+  return a ? a.name : id.slice(0, 8);
+}
+
 export default function Debug() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const clientRef = useRef<DigitalHumanClient | null>(null);
-  // Hold the key issued by ensureDemoKey() so the metrics poller and DELETE use
-  // the exact key that created the session (never a raw localStorage read).
-  const keyRef = useRef("");
   // Microphone recording lives in refs: the recorder's onstop closure is
   // registered once and must not capture stale React state.
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -65,6 +71,7 @@ export default function Debug() {
   const [recording, setRecording] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [sys, setSys] = useState<SystemInfo | null>(null);
   const { message } = AntApp.useApp();
 
   useEffect(
@@ -82,14 +89,31 @@ export default function Debug() {
       .catch((err) => setError((err as Error).message));
   }, []);
 
+  // Engine / media card: poll the same /system the header uses so a name
+  // change shows up here too without a manual refresh.
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const data = await api<SystemInfo>("/api/admin/system");
+        if (alive) setSys(data);
+      } catch {
+        /* header already shows the cached value; skip on transient failure */
+      }
+    }
+    tick();
+    const t = window.setInterval(tick, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+  }, []);
+
   useEffect(() => {
     if (!sessionId) return;
     const timer = setInterval(async () => {
       try {
-        const resp = await fetch(`/api/v1/sessions/${sessionId}`, {
-          headers: { "X-API-Key": keyRef.current },
-        });
-        const data = (await resp.json()) as SessionInfo;
+        const data = await api<SessionInfo>(`/api/v1/sessions/${sessionId}`);
         setMetrics(data.metrics);
         setStatus(data.status);
       } catch {
@@ -99,34 +123,35 @@ export default function Debug() {
     return () => clearInterval(timer);
   }, [sessionId]);
 
-  function postSession(key: string) {
-    return fetch("/api/v1/sessions", {
-      method: "POST",
-      headers: { "X-API-Key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ avatar_id: avatarId }),
-    });
-  }
+  // For the "current avatar" hint below the metrics: resolve the session's
+  // avatar_id by reading the latest /api/v1/sessions/{id} once a session
+  // exists; sessions endpoint is the only place the avatar_id ships with
+  // metrics.
+  const sessionAvatarId = useMemo(() => {
+    const ai = (metrics as unknown as { avatar_id?: string }).avatar_id;
+    return ai ?? "";
+  }, [metrics]);
+  const resolvedAvatarName = useMemo(() => {
+    // Prefer the avatar currently selected in the picker (the one driving);
+    // fall back to whatever the session metrics hint at.
+    return nameFor(avatars, avatarId || sessionAvatarId);
+  }, [avatars, avatarId, sessionAvatarId]);
 
   async function start() {
     setStarting(true);
     try {
       setError("");
-      let key = await ensureDemoKey();
-      let resp = await postSession(key);
-      if (resp.status === 401) {
-        // The cached console key went stale (minting one rotates the "default"
-        // tenant's key, so any other console invalidates ours). Mint a fresh
-        // key and retry once rather than leaving the page stuck on a 401.
-        key = await ensureDemoKey(true);
-        resp = await postSession(key);
-      }
+      const resp = await fetch("/api/v1/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ avatar_id: avatarId }),
+      });
       const body = await resp.json();
       if (!resp.ok) throw new Error(body?.error?.message ?? "create session failed");
-      keyRef.current = key;
       const wsBase = location.origin.replace(/^http/, "ws");
       const client = new DigitalHumanClient(
-        `${wsBase}${body.signal_url}?api_key=${key}`,
-        `${wsBase}${body.audio_url}?api_key=${key}`
+        `${wsBase}${body.signal_url}`,
+        `${wsBase}${body.audio_url}`
       );
       await client.connect(videoRef.current!);
       clientRef.current = client;
@@ -146,10 +171,7 @@ export default function Debug() {
     clientRef.current?.close();
     clientRef.current = null;
     if (sessionId) {
-      await fetch(`/api/v1/sessions/${sessionId}`, {
-        method: "DELETE",
-        headers: { "X-API-Key": keyRef.current },
-      });
+      await api(`/api/v1/sessions/${sessionId}`, { method: "DELETE" });
     }
     setSessionId("");
     setStatus("closed");
@@ -164,7 +186,7 @@ export default function Debug() {
       const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice;
       const resp = await fetch("/api/admin/tts", {
         method: "POST",
-        headers: { "X-Admin-Token": getToken() ?? "", "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, ...(voiceId ? { voice_id: voiceId } : {}) }),
       });
       if (!resp.ok) {
@@ -231,11 +253,42 @@ export default function Debug() {
     }
   }
 
+  // Pre-format media values once so the JSX reads cleanly. The fallback
+  // empties are chosen so a partial response does not NaN the descriptions.
+  const frameW = sys?.frame_width ?? "—";
+  const frameH = sys?.frame_height ?? "—";
+  const fps = sys?.fps ?? "—";
+  const sr = sys?.sample_rate ?? "—";
+  const br = sys?.video_bitrate;
+  const idle = sys?.session_idle_timeout;
+
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Typography.Title level={3} style={{ margin: 0 }}>
         会话调试
       </Typography.Title>
+
+      <Card title="引擎与媒体">
+        {sys ? (
+          <Descriptions
+            size="small"
+            column={{ xs: 2, sm: 3, md: 4 }}
+            items={[
+              { key: "engine", label: "引擎", children: sys.engine.name },
+              { key: "gpu", label: "GPU", children: sys.gpu ? "可用" : "不可用" },
+              { key: "queue", label: "队列深度", children: sys.engine.pending ?? "—" },
+              { key: "cached", label: "已缓存形象", children: sys.engine.avatars_cached ?? "—" },
+              { key: "size", label: "帧尺寸", children: `${frameW} × ${frameH}` },
+              { key: "fps", label: "FPS", children: String(fps) },
+              { key: "sr", label: "采样率 Hz", children: String(sr) },
+              { key: "vbr", label: "视频码率", children: br ? `${(br / 1000).toFixed(0)} kbps` : "—" },
+              { key: "idle", label: "会话空闲超时 s", children: idle ?? "—" },
+            ]}
+          />
+        ) : (
+          <Typography.Text type="secondary">加载中…</Typography.Text>
+        )}
+      </Card>
 
       <Card title="会话">
         <Space wrap>
@@ -262,6 +315,11 @@ export default function Debug() {
           <span>
             状态：<StatusTag status={status} />
           </span>
+          {sessionId && (
+            <Typography.Text type="secondary">
+              会话 {sessionId.slice(0, 8)} · 形象 {resolvedAvatarName}
+            </Typography.Text>
+          )}
         </Space>
         {error && <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} />}
       </Card>
@@ -288,19 +346,46 @@ export default function Debug() {
         <Col xs={24} lg={14}>
           <Card title="实时指标">
             <Row gutter={[16, 16]}>
-              <Col span={12}>
+              <Col span={8}>
                 <Metric title="输出帧" value={metrics.frames_out ?? 0} />
               </Col>
-              <Col span={12}>
+              <Col span={8}>
+                <Metric title="保活帧" value={metrics.keepalive_frames ?? 0} />
+              </Col>
+              <Col span={8}>
                 <Metric title="丢帧" value={metrics.dropped_frames ?? 0} />
               </Col>
-              <Col span={12}>
+              <Col span={8}>
                 <Metric title="FPS" value={metrics.fps ?? 0} />
               </Col>
-              <Col span={12}>
+              <Col span={8}>
+                <Metric title="块数" value={metrics.blocks ?? 0} />
+              </Col>
+              <Col span={8}>
+                <Metric title="队列深度" value={metrics.queue_depth ?? 0} />
+              </Col>
+              <Col span={8}>
+                <Metric title="溢出" value={metrics.overflows ?? 0} />
+              </Col>
+              <Col span={8}>
                 <Metric title="平均延迟" value={(metrics.avg_latency_ms ?? 0).toFixed(1)} suffix="ms" />
               </Col>
+              <Col span={8}>
+                <Metric title="p50 延迟" value={(metrics.p50_latency_ms ?? 0).toFixed(1)} suffix="ms" />
+              </Col>
+              <Col span={8}>
+                <Metric title="p95 延迟" value={(metrics.p95_latency_ms ?? 0).toFixed(1)} suffix="ms" />
+              </Col>
+              <Col span={8}>
+                <Metric title="最大延迟" value={(metrics.max_latency_ms ?? 0).toFixed(1)} suffix="ms" />
+              </Col>
             </Row>
+            <div style={{ marginTop: 16 }}>
+              <Typography.Text strong>延迟分布（ms）</Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                <LatencyHistogram data={metrics.latency_histogram} />
+              </div>
+            </div>
           </Card>
         </Col>
       </Row>

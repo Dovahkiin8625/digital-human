@@ -19,14 +19,26 @@ class PipelineError(Exception):
 
 class AvatarPipeline(ABC):
     @abstractmethod
-    def process(self, avatar_id: str, source_path: Path, out_dir: Path, progress: Callable[[str, int], None]) -> dict:
+    def process(
+        self,
+        avatar_id: str,
+        source_path: Path,
+        out_dir: Path,
+        progress: Callable[[str, int], None],
+    ) -> dict:
         ...
 
 
 class MockAvatarPipeline(AvatarPipeline):
     MIN_SIZE = 256
 
-    def process(self, avatar_id: str, source_path: Path, out_dir: Path, progress: Callable[[str, int], None]) -> dict:
+    def process(
+        self,
+        avatar_id: str,
+        source_path: Path,
+        out_dir: Path,
+        progress: Callable[[str, int], None],
+    ) -> dict:
         progress("detect_face", 10)
         source_path = Path(source_path)
         if video.is_video_suffix(source_path.suffix):
@@ -85,12 +97,26 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
     try:
         avatar.status = "processing"
         db.commit()
+        from server.avatar.tunables import effective
+
+        # Per-avatar overrides captured by the create form beat both module
+        # defaults and operator-pushed Setting rows. The audit row reflects
+        # exactly what the pipeline saw, so a later idle-video re-encode
+        # (which reads from the same column) will produce the same result.
+        effective_now = effective(db, overrides=avatar.tunable_overrides or None)
         config = pipeline.process(
-            avatar.id, Path(avatar.source_image_path), store.avatar_dir(avatar.id), progress
+            avatar.id,
+            Path(avatar.source_image_path),
+            store.avatar_dir(avatar.id),
+            progress,
         )
         pack_json = store.avatar_dir(avatar.id) / "pack.json"
         pack_json.write_text(json.dumps(config))
         avatar.pack_path = str(pack_json)
+        # Audit: write the tunables actually used. ``effective()`` resolves DB
+        # overrides on top of module defaults, so this row is exactly what the
+        # pipeline and the idle encoder saw at run time.
+        config["_effective_params"] = effective_now
         avatar.config_json = config
         avatar.status = "ready"
         db.commit()

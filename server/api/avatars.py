@@ -6,12 +6,11 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from starlette.responses import Response
 
-from server.api.deps import get_tenant
 from server.avatar.pipeline import run_job_in_new_session
 from server.avatar.store import AvatarStore
 from server.config import get_settings
 from server.core.errors import AppError
-from server.db.models import Avatar, AvatarJob, Tenant
+from server.db.models import Avatar, AvatarJob
 from server.db.session import get_db
 
 router = APIRouter(prefix="/api/v1/avatars", tags=["avatars"])
@@ -55,12 +54,23 @@ def _serialize(a: Avatar, with_detail: bool = False) -> dict:
     return data
 
 
-def _create_avatar_rows(db, tenant_id: str, name: str, stream, suffix: str) -> tuple[str, str]:
+def _create_avatar_rows(
+    db,
+    name: str,
+    stream,
+    suffix: str,
+    tunable_overrides: dict | None = None,
+) -> tuple[str, str]:
     """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
 
-    Shared by the tenant upload endpoint here and the admin upload endpoint in
+    Shared by the upload endpoint here and the admin upload endpoint in
     ``server.api.admin`` so neither duplicates the store/row wiring. Scheduling
     the background job stays with each caller (each owns its BackgroundTasks).
+
+    ``tunable_overrides`` is the per-avatar form of the tunables that the
+    admin create form captures (idle_crf / idle_preset). ``None`` (or ``{}``)
+    means "use the global defaults"; the column is NOT NULL with a JSON
+    default so a non-admin upload does not need to set anything.
     """
     avatar_id = uuid4().hex
     store = _store()
@@ -68,10 +78,11 @@ def _create_avatar_rows(db, tenant_id: str, name: str, stream, suffix: str) -> t
 
     avatar = Avatar(
         id=avatar_id,
-        tenant_id=tenant_id,
         name=name,
         status="pending",
         source_image_path=str(source_path),
+        config_json={},
+        tunable_overrides=tunable_overrides or {},
     )
     job = AvatarJob(id=uuid4().hex, avatar_id=avatar_id, stage="queued")
     db.add(avatar)
@@ -80,21 +91,11 @@ def _create_avatar_rows(db, tenant_id: str, name: str, stream, suffix: str) -> t
     return avatar_id, job.id
 
 
-def _get_owned(db, tenant: Tenant, avatar_id: str) -> Avatar:
-    avatar = db.execute(
-        select(Avatar).where(Avatar.id == avatar_id, Avatar.tenant_id == tenant.id)
-    ).scalar_one_or_none()
-    if avatar is None:
-        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
-    return avatar
-
-
 @router.post("", status_code=201)
 def create_avatar(
     background: BackgroundTasks,
     name: str = Form(...),
     file: UploadFile = ...,
-    tenant: Tenant = Depends(get_tenant),
     db=Depends(get_db),
 ) -> dict:
     suffix = _derive_suffix(file.filename)
@@ -108,17 +109,15 @@ def create_avatar(
             f"upload is larger than {get_settings().avatar_max_upload_bytes} bytes",
             413,
         )
-    avatar_id, job_id = _create_avatar_rows(db, tenant.id, name, file.file, suffix)
+    avatar_id, job_id = _create_avatar_rows(db, name, file.file, suffix)
     background.add_task(run_job_in_new_session, job_id, _store())
     return {"avatar_id": avatar_id, "status": "pending"}
 
 
 @router.get("")
-def list_avatars(tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> list[dict]:
+def list_avatars(db=Depends(get_db)) -> list[dict]:
     rows = (
-        db.execute(
-            select(Avatar).where(Avatar.tenant_id == tenant.id).order_by(Avatar.created_at.desc())
-        )
+        db.execute(select(Avatar).order_by(Avatar.created_at.desc()))
         .scalars()
         .all()
     )
@@ -126,9 +125,11 @@ def list_avatars(tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> li
 
 
 @router.get("/{avatar_id}")
-def get_avatar(avatar_id: str, tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> dict:
+def get_avatar(avatar_id: str, db=Depends(get_db)) -> dict:
     _require_uuid_hex(avatar_id)
-    avatar = _get_owned(db, tenant, avatar_id)
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     data = _serialize(avatar, with_detail=True)
     if avatar.status == "failed":
         job = (
@@ -145,9 +146,11 @@ def get_avatar(avatar_id: str, tenant: Tenant = Depends(get_tenant), db=Depends(
 
 
 @router.delete("/{avatar_id}", status_code=204)
-def delete_avatar(avatar_id: str, tenant: Tenant = Depends(get_tenant), db=Depends(get_db)) -> Response:
+def delete_avatar(avatar_id: str, db=Depends(get_db)) -> Response:
     _require_uuid_hex(avatar_id)
-    avatar = _get_owned(db, tenant, avatar_id)
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     db.execute(sa_delete(AvatarJob).where(AvatarJob.avatar_id == avatar_id))
     db.delete(avatar)
     db.commit()

@@ -9,8 +9,6 @@ class Settings(BaseSettings):
     avatar_pipeline: str = "musetalk"
     data_dir: Path = Path("data")
     database_url: str = "sqlite:///data/digital-human.db"
-    admin_password: str = "admin123"
-    admin_token: str = "dev-admin-token"
     session_idle_timeout: float = 60.0
     session_sweep_interval: float = 10.0
     frame_width: int = 720

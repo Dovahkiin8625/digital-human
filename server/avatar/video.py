@@ -166,7 +166,14 @@ def read_all_frames(path: Path) -> np.ndarray:
     return np.stack(out)
 
 
-def _encode_h264(path: Path, frames: np.ndarray, fps: int, crf: str = "18") -> None:
+def _encode_h264(
+    path: Path,
+    frames: np.ndarray,
+    fps: int,
+    *,
+    crf: str | int = "18",
+    preset: str = "veryfast",
+) -> None:
     """Write RGB uint8 ``frames`` ``[N,H,W,3]`` to ``path`` as H.264/yuv420p.
 
     H.264 rather than cv2's ``mp4v`` fourcc on purpose: Chromium has no
@@ -177,6 +184,10 @@ def _encode_h264(path: Path, frames: np.ndarray, fps: int, crf: str = "18") -> N
     the core ``aiortc`` dependency -- whose bundled libx264 needs nothing
     extra. RGB comes in and ``rgb24 -> yuv420p`` is the encoder's own
     conversion, so no BGR flip at the boundary.
+
+    ``crf`` and ``preset`` are the admin-tunable knobs: lower crf and slower
+    preset yield smaller files for the same perceptual quality, at the cost of
+    encode time. Defaults preserve the historical behaviour.
     """
     import av
 
@@ -187,7 +198,7 @@ def _encode_h264(path: Path, frames: np.ndarray, fps: int, crf: str = "18") -> N
         stream.width = width
         stream.height = height
         stream.pix_fmt = "yuv420p"
-        stream.options = {"crf": crf, "preset": "veryfast"}
+        stream.options = {"crf": str(crf), "preset": preset}
         for rgb in frames:
             vframe = av.VideoFrame.from_ndarray(
                 np.ascontiguousarray(rgb), format="rgb24"
@@ -200,7 +211,14 @@ def _encode_h264(path: Path, frames: np.ndarray, fps: int, crf: str = "18") -> N
         container.close()
 
 
-def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
+def build_idle_video(
+    avatar_dir: Path,
+    source: Path,
+    settings,
+    *,
+    crf: str | int | None = None,
+    preset: str | None = None,
+) -> Path:
     """Render ``<avatar_dir>/idle.mp4``: the kept source frames ping-ponged.
 
     Pure CPU and torch-free. The frame set is exactly what the engine's idle
@@ -211,6 +229,10 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
     never see a partial clip. The tmp name keeps an ``.mp4`` suffix on purpose:
     the muxer is picked from the filename extension, and a name ending in
     ``.tmp`` makes the container fail to open.
+
+    ``crf`` and ``preset`` are forwarded to ``_encode_h264``; omitting them
+    keeps the historical defaults (18, veryfast) so existing call sites are
+    unaffected.
     """
     import json
     import os
@@ -242,7 +264,13 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
         clip = np.concatenate((seq, seq[-2:0:-1]), axis=0)
         tmp = out.with_name("idle.tmp.mp4")
         try:
-            _encode_h264(tmp, clip, settings.fps)
+            _encode_h264(
+                tmp,
+                clip,
+                settings.fps,
+                crf=crf if crf is not None else 18,
+                preset=preset if preset is not None else "veryfast",
+            )
             os.replace(tmp, out)
         except VideoError:
             raise

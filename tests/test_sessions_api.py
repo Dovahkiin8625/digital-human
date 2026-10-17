@@ -10,64 +10,57 @@ from server.engine.mock_engine import MockEngine
 
 
 def _seed(client):
-    from sqlalchemy.orm import sessionmaker
-
-    from server.api.deps import hash_api_key
-    from server.db.models import Tenant
-    from server.db.session import get_engine
-
-    db = sessionmaker(bind=get_engine())()
-    db.add(Tenant(name="t1", api_key_hash=hash_api_key("key-1")))
-    db.commit()
-    db.close()
-    headers = {"X-API-Key": "key-1"}
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
     resp = client.post(
-        "/api/v1/avatars", headers=headers, data={"name": "a"},
+        "/api/v1/avatars", data={"name": "a"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     )
-    return headers, resp.json()["avatar_id"]
+    return resp.json()["avatar_id"]
+
+
+def _new_session(client, avatar_id):
+    return client.post("/api/v1/sessions", json={"avatar_id": avatar_id}).json()["session_id"]
 
 
 def test_session_lifecycle(client):
-    headers, avatar_id = _seed(client)
-    resp = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id})
+    avatar_id = _seed(client)
+    resp = client.post("/api/v1/sessions", json={"avatar_id": avatar_id})
     assert resp.status_code == 201
     body = resp.json()
     assert body["signal_url"].endswith(body["session_id"])
     sid = body["session_id"]
 
-    detail = client.get(f"/api/v1/sessions/{sid}", headers=headers).json()
+    detail = client.get(f"/api/v1/sessions/{sid}").json()
     assert detail["status"] in ("idle", "listening")
     assert detail["metrics"]["frames_out"] == 0
 
-    assert client.delete(f"/api/v1/sessions/{sid}", headers=headers).status_code == 204
-    assert client.get(f"/api/v1/sessions/{sid}", headers=headers).json()["status"] == "closed"
+    assert client.delete(f"/api/v1/sessions/{sid}").status_code == 204
+    assert client.get(f"/api/v1/sessions/{sid}").json()["status"] == "closed"
 
 
 def test_session_requires_ready_avatar(client):
-    headers, _ = _seed(client)
-    resp = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": "missing"})
+    _seed(client)
+    resp = client.post("/api/v1/sessions", json={"avatar_id": "missing"})
     assert resp.status_code == 409
     assert resp.json()["error"]["code"] == "avatar_not_ready"
 
 
 def test_session_audio_drives_metrics(client):
-    headers, avatar_id = _seed(client)
-    sid = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}).json()["session_id"]
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     render = client.app.state.session_manager.get_render(sid)
     asyncio.run(render.push_pcm(np.zeros(24000, dtype=np.int16).tobytes()))
-    detail = client.get(f"/api/v1/sessions/{sid}", headers=headers).json()
+    detail = client.get(f"/api/v1/sessions/{sid}").json()
     # 24000 samples @48kHz = 0.5s -> 5x100ms ingest blocks; MockEngine emits
     # max(1, round(0.1*25))=2 frames/block = 10 (same math as test_render_session).
     assert detail["metrics"]["frames_out"] == 10
 
 
 def test_sessions_list(client):
-    headers, avatar_id = _seed(client)
-    sid = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}).json()["session_id"]
-    listing = client.get("/api/v1/sessions", headers=headers)
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
+    listing = client.get("/api/v1/sessions")
     assert listing.status_code == 200
     body = listing.json()
     assert [s["session_id"] for s in body] == [sid]
@@ -76,8 +69,8 @@ def test_sessions_list(client):
 
 
 def test_sweep_idle_closes_stale_sessions(client):
-    headers, avatar_id = _seed(client)
-    sid = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}).json()["session_id"]
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     manager = client.app.state.session_manager
     render = manager.get_render(sid)
 
@@ -92,15 +85,15 @@ def test_sweep_idle_closes_stale_sessions(client):
         assert closed == 1
     finally:
         db.close()
-    detail = client.get(f"/api/v1/sessions/{sid}", headers=headers).json()
+    detail = client.get(f"/api/v1/sessions/{sid}").json()
     assert detail["status"] == "closed"
 
 
 def test_attach_sink_receives_frames(client):
     from server.core.stream_sink import FrameBufferSink
 
-    headers, avatar_id = _seed(client)
-    sid = client.post("/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}).json()["session_id"]
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     sink = FrameBufferSink()
     client.app.state.session_manager.attach_sink(sid, sink)
     render = client.app.state.session_manager.get_render(sid)
@@ -163,9 +156,9 @@ def test_session_honors_configured_fps_and_sample_rate(tmp_path, monkeypatch):
     app = _build_app(tmp_path, monkeypatch, DH_FPS="30", DH_SAMPLE_RATE="16000")
     try:
         with TestClient(app) as c:
-            headers, avatar_id = _seed(c)
+            avatar_id = _seed(c)
             sid = c.post(
-                "/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}
+                "/api/v1/sessions", json={"avatar_id": avatar_id}
             ).json()["session_id"]
             render = app.state.session_manager.get_render(sid)
             # The render must carry the configured rates, not the hardcoded 25/48000,
@@ -192,15 +185,15 @@ def test_lifespan_sweeper_reclaims_idle_and_stops_cleanly(tmp_path, monkeypatch)
             task = app.state.sweep_task
             assert task is not None and not task.done()
 
-            headers, avatar_id = _seed(c)
+            avatar_id = _seed(c)
             sid = c.post(
-                "/api/v1/sessions", headers=headers, json={"avatar_id": avatar_id}
+                "/api/v1/sessions", json={"avatar_id": avatar_id}
             ).json()["session_id"]
 
             status = None
             deadline = time.time() + 5.0
             while time.time() < deadline:
-                status = c.get(f"/api/v1/sessions/{sid}", headers=headers).json()["status"]
+                status = c.get(f"/api/v1/sessions/{sid}").json()["status"]
                 if status == "closed":
                     break
                 time.sleep(0.02)

@@ -1,23 +1,22 @@
 import { useEffect, useState } from "react";
 import {
-  Alert,
   App as AntApp,
   Button,
   Card,
-  Form,
-  Input,
-  Modal,
+  Popconfirm,
   Progress,
   Space,
   Table,
+  Tabs,
   Tag,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PlusOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
 import { api } from "../api";
+import LivePortraits from "./LivePortraits";
 import StatusTag from "../components/StatusTag";
-import type { SessionInfo, TenantInfo } from "../types";
+import type { SessionInfo } from "../types";
 
 interface EngineInfo {
   name: string;
@@ -52,66 +51,93 @@ const boolTag = (v: boolean, yes = "是", no = "否") => (
 
 export default function System() {
   const [sys, setSys] = useState<SystemInfo | null>(null);
-  const [tenants, setTenants] = useState<TenantInfo[]>([]);
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [newKey, setNewKey] = useState("");
-  const [form] = Form.useForm<{ name: string }>();
+  const [sweeping, setSweeping] = useState(false);
   const { message } = AntApp.useApp();
 
   async function refresh() {
-    setSys(await api<SystemInfo>("/api/admin/system"));
-    setTenants(await api<TenantInfo[]>("/api/admin/tenants"));
-    setJobs(await api<JobInfo[]>("/api/admin/jobs"));
-    setSessions(await api<SessionInfo[]>("/api/admin/sessions"));
+    const [s, j, sess] = await Promise.all([
+      api<SystemInfo>("/api/admin/system"),
+      api<JobInfo[]>("/api/admin/jobs"),
+      api<SessionInfo[]>("/api/admin/sessions"),
+    ]);
+    setSys(s);
+    setJobs(j);
+    setSessions(sess);
   }
 
   useEffect(() => {
     refresh().catch(() => undefined);
-    const timer = setInterval(() => refresh().catch(() => undefined), 2000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function onCreateTenant({ name }: { name: string }) {
-    setCreating(true);
+  async function onSweep() {
+    setSweeping(true);
     try {
-      const created = await api<{ api_key: string }>("/api/admin/tenants", {
-        method: "POST",
-        body: { name },
-      });
-      setNewKey(created.api_key);
-      form.resetFields();
+      await api("/api/admin/sessions/sweep", { method: "POST" });
       await refresh();
     } catch (err) {
-      message.error((err as Error).message);
+      message.error(`清理失败：${(err as Error).message}`);
     } finally {
-      setCreating(false);
+      setSweeping(false);
     }
   }
 
   const jobColumns: ColumnsType<JobInfo> = [
-    { title: "Job", dataIndex: "job_id", width: 100, render: (v: string) => v.slice(0, 8) },
-    { title: "阶段", dataIndex: "stage", width: 120, render: (s: string) => <StatusTag status={s} /> },
+    { title: "Job ID", dataIndex: "job_id", key: "job_id", width: 220 },
+    { title: "形象", dataIndex: "avatar_id", key: "avatar_id", width: 220 },
+    {
+      title: "阶段",
+      dataIndex: "stage",
+      key: "stage",
+      width: 140,
+      render: (s: string) => <StatusTag status={s} />,
+    },
     {
       title: "进度",
       dataIndex: "progress",
-      width: 220,
-      render: (p: number) => <Progress percent={p} size="small" status={p >= 100 ? "success" : "active"} />,
+      key: "progress",
+      width: 140,
+      render: (p: number) => <Progress percent={Math.round(p * 100)} size="small" />,
     },
     {
       title: "错误",
       dataIndex: "error",
+      key: "error",
       render: (e: string | null) => (e ? <Typography.Text type="danger">{e}</Typography.Text> : "—"),
     },
   ];
 
   const sessionColumns: ColumnsType<SessionInfo> = [
-    { title: "会话", dataIndex: "session_id", width: 120, render: (v: string) => v.slice(0, 8) },
-    { title: "状态", dataIndex: "status", width: 120, render: (s: string) => <StatusTag status={s} /> },
-    { title: "帧数", width: 100, render: (_, s) => s.metrics.frames_out ?? 0 },
-    { title: "延迟 ms", width: 120, render: (_, s) => (s.metrics.avg_latency_ms ?? 0).toFixed(1) },
+    { title: "Session", dataIndex: "session_id", key: "session_id", width: 220 },
+    { title: "形象", dataIndex: "avatar_id", key: "avatar_id", width: 220 },
+    {
+      title: "状态",
+      dataIndex: "status",
+      key: "status",
+      width: 100,
+      render: (s: string) => <StatusTag status={s} />,
+    },
+    {
+      title: "最近活跃",
+      dataIndex: "last_active_at",
+      key: "last_active_at",
+      width: 180,
+      render: (v: string | null) => (v ? new Date(v).toLocaleString() : "—"),
+    },
+    {
+      title: "操作",
+      key: "actions",
+      width: 100,
+      render: (_: unknown, row) => (
+        <Popconfirm title="关闭此会话？" okText="关闭" cancelText="取消" onConfirm={async () => {
+          await api(`/api/admin/sessions/${row.session_id}`, { method: "DELETE" });
+          await refresh();
+        }}>
+          <Button danger size="small" icon={<DeleteOutlined />}>关闭</Button>
+        </Popconfirm>
+      ),
+    },
   ];
 
   return (
@@ -125,98 +151,85 @@ export default function System() {
         </Button>
       </Space>
 
-      {sys && (
-        <Card title="引擎信息">
-          <Space direction="vertical" size={8} style={{ width: "100%" }}>
-            <Space wrap size={24}>
-              <span>
-                引擎：<Typography.Text strong>{sys.engine.name}</Typography.Text>
-              </span>
-              <span>
-                制作流水线：<Typography.Text strong>{sys.pipeline}</Typography.Text>
-              </span>
-              <span>GPU：{boolTag(sys.gpu, "可用", "不可用")}</span>
-              {sys.engine.weights_present !== undefined && (
-                <span>权重：{boolTag(sys.engine.weights_present, "就绪", "缺失")}</span>
-              )}
-              {sys.engine.loaded !== undefined && (
-                <span>已加载：{boolTag(sys.engine.loaded)}</span>
-              )}
-            </Space>
-            <Typography.Text type="secondary">
-              数据目录：{sys.data_dir} · 版本：{sys.version}
-            </Typography.Text>
-          </Space>
-        </Card>
-      )}
+      <Tabs
+        defaultActiveKey="overview"
+        items={[
+          {
+            key: "overview",
+            label: "概览",
+            children: (
+              <Space direction="vertical" size={16} style={{ width: "100%" }}>
+                {sys && (
+                  <Card title="引擎信息">
+                    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                      <Space wrap size={24}>
+                        <span>
+                          引擎：<Typography.Text strong>{sys.engine.name}</Typography.Text>
+                        </span>
+                        <span>
+                          流水线：<Typography.Text strong>{sys.pipeline}</Typography.Text>
+                        </span>
+                        <span>
+                          设备：{boolTag(sys.gpu, "GPU", "CPU")}
+                        </span>
+                        <span>
+                          权重：{boolTag(sys.engine.weights_present ?? false, "已加载", "缺失")}
+                        </span>
+                      </Space>
+                      <Typography.Text type="secondary">
+                        数据目录：<code>{sys.data_dir || "—"}</code>　·　版本：{sys.version}
+                      </Typography.Text>
+                    </Space>
+                  </Card>
+                )}
 
-      <Card title="租户">
-        <Form form={form} layout="inline" onFinish={onCreateTenant} style={{ marginBottom: 16 }}>
-          <Form.Item name="name" rules={[{ required: true, message: "请输入租户名" }]}>
-            <Input placeholder="租户名" style={{ width: 220 }} />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" htmlType="submit" loading={creating} icon={<PlusOutlined />}>
-              新建租户
-            </Button>
-          </Form.Item>
-        </Form>
-        <Table
-          rowKey="tenant_id"
-          size="small"
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          columns={[
-            { title: "租户", dataIndex: "name" },
-            {
-              title: "创建时间",
-              dataIndex: "created_at",
-              render: (v: string) => new Date(v).toLocaleString(),
-            },
-          ]}
-          dataSource={tenants}
-        />
-      </Card>
+                <Card
+                  title="任务"
+                  extra={
+                    <Button onClick={refresh} icon={<ReloadOutlined />}>
+                      刷新
+                    </Button>
+                  }
+                >
+                  <Table<JobInfo>
+                    rowKey="job_id"
+                    columns={jobColumns}
+                    dataSource={jobs}
+                    pagination={false}
+                    size="small"
+                  />
+                </Card>
 
-      <Card title="任务">
-        <Table
-          rowKey="job_id"
-          size="small"
-          scroll={{ x: 720 }}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          columns={jobColumns}
-          dataSource={jobs}
-        />
-      </Card>
-
-      <Card title="会话">
-        <Table
-          rowKey="session_id"
-          size="small"
-          scroll={{ x: 600 }}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          columns={sessionColumns}
-          dataSource={sessions}
-        />
-      </Card>
-
-      <Modal
-        title="租户创建成功"
-        open={!!newKey}
-        onOk={() => setNewKey("")}
-        onCancel={() => setNewKey("")}
-        okText="我已保存"
-        cancelButtonProps={{ style: { display: "none" } }}
-      >
-        <Alert
-          type="warning"
-          showIcon
-          message="API Key 仅显示一次，请立即保存。"
-          style={{ marginBottom: 12 }}
-        />
-        <Typography.Paragraph copyable={{ text: newKey }} code style={{ wordBreak: "break-all" }}>
-          {newKey}
-        </Typography.Paragraph>
-      </Modal>
+                <Card
+                  title="会话"
+                  extra={
+                    <Button
+                      icon={<SyncOutlined />}
+                      onClick={onSweep}
+                      loading={sweeping}
+                    >
+                      清理空闲会话
+                    </Button>
+                  }
+                >
+                  <Table<SessionInfo>
+                    rowKey="session_id"
+                    columns={sessionColumns}
+                    dataSource={sessions}
+                    pagination={false}
+                    size="small"
+                  />
+                </Card>
+              </Space>
+            ),
+          },
+          {
+            key: "liveportrait",
+            label: "动作模板",
+            children: <LivePortraits />,
+          },
+        ]}
+      />
     </Space>
   );
 }

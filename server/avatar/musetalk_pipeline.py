@@ -292,14 +292,28 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         return self._preparer
 
     def process(
-        self, avatar_id: str, source_path: Path, out_dir: Path, progress: Callable[[str, int], None]
+        self,
+        avatar_id: str,
+        source_path: Path,
+        out_dir: Path,
+        progress: Callable[[str, int], None],
     ) -> dict:
         settings = get_settings()
         source_path = Path(source_path)
-        mode = "video" if is_video_suffix(source_path.suffix) else "image"
+        # The ``mode`` field drives engine-side frame cycling and the idle
+        # video endpoint. It is purely a function of the source file: video
+        # uploads use ``mode="video"`` (engine cycles through the decoded
+        # frames), still photos use ``mode="image"`` (engine reads one frame
+        # and loops). There is no longer an "animate first" branch -- that
+        # responsibility moved to the standalone "/i2v" endpoint under the
+        # "形象活化" tab.
+        is_video_upload = is_video_suffix(source_path.suffix)
+        mode = "video" if is_video_upload else "image"
 
         progress("detect_face", 10)
-        if mode == "video":
+        frames: list[np.ndarray]
+        source_fps: float
+        if is_video_upload:
             frames, source_fps = self._video_frames(source_path, settings)
         else:
             frames, source_fps = self._image_frames(source_path, settings)
@@ -317,7 +331,9 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
             if not kept:
                 # First usable frame stands for the source: one advisory
                 # assessment per job, on the prepared canvas, in RGB.
-                warnings = list(assess_quality(np.ascontiguousarray(bgr[:, :, ::-1]), out["landmarks"]))
+                warnings = list(warnings) + list(
+                    assess_quality(np.ascontiguousarray(bgr[:, :, ::-1]), out["landmarks"])
+                )
             kept.append(i)
             parts.append(out["latents"])
             coords.append({"bbox": out["bbox"], "mask_crop_box": out["mask_crop_box"]})
@@ -343,21 +359,18 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         Image.fromarray(frames[kept[0]][:, :, ::-1]).save(out_dir / "normalized.png")
 
         progress("build_pack", 100)
-        (sidecar / "meta.json").write_text(
-            json.dumps(
-                {
-                    "version": VERSION,
-                    "crop": FACE_CROP,
-                    "detector": DETECTOR,
-                    "fps": settings.fps,
-                    "source_fps": source_fps,
-                    "frame_count": len(parts),
-                    "mode": mode,
-                    "kept": kept,
-                }
-            )
-        )
-        config = {
+        meta = {
+            "version": VERSION,
+            "crop": FACE_CROP,
+            "detector": DETECTOR,
+            "fps": settings.fps,
+            "source_fps": source_fps,
+            "frame_count": len(parts),
+            "mode": mode,
+            "kept": kept,
+        }
+        (sidecar / "meta.json").write_text(json.dumps(meta))
+        config: dict = {
             "musetalk": {
                 "mode": mode,
                 "dir": SUBDIR,
@@ -368,6 +381,10 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
                 "fps": settings.fps,
                 "source_fps": source_fps,
                 "base_image": "normalized.png",
+                # The source artifact is whatever the upload produced; video
+                # uploads carry their own bytes, image uploads are read
+                # back from the saved source_image_path. The engine uses
+                # ``mode`` to pick which one to load.
                 "source": source_path.name,
                 "latents": f"{SUBDIR}/latents.pt",
                 "coords": f"{SUBDIR}/coords.json",

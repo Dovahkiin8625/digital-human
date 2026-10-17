@@ -96,35 +96,43 @@ def _bar_inset(mask: np.ndarray) -> tuple[int, int, int, int]:
     return left, right, top, bottom
 
 
-def assess(rgb: np.ndarray, pts: np.ndarray) -> list[str]:
+def assess(rgb: np.ndarray, pts: np.ndarray, thresholds: dict | None = None) -> list[str]:
     """Return human-readable quality warnings for one prepared canvas frame.
 
     Empty list means nothing worth flagging. Order is fixed (size, pose,
     sharpness, composition) so warnings read identically across runs.
+
+    ``thresholds`` is a dict of admin tunables; missing keys fall back to the
+    module constants, so existing call sites keep working untouched.
     """
+    min_w = (thresholds or {}).get("min_face_width_px", MIN_FACE_WIDTH_PX)
+    min_r = (thresholds or {}).get("min_nose_ratio", MIN_NOSE_RATIO)
+    min_s = (thresholds or {}).get("min_sharpness", MIN_SHARPNESS)
+    min_o = (thresholds or {}).get("min_occupancy", MIN_OCCUPANCY)
+
     h, w = rgb.shape[:2]
     warnings: list[str] = []
 
     width = face_width(pts)
-    if width < MIN_FACE_WIDTH_PX:
+    if width < min_w:
         warnings.append(
-            f"人脸在画面中仅约 {width:.0f}px 宽，建议更换脸部宽度 ≥{MIN_FACE_WIDTH_PX}px "
+            f"人脸在画面中仅约 {width:.0f}px 宽，建议更换脸部宽度 ≥{min_w:.0f}px "
             "的近景竖版素材以提升清晰度"
         )
 
     ratio = nose_ratio(pts)
-    if ratio < MIN_NOSE_RATIO:
+    if ratio < min_r:
         warnings.append("人脸偏转角度较大，建议使用双眼平视镜头的正脸素材")
 
     x1, y1, x2, y2 = face_box(pts, h, w)
-    if x2 > x1 and y2 > y1 and sharpness(rgb, x1, y1, x2, y2) < MIN_SHARPNESS:
+    if x2 > x1 and y2 > y1 and sharpness(rgb, x1, y1, x2, y2) < min_s:
         warnings.append("面部区域清晰度偏低，建议使用对焦清晰、无明显压缩噪点的原图")
 
     bg_mask = (np.abs(rgb.astype(np.int16) - CANVAS_BG).max(axis=2) <= BG_TOL)
     left, right, top, bottom = _bar_inset(bg_mask)
     occ_w = (w - left - right) / w
     occ_h = (h - top - bottom) / h
-    if occ_w < MIN_OCCUPANCY or occ_h < MIN_OCCUPANCY:
+    if occ_w < min_o or occ_h < min_o:
         warnings.append("素材非 9:16 竖版构图，画面已补黑边，建议裁剪为 9:16 竖版后重新上传")
 
     return warnings

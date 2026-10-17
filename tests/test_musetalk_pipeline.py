@@ -134,7 +134,7 @@ def test_load_pack_exposes_prep_block(tmp_path):
     d = store.avatar_dir("a3")
     d.mkdir(parents=True)
     (d / "pack.json").write_text(json.dumps({"musetalk": {"crop": 256, "bbox": [1, 2, 3, 4]}}))
-    avatar = Avatar(id="a3", name="a", tenant_id="t", source_image_path=str(tmp_path / "s.png"))
+    avatar = Avatar(id="a3", name="a", source_image_path=str(tmp_path / "s.png"))
 
     pack = store.load_pack(avatar)
 

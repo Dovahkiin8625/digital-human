@@ -35,7 +35,7 @@ def test_pipeline_produces_pack(tmp_path, db):
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
 
-    avatar = Avatar(name="a", tenant_id="t", status="processing", source_image_path=str(src))
+    avatar = Avatar(name="a", status="processing", source_image_path=str(src))
     db.add(avatar)
     db.flush()
     job = AvatarJob(avatar_id=avatar.id, stage="queued")
@@ -61,7 +61,7 @@ def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeyp
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
 
-    avatar = Avatar(name="a", tenant_id="t", status="processing", source_image_path=str(src))
+    avatar = Avatar(name="a", status="processing", source_image_path=str(src))
     db.add(avatar)
     db.flush()
     job = AvatarJob(avatar_id=avatar.id, stage="queued")
@@ -86,7 +86,7 @@ def test_pipeline_rejects_tiny_image(tmp_path, db):
     src = tmp_path / "tiny.png"
     Image.new("RGB", (100, 100), (0, 0, 0)).save(src)
 
-    avatar = Avatar(name="a", tenant_id="t", status="processing", source_image_path=str(src))
+    avatar = Avatar(name="a", status="processing", source_image_path=str(src))
     db.add(avatar)
     db.flush()
     job = AvatarJob(avatar_id=avatar.id)

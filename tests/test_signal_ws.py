@@ -6,8 +6,6 @@ import pytest
 from PIL import Image
 from starlette.websockets import WebSocketDisconnect
 
-from server.api.deps import hash_api_key
-
 
 def _offer(*kinds):
     """Build a client offer with (kind, direction) transceivers; SDP only."""
@@ -65,55 +63,26 @@ def _bundle_mids(sdp: str) -> list[str]:
 
 
 def _seed(client):
-    """Create a tenant + a ready avatar; return (api_key, avatar_id)."""
-    from sqlalchemy.orm import sessionmaker
-
-    from server.db.models import Tenant
-    from server.db.session import get_engine
-
-    db = sessionmaker(bind=get_engine())()
-    db.add(Tenant(name="t1", api_key_hash=hash_api_key("key-1")))
-    db.commit()
-    db.close()
-    headers = {"X-API-Key": "key-1"}
+    """Create a ready avatar; return its id."""
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
     resp = client.post(
-        "/api/v1/avatars", headers=headers, data={"name": "a"},
+        "/api/v1/avatars",
+        data={"name": "a"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     )
-    return "key-1", resp.json()["avatar_id"]
+    return resp.json()["avatar_id"]
 
 
-def _new_session(client, api_key, avatar_id):
+def _new_session(client, avatar_id):
     return client.post(
-        "/api/v1/sessions", headers={"X-API-Key": api_key}, json={"avatar_id": avatar_id}
+        "/api/v1/sessions", json={"avatar_id": avatar_id}
     ).json()["session_id"]
 
 
-def _add_tenant(name, api_key):
-    from sqlalchemy.orm import sessionmaker
-
-    from server.db.models import Tenant
-    from server.db.session import get_engine
-
-    db = sessionmaker(bind=get_engine())()
-    db.add(Tenant(name=name, api_key_hash=hash_api_key(api_key)))
-    db.commit()
-    db.close()
-
-
-def test_signal_ws_rejects_invalid_api_key(client):
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect("/api/v1/ws/signal/whatever?api_key=nope"):
-            pass
-    assert exc.value.code == 4401
-
-
 def test_signal_ws_unknown_session_closes_4404(client):
-    api_key, _ = _seed(client)
     with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect(f"/api/v1/ws/signal/missing?api_key={api_key}") as ws:
+        with client.websocket_connect("/api/v1/ws/signal/missing") as ws:
             ws.receive_text()
     assert exc.value.code == 4404
 
@@ -121,11 +90,11 @@ def test_signal_ws_unknown_session_closes_4404(client):
 def test_signal_ws_bye_restores_null_sink(client):
     from server.core.stream_sink import NullSink
 
-    api_key, avatar_id = _seed(client)
-    sid = _new_session(client, api_key, avatar_id)
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     manager = client.app.state.session_manager
 
-    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}") as ws:
         ws.send_text('{"type": "bye"}')
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
@@ -137,12 +106,12 @@ def test_signal_ws_bye_restores_null_sink(client):
 def test_signal_ws_owner_key_attaches_sink(client):
     from server.core.webrtc import WebRTCSink
 
-    api_key, avatar_id = _seed(client)
-    sid = _new_session(client, api_key, avatar_id)
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     manager = client.app.state.session_manager
 
-    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
-        # The owner's valid key attaches the live video sink.
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}") as ws:
+        # The session exists, so the handshake attaches the live video sink.
         assert isinstance(manager.get_render(sid).sink, WebRTCSink)
         ws.send_text('{"type": "bye"}')
         with pytest.raises(WebSocketDisconnect):
@@ -154,12 +123,12 @@ def test_recvonly_offer_enables_server_audio_return(client):
     # same peer connection as video, and the sink must start feeding its track.
     from server.core.webrtc import WebRTCSink
 
-    api_key, avatar_id = _seed(client)
-    sid = _new_session(client, api_key, avatar_id)
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     offer = _offer(("video", "recvonly"), ("audio", "recvonly"))
     manager = client.app.state.session_manager
 
-    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}") as ws:
         ws.send_text(json.dumps({"type": "offer", "sdp": offer}))
         answer = json.loads(ws.receive_text())["sdp"]
         sink = manager.get_render(sid).sink
@@ -187,12 +156,12 @@ def test_legacy_sendonly_offer_disables_audio_return(client):
     # Backwards compatibility: an older console only offers to SEND audio (the
     # server has nothing to play back on it). The answer stays recvonly and,
     # with no consumer draining the audio track, the sink must not feed it.
-    api_key, avatar_id = _seed(client)
-    sid = _new_session(client, api_key, avatar_id)
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
     offer = _offer(("video", "recvonly"), ("audio", "sendonly"))
     manager = client.app.state.session_manager
 
-    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}") as ws:
         ws.send_text(json.dumps({"type": "offer", "sdp": offer}))
         answer = json.loads(ws.receive_text())["sdp"]
         sink = manager.get_render(sid).sink
@@ -203,22 +172,6 @@ def test_legacy_sendonly_offer_disables_audio_return(client):
         ws.send_text('{"type": "bye"}')
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
-
-
-def test_signal_ws_rejects_other_tenants_session(client):
-    from server.core.stream_sink import NullSink
-
-    api_key, avatar_id = _seed(client)  # tenant A (key-1)
-    _add_tenant("b", "key-2")           # tenant B, valid but not the owner
-    sid = _new_session(client, api_key, avatar_id)
-    manager = client.app.state.session_manager
-
-    with pytest.raises(WebSocketDisconnect) as exc:
-        with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key=key-2") as ws:
-            ws.receive_text()
-    assert exc.value.code == 4404
-    # B's rejected handshake must not have attached a video sink to A's session.
-    assert isinstance(manager.get_render(sid).sink, NullSink)
 
 
 def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch):
@@ -249,13 +202,12 @@ def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch)
 
     monkeypatch.setattr(webrtc, "RTCPeerConnection", _StubPC)
 
-    api_key, avatar_id = _seed(client)
-    sid = _new_session(client, api_key, avatar_id)
-    headers = {"X-API-Key": api_key}
+    avatar_id = _seed(client)
+    sid = _new_session(client, avatar_id)
 
-    with client.websocket_connect(f"/api/v1/ws/signal/{sid}?api_key={api_key}") as ws:
+    with client.websocket_connect(f"/api/v1/ws/signal/{sid}") as ws:
         # The idle sweeper (or DELETE) removes the render while signaling is live.
-        assert client.delete(f"/api/v1/sessions/{sid}", headers=headers).status_code == 204
+        assert client.delete(f"/api/v1/sessions/{sid}").status_code == 204
         ws.send_text('{"type": "bye"}')
         with pytest.raises(WebSocketDisconnect):
             ws.receive_text()
@@ -317,4 +269,3 @@ def test_signal_ws_teardown_survives_client_disconnect(monkeypatch):
 
     # Teardown still restored the null sink before the (guarded) close.
     assert isinstance(manager.sinks[-1], NullSink)
-
