@@ -1,0 +1,127 @@
+"""MiniMax TTS config helper: layer DB overrides on top of env defaults.
+
+The DB rows live in the ``settings`` table (one row per key) so they share
+the persistence + admin-edit surface with the existing avatar tunables.
+This module owns read/write + per-field validation; the synthesise path
+calls ``read_config(db)`` once per request so the change takes effect
+without a server restart.
+"""
+from __future__ import annotations
+
+import json
+
+import pytest
+
+
+@pytest.fixture()
+def _fresh_db(tmp_path, monkeypatch):
+    """Apply the standard test env (data_dir in tmp, mocked settings) and
+    give back an initialised SQLAlchemySession for the test to drive.
+    """
+    from tests.env import apply_env
+    from server.config import get_settings
+    from server.db.session import init_db, get_engine, reset_engine
+
+    apply_env(monkeypatch, tmp_path)
+    reset_engine()
+    from server.main import create_app  # noqa: F401  -- ensures app init path
+    init_db(get_engine())
+    get_settings.cache_clear()
+    from sqlalchemy.orm import sessionmaker
+
+    Session = sessionmaker(bind=get_engine())
+    db = Session()
+    try:
+        yield db
+    finally:
+        db.close()
+        reset_engine()
+        get_settings.cache_clear()
+
+
+def test_read_config_returns_env_defaults_when_db_empty(_fresh_db):
+    """No DB rows → the helper returns whatever ``Settings`` provided.
+
+    ``apply_env`` pins ``DH_MINIMAX_API_KEY=""`` so the env default for
+    api_key is empty; voice / model / sample_rate carry real defaults.
+    """
+    from server.tts.config import read_config
+
+    cfg = read_config(_fresh_db)
+    assert cfg["api_key"] == ""
+    assert cfg["voice_id"] == "male-qn-qingse"
+    assert cfg["sample_rate"] == 32000
+
+
+def test_read_config_layers_db_rows_over_defaults(_fresh_db):
+    """A DB row for one key overrides the env default for that key.
+
+    Other keys still come from ``Settings`` (env defaults) so a partial
+    update doesn't accidentally blank unrelated fields.
+    """
+    from server.tts.config import read_config
+    from server.db.models import Setting
+
+    _fresh_db.add(Setting(key="minimax_voice_id", value=json.dumps("female-shaonv")))
+    _fresh_db.commit()
+
+    cfg = read_config(_fresh_db)
+    assert cfg["voice_id"] == "female-shaonv"
+    # Other keys still come from env defaults.
+    assert cfg["model"] == "speech-02-hd"
+    assert cfg["sample_rate"] == 32000
+
+
+def test_write_config_persists_each_key(_fresh_db):
+    """``write_config`` persists each non-empty field to the ``settings``
+    table. A subsequent ``read_config`` returns the same values."""
+    from server.tts.config import read_config, write_config
+    from sqlalchemy import select
+    from server.db.models import Setting
+
+    cfg = write_config(
+        _fresh_db,
+        {
+            "api_key": "test-key-1234",
+            "voice_id": "male-qn-jingying",
+            "model": "speech-02-turbo",
+            "sample_rate": 24000,
+            "base_url": "https://api.example.com",
+            "group_id": "g-test",
+        },
+    )
+    assert cfg["api_key"] == "test-key-1234"
+    assert cfg["voice_id"] == "male-qn-jingying"
+    # All six rows landed in the settings table.
+    rows = _fresh_db.execute(select(Setting).where(Setting.key.startswith("minimax_"))).scalars().all()
+    assert {r.key for r in rows} >= {
+        "minimax_api_key",
+        "minimax_voice_id",
+        "minimax_model",
+        "minimax_sample_rate",
+        "minimax_base_url",
+        "minimax_group_id",
+    }
+    # And a fresh read sees them.
+    cfg2 = read_config(_fresh_db)
+    assert cfg2["voice_id"] == "male-qn-jingying"
+    assert cfg2["sample_rate"] == 24000
+
+
+def test_write_config_rejects_invalid_sample_rate(_fresh_db):
+    """``sample_rate`` must be one of the MiniMax-supported rates.
+
+    Out-of-range values raise a clear ``AppError`` carrying a per-field
+    message so the UI can show it inline.
+    """
+    from server.tts.config import write_config
+    from server.core.errors import AppError
+
+    with pytest.raises(AppError) as excinfo:
+        write_config(_fresh_db, {"sample_rate": 11025})  # not a MiniMax-supported rate
+    err = excinfo.value
+    # The per-field message lives on ``detail`` so the UI can show the
+    # exact field + reason inline. Top-level message is the summary.
+    assert err.detail is not None
+    assert "sample_rate" in err.detail
+    assert "8000" in err.detail["sample_rate"] or "supported" in err.detail["sample_rate"].lower()

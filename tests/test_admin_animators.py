@@ -33,7 +33,7 @@ def test_backends_endpoint_lists_registry(client, monkeypatch):
     # asserting membership. Without that flip, the test env's
     # not-loaded backends (no weights on disk) would be missing from
     # the listing and the assertion would fail.
-    from server.avatar import animators, musetalk_silent
+    from server.avatar import animators
 
     for animator in animators.ANIMATORS.values():
         # Backing attrs the lifecycle methods look at. ``is_loaded`` is
@@ -43,14 +43,6 @@ def test_backends_endpoint_lists_registry(client, monkeypatch):
             animator._loaded = True
         except AttributeError:
             pass
-    # MuseTalk silent's ``is_loaded`` is a property that proxies to
-    # the live drive engine's runtime -- not a `_loaded` field. Patch
-    # the proxy to return True so this row also appears in the listing.
-    monkeypatch.setattr(
-        musetalk_silent.MuseTalkSilentAnimator,
-        "_engine_runtime_loaded",
-        lambda self: True,
-    )
 
     try:
         resp = client.get("/api/admin/backends", )
@@ -61,7 +53,6 @@ def test_backends_endpoint_lists_registry(client, monkeypatch):
         expected = {
             "liveportrait",
             "wan22-i2v-5b-bf16",
-            "musetalk-silent",
         }
         assert expected.issubset(names), (
             f"missing backends: {expected - names}; "
@@ -131,39 +122,6 @@ def test_backends_endpoint_hides_unloaded_animators(client, monkeypatch):
     assert "_lp_offline" not in names
 
 
-def test_backends_endpoint_omits_unloaded_musetalk_silent(client, monkeypatch):
-    """MuseTalk silent's ``is_loaded`` mirrors the main drive engine
-    runtime; when that runtime is unloaded, the silent row must NOT
-    appear in the dropdown (clicking it would 503 immediately).
-
-    Pinning behaviour for the lifecycle coupling added with the
-    load/unload rewrite.
-    """
-    from server.avatar import musetalk_silent
-
-    # Mark MuseTalk silent as unloaded by giving the runtime check a
-    # default-False branch. (The test env's main engine hasn't loaded
-    # a real runtime, so this is the realistic pre-fix state.)
-    monkeypatch.setattr(
-        musetalk_silent.MuseTalkSilentAnimator,
-        "_engine_runtime_loaded",
-        lambda self: False,
-    )
-    body = client.get("/api/admin/backends").json()
-    names = {b["name"] for b in body["backends"]}
-    assert "musetalk-silent" not in names
-    # And when the drive engine IS loaded, MuseTalk silent must reappear
-    # in the dropdown.
-    monkeypatch.setattr(
-        musetalk_silent.MuseTalkSilentAnimator,
-        "_engine_runtime_loaded",
-        lambda self: True,
-    )
-    body = client.get("/api/admin/backends").json()
-    names = {b["name"] for b in body["backends"]}
-    assert "musetalk-silent" in names
-
-
 def test_i2v_rejects_unknown_backend_name(client):
     # The dispatcher refuses a backend that isn't in ANIMATORS, naming
     # the known ones so the operator can correct their input.
@@ -180,7 +138,6 @@ def test_i2v_rejects_unknown_backend_name(client):
     # one so the operator doesn't have to guess what's installed.
     assert "wan22-99b-fake" in msg
     assert "liveportrait" in msg
-    assert "musetalk-silent" in msg
 
 
 def test_i2v_requires_backend_field(client):
@@ -196,15 +153,14 @@ def test_i2v_requires_backend_field(client):
 def test_registry_importable_with_every_backend_registered():
     # The registry is wired. Each backend installs itself into ANIMATORS via
     # a side-effect import; tests for the specific backends (liveportrait /
-    # wan22 / musetalk_silent) lock the deep contract, while this file
-    # locks the at-a-glance shape: all four expected names appear in the
-    # registry when the API module is loaded.
+    # wan22) lock the deep contract, while this file locks the
+    # at-a-glance shape: all expected names appear in the registry when
+    # the API module is loaded.
     assert hasattr(animators, "ANIMATORS")
     assert isinstance(animators.ANIMATORS, dict)
     expected = {
         "liveportrait",
         "wan22-i2v-5b-bf16",
-        "musetalk-silent",
     }
     registered = set(animators.ANIMATORS)
     assert expected.issubset(registered), (
@@ -213,9 +169,9 @@ def test_registry_importable_with_every_backend_registered():
 
 
 def test_animator_protocol_exposes_meta():
-    # A bare-bones standalone backend (LivePortrait / Wan 2.2 I2V / MuseTalk
-    # silent / ...) must return a metadata dict from meta() with the
-    # contract keys the UI's TypeScript shape depends on.
+    # A bare-bones standalone backend (LivePortrait / Wan 2.2 I2V / ...)
+    # must return a metadata dict from meta() with the contract keys
+    # the UI's TypeScript shape depends on.
     class _Stub:
         name = "stub"
 

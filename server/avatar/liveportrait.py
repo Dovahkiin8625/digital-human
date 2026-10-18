@@ -284,6 +284,19 @@ class LivePortraitAnimator:
         self._pipeline = self._load_pipeline()
         self._loaded = True
 
+    @property
+    def weights_dir(self) -> Path | None:
+        """Absolute path to the LivePortrait weights directory on disk.
+
+        Mirrors the path the heavy ``_load_pipeline`` builds (line 313):
+        ``<data_dir>/models/liveportrait``. Exposed as a property so the
+        Models tab's portrait-animator row can render it without re-
+        implementing the path logic.
+        """
+        from server.config import get_settings
+
+        return Path(get_settings().data_dir) / "models" / "liveportrait"
+
     def _load_pipeline(self) -> object:
         """Construct the heavy LivePortrait pipeline. Tests stub this.
 

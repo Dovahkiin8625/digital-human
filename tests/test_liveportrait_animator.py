@@ -416,3 +416,30 @@ def test_write_frame_count_sidecar_roundtrips(monkeypatch, tmp_path):
     # Non-positive counts are silently skipped (defensive).
     liveportrait.write_frame_count_sidecar("ignored", 0)
     assert not (driver_dir / "ignored.frames").exists()
+
+
+# ----- Models tab integration -----------------------------------------------
+
+
+def test_liveportrait_has_weights_dir_property(monkeypatch):
+    """The Models tab's portrait-animator row needs ``weights_dir`` so the
+    operator can see where the weights live (and copy the path).
+
+    Today the row helper probes ``("weights_dir", "WEIGHTS_ROOT",
+    "_weights_root")`` and LivePortrait has none of those — it builds the
+    path inline inside ``_load_pipeline``. Without this property, the row
+    shows ``weights_dir=None`` and the operator sees an empty path cell.
+    """
+    from pathlib import Path
+
+    from server.avatar import liveportrait
+
+    anim = liveportrait.LivePortraitAnimator()
+    settings_data_dir = Path("/tmp/fake_data")
+    monkeypatch.setattr(liveportrait, "get_settings", lambda: type("S", (), {"data_dir": settings_data_dir})())
+
+    wd = anim.weights_dir
+    assert wd is not None
+    assert str(wd).endswith("liveportrait"), (
+        f"weights_dir should live under data_dir/models/liveportrait; got {wd}"
+    )

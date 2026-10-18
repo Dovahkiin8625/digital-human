@@ -43,12 +43,68 @@ def test_musetalk_engine_describe_lists_unloaded_slot_when_no_weights(tmp_path):
     m = d["models"][0]
     assert m["id"] == "musetalk_runtime"
     assert m["type"] == "drive_runtime"
+    assert m["kind"] == "drive_runtime"  # NEW: lets the Models tab render rows by kind
     assert m["loaded"] is False
     assert m["can_unload"] is False
+    # ``can_load`` keys on "load() method exposed AND not currently
+    # loaded", so the operator can still click it when weights are
+    # missing -- the click surfaces a 503 with the fetch-script hint.
+    assert m["can_load"] is True
     # Component list comes from MuseTalkEngine.WEIGHTS; every component the
     # runtime loads is named here so the operator knows what they're unloading.
     assert "musetalkV15/unet.pth" in m["components"]
     assert "whisper" in m["components"]
+
+
+def test_musetalk_engine_describe_reports_can_load_after_unload(tmp_path, monkeypatch):
+    """After ``unload()``, the load button must come back on -- the
+    ``can_load`` flag in ``describe()`` is what gates it.
+
+    Regression for the bug where the Models tab left the 加载 button
+    permanently disabled after a single ``unload()`` cycle: the engine
+    itself can re-load cleanly, but the row never reported ``can_load=True``
+    so the UI stuck. ``unload()`` is a checkpoint that the round-trip is
+    observable through describe().
+    """
+    from server.engine.musetalk_engine import MuseTalkEngine
+
+    class _StubRuntime:
+        def __init__(self):
+            self.device = "stub"
+
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # Pretend weights are on disk so ``weights_present=True`` and the
+    # ``can_load`` gate opens after ``unload()``. The describe test above
+    # exercises the weights-missing branch; this one exercises the
+    # weights-present + unloaded branch.
+    monkeypatch.setattr(eng, "_missing_weights", lambda: [])
+
+    # Mount a stub runtime so the engine reports ``loaded=True`` /
+    # ``can_unload=True`` / ``can_load=False`` -- the "currently loaded" state.
+    with eng._lock:
+        eng._runtime = _StubRuntime()
+        eng._loaded_at = "2026-10-17T00:00:00Z"
+    m_loaded = eng.describe()["models"][0]
+    assert m_loaded["loaded"] is True
+    assert m_loaded["can_unload"] is True
+    assert m_loaded["can_load"] is False
+
+    # Drop the runtime. With weights present (``tmp_path / "m"`` is the
+    # real dir; ``_ensure_runtime`` would re-mount if asked) AND a ``load``
+    # method exposed, the engine must report ``can_load=True`` so the UI
+    # re-enables the 加载 button.
+    eng.unload()
+    m_unloaded = eng.describe()["models"][0]
+    assert m_unloaded["loaded"] is False
+    assert m_unloaded["can_unload"] is False
+    # The bug fix: ``can_load`` must flip back to True once the runtime is
+    # gone and a load() method is exposed. Weights on disk are present
+    # because the models_dir exists; only the runtime was dropped.
+    assert m_unloaded["can_load"] is True, (
+        "After unload() the operator must be able to reload. The reload button "
+        "in the Models tab is gated by this flag -- if it stays False, the "
+        "load button stays disabled forever (regression)."
+    )
 
 
 def test_musetalk_engine_describe_reports_loaded_with_stub_runtime(tmp_path):

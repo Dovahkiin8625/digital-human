@@ -125,18 +125,6 @@ def test_wan22_meta_marks_unfit_on_tiny_card(monkeypatch):
     assert metas["wan22-i2v-5b-bf16"]["fits_current_gpu"] is False
 
 
-def test_musetalk_silent_meta_marks_fits(monkeypatch):
-    # MuseTalk silent reuses the project's main engine GPU budget; we
-    # don't second-guess that here.``vram_required_gb`` is null and
-    # ``fits_current_gpu`` is True so the dropdown keeps the option
-    # clickable even on tight hosts.
-    from server.avatar import musetalk_silent
-
-    meta = musetalk_silent.MuseTalkSilentAnimator().meta()
-    assert meta["vram_required_gb"] is None
-    assert meta["fits_current_gpu"] is True
-
-
 def test_meta_vram_null_on_cpu_only_host(monkeypatch):
     # If cuda isn't available, ``fits_current_gpu`` is None (unknown) so
     # the page keeps the options clickable and the *real* failure shows up

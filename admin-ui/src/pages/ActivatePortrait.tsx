@@ -277,7 +277,7 @@ useEffect(() => {
   }, [picked, drivers]);
 
   // numFrames carries different semantics per backend:
-  //   - LivePortrait / MuseTalk silent: 0 = "use the template's full length"
+  //   - LivePortrait: 0 = "use the template's full length"
   //   - Wan 2.x: must be 16N+1 in [17, 113] (the form InputNumber slider
   //     enforces the upper bound; the lower bound and the off-grid case
   //     are checked here)
@@ -605,7 +605,7 @@ useEffect(() => {
               <span>
                 下拉菜单只列出已在『系统 → 模型』页加载的后端。
                 请先在 <strong>系统 → 模型</strong> 加载 LivePortrait /
-                Wan 2.2 / MuseTalk 静音驱动，再回到此处；
+                Wan 2.2，再回到此处；
                 卸载后端也会从这里消失。
               </span>
             }

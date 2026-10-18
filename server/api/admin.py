@@ -13,7 +13,6 @@ from starlette.responses import FileResponse, Response
 from server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
 from server.avatar import liveportrait  # noqa: F401 -- side-effect: registers the liveportrait backend
 from server.avatar import wan22  # noqa: F401 -- side-effect: registers the two Wan 2.2 I2V variants
-from server.avatar import musetalk_silent  # noqa: F401 -- side-effect: registers the musetalk-silent backend
 from server.avatar.pipeline import run_job_in_new_session
 from server.avatar import video
 from server.avatar.store import AvatarStore
@@ -310,9 +309,9 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
         animator = ANIMATORS[params["backend"]]
 
         # ``driver`` is a LivePortrait-specific knob. Other backends
-        # (musetalk_silent, wan22) don't accept it -- only forward it when
-        # the chosen backend speaks it, so the dispatcher stays type-safe
-        # without each backend having to declare ``**kwargs``.
+        # (wan22) don't accept it -- only forward it when the chosen
+        # backend speaks it, so the dispatcher stays type-safe without
+        # each backend having to declare ``**kwargs``.
         import inspect
 
         sig = inspect.signature(animator.animate)
@@ -1141,20 +1140,75 @@ def avatar_artifact_file(avatar_id: str, path: str, db=Depends(get_db)):
 
 
 @router.post("/tts")
-async def synthesize_speech(body: TtsIn) -> Response:
+async def synthesize_speech(body: TtsIn, db=Depends(get_db)) -> Response:
     """Turn typed text into WAV audio for the console's debug page.
 
     Session-agnostic on purpose: the console pushes the bytes it gets back down
     the same audio WebSocket the file-upload path uses, so this endpoint never
-    needs to know which session is being driven.
+    needs to know which session is being driven. The ``db`` session is plumbed
+    through so the effective MiniMax config (DB overrides + env defaults) is
+    read fresh on every call.
     """
     text = body.text.strip()
     if not text:
         raise AppError("empty_text", "text must not be empty", 400)
     from server.tts.minimax import synthesize
 
-    audio = await synthesize(text, body.voice_id)
+    audio = await synthesize(text, body.voice_id, db=db)
     return Response(audio, media_type="audio/wav")
+
+
+# ----- MiniMax TTS configuration -------------------------------------------
+
+
+class TtsConfigIn(BaseModel):
+    """Body shape for ``PUT /api/admin/tts/config``.
+
+    All six fields are optional individually (a partial update is fine).
+    ``extra='forbid'`` makes Pydantic reject unknown keys at the request
+    boundary so a typo'd field name surfaces as a 400 rather than being
+    silently dropped.
+    """
+    model_config = {"extra": "forbid"}
+
+    api_key: str | None = None
+    group_id: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    voice_id: str | None = None
+    sample_rate: int | None = None
+
+
+@router.get("/tts/config")
+def get_tts_config(db=Depends(get_db)) -> dict:
+    """Return the effective MiniMax config; mask ``api_key`` as
+    ``****<last4>`` (or ``"(未设置)"`` when empty) so the UI never has
+    to display the raw bearer token. The raw ``api_key`` is *omitted*
+    from the response -- ``api_key_masked`` is the only key that leaks.
+    """
+    from server.tts.config import mask_api_key, read_config
+
+    cfg = read_config(db)
+    cfg.pop("api_key", None)
+    return {**cfg, "api_key_masked": mask_api_key(cfg)}
+
+
+@router.put("/tts/config")
+def put_tts_config(body: TtsConfigIn, db=Depends(get_db)) -> dict:
+    """Persist operator edits to the SQLite ``settings`` table.
+
+    The synthesise endpoint reads through :func:`read_config` on every
+    call, so a successful PUT takes effect on the very next TTS request
+    without a server restart. ``api_key`` is masked in the response so
+    the round-trip never leaks the raw bearer token back to the UI.
+    """
+    from server.tts.config import mask_api_key, write_config
+
+    payload = body.model_dump(exclude_none=True)
+    cfg = write_config(db, payload)
+    masked = mask_api_key(cfg)
+    cfg.pop("api_key", None)
+    return {**cfg, "api_key_masked": masked}
 
 
 @router.get("/jobs")
@@ -1283,6 +1337,26 @@ def _resolve_engine_slot(engine, model_id: str) -> dict | None:
     return None
 
 
+def _resolve_animator_model_id(model_id: str):
+    """If ``model_id`` looks like an animator id (``animator:<name>``),
+    return the matching ``ANIMATORS`` instance + the backend name.
+
+    Returns ``(None, None)`` for any other shape -- engine slots, TTS,
+    or typos. The two-level dispatch (engine slot first, animator
+    second) keeps the load/unload endpoints clean: one POST can
+    materialise either kind without the operator having to flip tabs.
+    """
+    if not model_id.startswith("animator:"):
+        return None, None
+    name = model_id[len("animator:"):]
+    try:
+        from server.avatar.animators import ANIMATORS
+    except Exception:  # noqa: BLE001
+        return None, None
+    animator = ANIMATORS.get(name)
+    return animator, name
+
+
 # ----- service surface (animators + TTS) -----------------------------------
 
 # Animators register into ``ANIMATORS`` via side-effect imports at module
@@ -1296,7 +1370,7 @@ def _resolve_engine_slot(engine, model_id: str) -> dict | None:
 _TTS_ID = "tts:minimax"
 
 
-def _animator_service_row(animator) -> dict | None:
+def _animator_model_row(animator) -> dict | None:
     """Render one portrait animator as a Models tab row.
 
     Each backend (LivePortrait / Wan 2.2 / MuseTalk silent) has its own
@@ -1312,8 +1386,8 @@ def _animator_service_row(animator) -> dict | None:
     Each row also carries ``loaded`` / ``can_load`` / ``can_unload``
     so the operator can pre-allocate the backend's pipeline from the
     Models tab. ``can_load`` is True when the backend has its
-    pre-allocation method (liveportrait + wan22 + musetalk-silent --
-    all three gained a ``load()`` for the operator-driven lifecycle);
+    pre-allocation method (liveportrait + wan22 -- both gained a
+    ``load()`` for the operator-driven lifecycle);
     ``can_unload`` mirrors ``loaded``: a row that's already in VRAM
     can release it.
     """
@@ -1340,10 +1414,21 @@ def _animator_service_row(animator) -> dict | None:
             break
 
     weights_present = False
+    estimated_bytes = 0
     if weights_dir:
         try:
             wd = Path(weights_dir)
-            weights_present = wd.is_dir() and any(wd.iterdir())
+            if wd.is_dir():
+                # Sum every file's size under the weights dir so the
+                # operator's "lower bound for what's on disk" estimate
+                # matches the engine slot's number on the same tab.
+                for p in wd.rglob("*"):
+                    if p.is_file():
+                        try:
+                            estimated_bytes += p.stat().st_size
+                        except OSError:
+                            continue
+                weights_present = estimated_bytes > 0
         except OSError:
             weights_present = False
 
@@ -1352,18 +1437,14 @@ def _animator_service_row(animator) -> dict | None:
     # release it?" (``can_unload``).
     #
     # ``can_load`` keys on "the backend exposes a ``load()`` method"
-    # -- NOT on ``weights_present``. The reason: animators like
-    # MuseTalk silent piggyback on the main drive engine, so they
-    # have no on-disk weights of their own; gating on weights_present
-    # would render their 加载 button as "无可用操作" forever, with no
-    # way for the operator to even trigger the 503 that would tell
-    # them where the real problem lies. ``load()`` itself surfaces the
-    # right error (503 with the fetch-script hint) when it fails.
+    # AND the row isn't already loaded AND weights are present on disk
+    # -- same gate the drive engine uses, so the operator's load
+    # button behaves the same way for every row in the Models table.
     try:
         loaded = bool(getattr(animator, "is_loaded", False))
     except Exception:  # noqa: BLE001
         loaded = False
-    can_load = bool(getattr(animator, "load", None))
+    can_load = bool(getattr(animator, "load", None)) and not loaded
     can_unload = loaded
 
     script = None
@@ -1373,8 +1454,6 @@ def _animator_service_row(animator) -> dict | None:
             script = "scripts/fetch_liveportrait_weights.sh"
         elif cid.startswith("wan22-"):
             script = "scripts/fetch_wan22_weights.sh"
-        elif cid == "musetalk-silent":
-            script = None
 
     # Status string covers four states the operator cares about:
     # weights missing (fetch script), dependencies missing
@@ -1390,6 +1469,9 @@ def _animator_service_row(animator) -> dict | None:
 
     return {
         "id": f"animator:{cid}",
+        # Unified ``ModelInfo`` shape: same ``kind`` string the engine
+        # rows use (see MuseTalkEngine.describe). Lets the UI render one
+        # table; the existing fallback rendering handles null fields.
         "kind": "portrait_animator",
         "label_zh": meta.get("label_zh", cid),
         "group_zh": meta.get("group_zh", ""),
@@ -1401,15 +1483,23 @@ def _animator_service_row(animator) -> dict | None:
         "weights_present": weights_present,
         "weights_dir": weights_dir,
         "missing_script": script,
+        # Fields the UI Models table reads (originally engine-slot
+        # fields; animators fill them with their own equivalents).
+        "type": "portrait_animator",
+        "components": [],
+        "source": weights_dir,
+        "estimated_bytes": estimated_bytes,
         "loaded": loaded,
         "can_load": can_load,
         "can_unload": can_unload,
-        # Status covers four operator-visible states (see above).
+        "loaded_at": None,  # animators don't track the warmup timestamp
+        # Pre-baked label, kept for backward-compat with the old
+        # services-table status cell.
         "status": status,
     }
 
 
-def _animator_service_rows() -> list[dict]:
+def _animator_model_rows() -> list[dict]:
     """Walk ANIMATORS + Wan 2.2 variants and render each as a row.
 
     ``ANIMATORS`` is the canonical map populated by side-effect imports
@@ -1425,7 +1515,7 @@ def _animator_service_rows() -> list[dict]:
 
     seen_ids: set[str] = set()
     for name, animator in ANIMATORS.items():
-        row = _animator_service_row(animator)
+        row = _animator_model_row(animator)
         if row is not None:
             out.append(row)
             seen_ids.add(row["id"])
@@ -1437,7 +1527,7 @@ def _animator_service_rows() -> list[dict]:
         from server.avatar import wan22
 
         for animator in wan22.all_animators():
-            row = _animator_service_row(animator)
+            row = _animator_model_row(animator)
             if row is not None and row["id"] not in seen_ids:
                 out.append(row)
                 seen_ids.add(row["id"])
@@ -1490,16 +1580,14 @@ def admin_list_models(db=Depends(get_db)) -> dict:
 
     Single payload the page polls every 2 s. Returns:
 
-    * ``models`` -- one entry per engine slot (today: a single
-      ``drive_runtime``). Each entry carries its ``loaded`` flag plus a
-      per-component breakdown so the operator can see "what is on the
-      GPU right now".
-    * ``services`` -- one entry per every other model this server uses:
-      portrait animators (LivePortrait / Wan 2.2 variants / MuseTalk
-      silent) and the MiniMax TTS endpoint. These aren't held long-term
-      so they have no ``loaded`` / ``can_unload`` flags; instead they
-      expose a ``configured`` flag + on-disk weights directory so the
-      operator can spot a missing-weight backend without flipping tabs.
+    * ``models`` -- one entry per model this server can put on the GPU:
+      the drive-engine runtime slot (``musetalk_runtime``) plus every
+      portrait animator (LivePortrait, Wan 2.2 variants). They share
+      the same flags (``loaded`` / ``can_load`` / ``can_unload``) so
+      the Models tab renders one table per kind.
+    * ``services`` -- the MiniMax TTS endpoint. Remote service, no
+      on-disk weights; ``configured`` + ``voice_id`` etc. surface the
+      operator's "can I synthesise right now" question.
     * ``gpu`` -- a :func:`get_vram_snapshot` dict or ``None`` when CUDA
       isn't available (the tab renders a CPU placeholder instead).
     * ``active_sessions`` -- count of currently-running StreamSession
@@ -1510,9 +1598,12 @@ def admin_list_models(db=Depends(get_db)) -> dict:
 
     engine = get_session_manager().engine
     described = engine.describe()
+    # Drive-engine slot rows first, then portrait animators. Both shapes
+    # are unified ``ModelInfo`` (see _animator_model_row / engine describe).
+    engine_rows = described.get("models") or []
     return {
-        "models": described.get("models") or [],
-        "services": _animator_service_rows() + [_tts_service_row()],
+        "models": [*engine_rows, *_animator_model_rows()],
+        "services": [_tts_service_row()],
         "gpu": get_vram_snapshot(),
         "active_sessions": _active_session_count(db),
     }
@@ -1520,13 +1611,53 @@ def admin_list_models(db=Depends(get_db)) -> dict:
 
 @router.post("/models/{model_id}/load")
 async def admin_load_model(model_id: str) -> dict:
-    """Trigger the engine's ``load`` for the named slot.
+    """Trigger load for the named row -- engine slot or animator.
 
-    Routes to ``engine.load()`` if exposed; falls back to a 400 for
-    engines with nothing material to load (mock). 409 if the slot is
-    already loaded, 503 if loading raises an ``EngineUnavailable`` (e.g.
-    weights missing on disk).
+    The Models tab's rows now include portrait animators under ids like
+    ``animator:liveportrait`` (moved out of services when their model
+    shape became obvious). One POST to the right dispatcher:
+
+    * ``musetalk_runtime`` / ``mock_drive`` → engine slot
+    * ``animator:<name>`` → ``ANIMATORS[name].load()``
+
+    409 if already loaded, 503 if loading raises ``EngineUnavailable``
+    (e.g. weights missing on disk), 404 for an unknown id.
     """
+    # Animator dispatch: ``animator:<name>`` → registered instance.
+    animator, name = _resolve_animator_model_id(model_id)
+    if animator is not None:
+        try:
+            is_loaded = bool(getattr(animator, "is_loaded", False))
+        except Exception:  # noqa: BLE001
+            is_loaded = False
+        if is_loaded:
+            raise AppError(
+                "already_loaded",
+                f"model {model_id!r} is already loaded",
+                409,
+                detail={"id": model_id},
+            )
+        loader = getattr(animator, "load", None)
+        if loader is None:
+            raise AppError(
+                "no_weights_to_load",
+                f"model {model_id!r} has no weights to load",
+                400,
+                detail={"id": model_id, "name": name},
+            )
+        try:
+            result = loader()
+            if hasattr(result, "__await__"):
+                await result
+        except Exception as exc:  # noqa: BLE001 -- surface verbatim
+            raise AppError(
+                "load_failed",
+                f"{exc}",
+                503,
+                detail={"id": model_id, "engine": name},
+            )
+        return {"id": model_id, "loaded": True}
+
     from server.main import get_session_manager
 
     engine = get_session_manager().engine
@@ -1568,12 +1699,38 @@ async def admin_load_model(model_id: str) -> dict:
 
 @router.post("/models/{model_id}/unload")
 def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
-    """Free the engine runtime for the named slot.
+    """Free the engine runtime for the named slot, or unload a
+    portrait animator.
 
     Refuses with 409 while any session is active so tearing the runtime
     out doesn't silently wedge live conversations; refuses with 400 when
     the engine reports ``can_unload=False`` (mock); 404 for an unknown id.
     """
+    # Animator dispatch: ``animator:<name>`` → registered instance.
+    animator, name = _resolve_animator_model_id(model_id)
+    if animator is not None:
+        try:
+            is_loaded = bool(getattr(animator, "is_loaded", False))
+        except Exception:  # noqa: BLE001
+            is_loaded = False
+        if not is_loaded:
+            raise AppError(
+                "not_loaded",
+                f"model {model_id!r} is not loaded",
+                409,
+                detail={"id": model_id},
+            )
+        unloader = getattr(animator, "unload", None)
+        if unloader is None:
+            raise AppError(
+                "not_unloadable",
+                f"model {model_id!r} has no weights to unload",
+                400,
+                detail={"id": model_id},
+            )
+        unloader()
+        return {"id": model_id, "loaded": False}
+
     from server.main import get_session_manager
 
     engine = get_session_manager().engine

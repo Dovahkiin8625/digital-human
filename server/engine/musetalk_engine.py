@@ -527,22 +527,36 @@ class MuseTalkEngine(DriveEngine):
     def describe(self) -> dict:
         """Cheap status for the admin System page. Never loads a weight."""
         loaded = self._runtime is not None
+        weights_present = not self._missing_weights()
+        # ``can_load`` is the operator-facing "is this loadable right now"
+        # flag. The Models tab's load button is gated on it; without this,
+        # after a single ``unload()`` cycle the button stays disabled
+        # forever (the engine can re-load cleanly but the row never
+        # reports that). True when weights are on disk, the engine exposes
+        # a ``load`` method, and no runtime is currently mounted.
+        can_load = bool(getattr(self, "load", None)) and not loaded
         return {
             "name": self.name,
             "gpu": gpu_available(),
             "models_dir": str(self.models_dir),
-            "weights_present": not self._missing_weights(),
+            "weights_present": weights_present,
             "loaded": loaded,
             "avatars_cached": len(self._avatars),
             "pending": self._jobs.qsize(),
             "models": [
                 {
                     "id": "musetalk_runtime",
+                    # New: row-level kind so the Models tab can render
+                    # drive_runtime + portrait_animator rows in one
+                    # table without an ``id`` prefix lookup.
+                    "kind": "drive_runtime",
+                    "label_zh": "MuseTalk 驱动运行时",
                     "type": "drive_runtime",
                     "components": _model_components(self.models_dir),
                     "source": str(self.models_dir),
                     "estimated_bytes": _estimated_bytes(self.models_dir),
                     "loaded": loaded,
+                    "can_load": can_load,
                     "can_unload": loaded,
                     "loaded_at": self._loaded_at,
                 }

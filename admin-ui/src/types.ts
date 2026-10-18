@@ -138,29 +138,64 @@ export interface ArtifactInfo {
 // One slot from /api/admin/models. Today there is always exactly one
 // (the singleton drive-engine runtime), but the shape is a list so
 // adding more slots in future is non-breaking.
+//
+// One row per thing the operator can put on the GPU. The Models tab
+// renders engine slots (``drive_runtime``) and portrait animators
+// (``portrait_animator``) in the same table; the optional fields are
+// populated by whichever kind produces the row, and the UI falls back
+// to ``—`` when a field is null. TTS lives in a separate ``services``
+// table because it has no on-GPU weights.
 export interface ModelInfo {
   id: string;
-  // "drive_runtime" is the only flavour the engine exposes today;
-  // the field exists so the column can badge the row cleanly when a
-  // second kind (portrait_animator, tts_voice, ...) lands.
+  // Drives the 类型 badge + the row grouping. Engine rows report
+  // "drive_runtime"; animator rows report "portrait_animator".
+  kind: "drive_runtime" | "portrait_animator";
+  // Operator-facing label (animator ``meta().label_zh``, or the
+  // engine's hardcoded Chinese name). The id column falls back to ``id``
+  // when this is absent.
+  label_zh?: string;
+  // Historical "type" string -- drive_runtime rows still carry this
+  // for the 类型 column's tag. Animator rows use ``kind``'s value here
+  // so the existing renderer doesn't see a null.
   type: string;
   // The model parts the runtime materialises. Renders as a Tag each,
   // or as "+N" once there are too many to fit a row. Strings are
-  // display hints; not paths.
+  // display hints; not paths. Animator rows have an empty array.
   components: string[];
   // Absolute path on disk the runtime reads weights from. Null when
-  // the engine has no weights (mock).
+  // the engine has no weights (mock). Animator rows fill this with
+  // their own weights_dir.
   source: string | null;
   // Stable, reproducible lower bound: sum of all weight files in GB.
   // The actual VRAM peak is rendered on the GPU snapshot card.
   estimated_bytes: number;
+  // Animator-specific extras (all optional; the engine row leaves them
+  // undefined and the UI renders blanks).
+  group_zh?: string;
+  description?: string;
+  weights_dir?: string | null;
+  weights_present?: boolean;
+  missing_script?: string | null;
+  vram_required_gb?: number | null;
+  vram_hint?: string;
+  fits_current_gpu?: boolean | null;
   loaded: boolean;
-  // False for engines that hold no loadable weights (mock). Drives the
-  // unload button visibility.
+  // The load button is gated on ``can_load``, NOT on ``can_unload``.
+  // ``can_load`` is True when the row exposes a ``load()`` method AND
+  // the row isn't currently loaded; ``can_unload`` is True when the
+  // row exposes an ``unload()`` method AND the row is currently loaded.
+  // The split matters: after an ``unload()`` cycle, ``can_unload`` is
+  // False (nothing to release) but ``can_load`` must come back on so
+  // the operator can reload. ``can_load`` does NOT require weights on
+  // disk -- the click surfaces a 503 with the fetch-script hint.
+  can_load: boolean;
+  // False for engines that hold no unloadable weights (mock). Drives
+  // the unload button visibility.
   can_unload: boolean;
   // ISO timestamp the runtime last became live (mounted weight).
   // Null when the model is not currently loaded. Used to render
-  // "已加载 3 分钟前".
+  // "已加载 3 分钟前". Animator rows are always null (animators don't
+  // track this).
   loaded_at: string | null;
 }
 
@@ -173,10 +208,35 @@ export interface ModelsPayload {
   active_sessions: number;
 }
 
+// MiniMax TTS configuration surfaced by ``GET /api/admin/tts/config`` and
+// edited via ``PUT /api/admin/tts/config`` from the Models tab card.
+//
+// The ``api_key`` is *never* returned in the GET body (only the masked
+// form leaks to the UI). ``PUT`` accepts an optional ``api_key``; an
+// empty value means "clear the credential" (the synthesise endpoint
+// then returns 503 until a real key is saved).
+export interface TtsConfigInfo {
+  voice_id: string;
+  model: string;
+  sample_rate: number;
+  group_id: string;
+  base_url: string;
+  api_key_masked: string;
+}
+
+export interface TtsConfigUpdate {
+  api_key?: string;
+  group_id?: string;
+  base_url?: string;
+  model?: string;
+  voice_id?: string;
+  sample_rate?: number;
+}
+
 // One row per every OTHER model this server uses -- portrait animators
-// (LivePortrait / Wan 2.2 / MuseTalk silent) + MiniMax TTS. Lifecycle
-// state is surfaced so the operator can drive load / unload from here
-// without bouncing to 形象活化 tab or paying mid-call cold-loads.
+// (LivePortrait / Wan 2.2) + MiniMax TTS. Lifecycle state is surfaced
+// so the operator can drive load / unload from here without bouncing
+// to 形象活化 tab or paying mid-call cold-loads.
 export interface ServiceInfo {
   id: string;
   // ``portrait_animator`` or ``tts_service``. Drives which columns +
@@ -197,7 +257,7 @@ export interface ServiceInfo {
   // to fix it. Null for ready rows.
   missing_script: string | null;
   // VRAM budget the service needs; null means "shares another budget"
-  // (e.g. musetalk-silent piggybacks on the drive engine).
+  // (e.g. backends that piggyback on a separately-loaded runtime).
   vram_required_gb: number | null;
   vram_hint: string;
   // True / false / null -- null means unknown (no CUDA on this host).

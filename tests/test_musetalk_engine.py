@@ -566,6 +566,54 @@ def test_describe_never_loads_weights(tmp_path):
     assert isinstance(d["gpu"], bool)
 
 
+def test_engine_can_reload_after_unload(tmp_path, monkeypatch):
+    """Round-trip: load → unload → load must succeed.
+
+    The Models tab's reload button is gated on ``can_load``; this test
+    pins the engine's own round-trip so a future refactor that breaks
+    the reload path fails loudly (not as a stuck UI button).
+    """
+    import asyncio
+
+    from server.engine.musetalk_engine import MuseTalkEngine
+
+    warmup_calls = {"n": 0}
+
+    def fake_warmup_sync(self):
+        warmup_calls["n"] += 1
+        # Mount a stub runtime so describe() reports loaded=True without
+        # touching torch. Same trick as the existing describe test.
+        class _StubRuntime:
+            device = "stub"
+
+        with self._lock:
+            self._runtime = _StubRuntime()
+            from datetime import datetime, timezone
+            self._loaded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    monkeypatch.setattr(MuseTalkEngine, "_warmup_sync", fake_warmup_sync)
+    eng = MuseTalkEngine(models_dir=tmp_path / "m")
+    # Stub ``_missing_weights`` so the engine thinks weights are present;
+    # otherwise warmup() would refuse before reaching _warmup_sync.
+    monkeypatch.setattr(eng, "_missing_weights", lambda: [])
+
+    async def _round_trip():
+        await eng.load()
+        # ``unload()`` is sync on the engine (no event-loop work) so it
+        # doesn't need awaiting. The asymmetry is deliberate: warmup is
+        # async because _Runtime construction may touch torch; unload is
+        # pure-Python state mutation.
+        eng.unload()
+        await eng.load()
+
+    asyncio.run(_round_trip())
+    assert warmup_calls["n"] == 2, (
+        f"warmup_sync called {warmup_calls['n']} times, expected 2 (load → load)"
+    )
+    # describe() confirms the engine is loaded again.
+    assert eng.describe()["loaded"] is True
+
+
 def test_create_engine_musetalk():
     engine = create_engine("musetalk")
     assert isinstance(engine, MuseTalkEngine)

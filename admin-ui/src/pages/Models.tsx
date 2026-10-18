@@ -4,8 +4,11 @@ import {
   Alert,
   Button,
   Card,
+  Form,
+  Input,
   Popconfirm,
   Progress,
+  Select,
   Space,
   Table,
   Tag,
@@ -23,7 +26,14 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { api } from "../api";
-import type { GpuSnapshot, ModelsPayload, ModelInfo, ServiceInfo } from "../types";
+import type {
+  GpuSnapshot,
+  ModelsPayload,
+  ModelInfo,
+  ServiceInfo,
+  TtsConfigInfo,
+  TtsConfigUpdate,
+} from "../types";
 
 // Same value the rest of the System page polls at (概览, 任务, 会话). The
 // GPU counter moves on a sub-second timescale, but the operator's eye
@@ -172,6 +182,7 @@ function typeLabel(t: string): string {
   // Map the slim server-side type to the operator-facing Chinese label.
   // New flavours stay legible without crowding the tab.
   if (t === "drive_runtime") return "驱动运行时";
+  if (t === "portrait_animator") return "形象动画器";
   return t;
 }
 
@@ -296,8 +307,18 @@ export default function Models() {
       width: 200,
       render: (id: string, row) => (
         <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
-          <Typography.Text strong>{id}</Typography.Text>
-          <Tag>{typeLabel(row.type)}</Tag>
+          {/* Animator rows have a ``label_zh`` (LivePortrait / Wan 2.2 etc.);
+              engine rows use the raw id (e.g. ``musetalk_runtime``). The
+              id is shown as the secondary line so the operator can copy it. */}
+          <Typography.Text strong>{row.label_zh || id}</Typography.Text>
+          <Space size={4}>
+            <Tag>{typeLabel(row.type)}</Tag>
+            {row.label_zh && (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                {id}
+              </Typography.Text>
+            )}
+          </Space>
         </Space>
       ),
     },
@@ -366,14 +387,14 @@ export default function Models() {
         // server's gate so the operator never has to read a 409/400
         // error to figure out what works on the current engine.
         if (!row.loaded) {
-          // can_load = !loaded, gated server-side as well. We don't
-          // render a button for mock engine slots: can_unload is the
-          // only flag the API exposes today, so a not-yet-loaded mock
-          // row with can_unload=False gets a tip explaining why.
+          // The load button is gated on ``can_load``: True when the row
+          // exposes a ``load()`` method AND isn't currently loaded.
+          // ``can_unload`` is the wrong flag here -- it stays False after
+          // an unload cycle, which left the button permanently disabled.
           return (
             <Tooltip
               title={
-                row.can_unload
+                row.can_load
                   ? "加载该模型到显存"
                   : "当前引擎不持有可加载的权重"
               }
@@ -383,7 +404,7 @@ export default function Models() {
                 size="small"
                 icon={<CloudDownloadOutlined />}
                 loading={actingOn === row.id}
-                disabled={!row.can_unload}
+                disabled={!row.can_load}
                 onClick={() => loadModel(row.id)}
               >
                 加载
@@ -460,6 +481,8 @@ export default function Models() {
           onUnload={unloadService}
         />
       )}
+
+      <MiniMaxConfigCard onSaved={refresh} />
     </Space>
   );
 }
@@ -705,6 +728,160 @@ function ServicesCard({
         size="small"
         locale={{ emptyText: "暂无服务" }}
       />
+    </Card>
+  );
+}
+
+// ----- MiniMax TTS configuration ---------------------------------------------
+
+// Voice IDs the form offers in the dropdown. A "custom" escape hatch
+// below lets the operator type any string the upstream accepts.
+const MINIMAX_MODEL_OPTIONS = [
+  { value: "speech-02-hd", label: "speech-02-hd (默认)" },
+  { value: "speech-02-turbo", label: "speech-02-turbo" },
+];
+const MINIMAX_SAMPLE_RATE_OPTIONS = [
+  { value: 8000, label: "8000 Hz" },
+  { value: 16000, label: "16000 Hz" },
+  { value: 22050, label: "22050 Hz" },
+  { value: 24000, label: "24000 Hz" },
+  { value: 32000, label: "32000 Hz" },
+  { value: 44100, label: "44100 Hz" },
+];
+
+function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void }) {
+  // The Models tab's MiniMax config form. Reads via GET, writes via PUT,
+  // surfaces the masked api_key as a password-style field. The "测试"
+  // button POSTs to /api/admin/tts to confirm the round-trip end to end
+  // -- a save that leaves the synthesise endpoint broken is worse than
+  // no save at all.
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [savedMasked, setSavedMasked] = useState<string>("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const { message } = AntApp.useApp();
+
+  async function refresh() {
+    try {
+      const cfg = await api<TtsConfigInfo>("/api/admin/tts/config");
+      form.setFieldsValue({
+        voice_id: cfg.voice_id,
+        model: cfg.model,
+        sample_rate: cfg.sample_rate,
+        group_id: cfg.group_id,
+        base_url: cfg.base_url,
+      });
+      setSavedMasked(cfg.api_key_masked);
+    } catch {
+      // Don't surface the failure here -- the operator is already on the
+      // Models tab. The form's submit will surface a clear error.
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function save() {
+    setLoading(true);
+    try {
+      const values = await form.validateFields();
+      const payload: TtsConfigUpdate = { ...values };
+      // Only include the api_key if the operator actually typed something;
+      // leaving the field blank keeps whatever key is currently saved.
+      if (apiKeyInput.trim()) {
+        payload.api_key = apiKeyInput.trim();
+      }
+      const resp = await api<TtsConfigInfo & { api_key_masked: string }>(
+        "/api/admin/tts/config",
+        { method: "PUT", body: payload }
+      );
+      setSavedMasked(resp.api_key_masked);
+      setApiKeyInput("");
+      message.success("MiniMax 配置已保存");
+      await onSaved();
+    } catch (err) {
+      message.error(`保存失败：${(err as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function testSynth() {
+    // Round-trip: send a 4-char sample text through the synthesise
+    // endpoint with the current config. If it 200s, the operator sees a
+    // working state; if it 503s, the error message names the cause
+    // (likely "no api_key configured").
+    try {
+      const resp = await fetch("/api/admin/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "测试", voice_id: form.getFieldValue("voice_id") }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null);
+        const code = body?.error?.code;
+        if (code === "tts_not_configured") {
+          message.warning("未配置 API key，无法测试");
+        } else {
+          message.error(`测试失败：${body?.error?.message ?? resp.statusText}`);
+        }
+        return;
+      }
+      message.success("测试成功：MiniMax 已返回音频");
+    } catch (err) {
+      message.error(`测试失败：${(err as Error).message}`);
+    }
+  }
+
+  return (
+    <Card title="MiniMax TTS 配置" size="small">
+      <Form form={form} layout="vertical" style={{ maxWidth: 720 }}>
+        <Form.Item
+          label="API Key"
+          extra={
+            savedMasked
+              ? `当前保存值：${savedMasked}（留空表示保留原值）`
+              : "Bearer token，留空表示保留当前值"
+          }
+        >
+          <Input.Password
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            placeholder="留空表示保留当前 API Key"
+          />
+        </Form.Item>
+        <Form.Item name="group_id" label="Group ID" extra="可选；新版 MiniMax 账号通常无需">
+          <Input placeholder="例如 g-xxx" />
+        </Form.Item>
+        <Form.Item
+          name="base_url"
+          label="Base URL"
+          extra="默认 https://api.minimaxi.com；自建/代理可改"
+          rules={[{ required: true, message: "Base URL 必填" }]}
+        >
+          <Input placeholder="https://api.minimaxi.com" />
+        </Form.Item>
+        <Form.Item name="model" label="模型">
+          <Select options={MINIMAX_MODEL_OPTIONS} />
+        </Form.Item>
+        <Form.Item name="voice_id" label="语音 ID" extra="在 MiniMax 控制台查看可用 ID">
+          <Input placeholder="male-qn-qingse" />
+        </Form.Item>
+        <Form.Item name="sample_rate" label="采样率">
+          <Select options={MINIMAX_SAMPLE_RATE_OPTIONS} />
+        </Form.Item>
+        <Form.Item>
+          <Space>
+            <Button type="primary" icon={<CloudDownloadOutlined />} loading={loading} onClick={save}>
+              保存
+            </Button>
+            <Button icon={<SoundOutlined />} onClick={testSynth}>
+              测试
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
     </Card>
   );
 }

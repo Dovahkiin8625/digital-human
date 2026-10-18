@@ -26,11 +26,22 @@ class MockEngine(DriveEngine):
             "models": [
                 {
                     "id": "mock_drive",
+                    # Unified ModelInfo shape: ``kind`` lets the Models tab
+                    # render engine rows alongside portrait-animator rows
+                    # in one table (the row's `type` column still uses the
+                    # historical "drive_runtime" string for backward compat).
+                    "kind": "drive_runtime",
+                    "label_zh": "Mock 驱动运行时",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
                     "estimated_bytes": 0,
                     "loaded": True,
+                    # Mock has no weights to mount; the load button stays
+                    # disabled. ``can_load`` mirrors the engine's load
+                    # capability so the reload-after-unload bug fix is
+                    # symmetric between the mock and real engines.
+                    "can_load": False,
                     "can_unload": False,
                     "loaded_at": None,
                 }

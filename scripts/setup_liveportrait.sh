@@ -243,7 +243,22 @@ step "4/4  runtime deps into $VENV"
 # requires ``onnxruntime`` at runtime; install onnxruntime-gpu first so
 # insightface's resolver sees it (it picks up whatever's on the path).
 uv pip install --python "$VENV" \
-    "onnxruntime-gpu>=1.18,<2" \
+    # Pin onnxruntime-gpu below 1.27: 1.27+ requires the CUDA 13.x
+    # runtime (cublasLt64_13.dll), which the project's cu128 PyTorch
+    # doesn't bundle. 1.20.x is the last CUDA-12.x-compatible line
+    # that works with the bundled cuDNN. Without the upper pin, a
+    # future pip upgrade silently breaks InsightFace's CUDA provider
+    # with the "LoadLibrary failed with error 126" message that
+    # doesn't name cublasLt64_13.dll in the visible line.
+    "onnxruntime-gpu>=1.18,<1.21" \
+    # InsightFace's onnxruntime CUDA provider needs cuDNN 9.x (cudnn64_9.dll)
+    # and a current cuBLAS; neither ships with the cu128 PyTorch wheel.
+    # PyTorch 2.x bundles its own (older) cuDNN into torch/lib, but its
+    # version lags what onnxruntime-gpu 1.20.x wants. Installing these
+    # alongside PyTorch is the standard way to satisfy the transitive
+    # load without forcing a full CUDA Toolkit install.
+    "nvidia-cublas-cu12>=12.4" \
+    "nvidia-cudnn-cu12>=9.0" \
     "insightface>=0.7" \
     "tyro>=0.8" \
     "pyyaml>=6.0" \

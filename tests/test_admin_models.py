@@ -2,9 +2,8 @@
 
 These tests run against a real FastAPI TestClient with the test doubles wired
 through ``tests/conftest.py`` (drive engine = mock). The mock engine reports
-its own model slot; the musetalk-only paths are checked by stubbing the
-relevant engine methods so the route's *dispatch* stays tested without
-needing a GPU.
+its own model slot; load/unload paths are checked by stubbing the relevant
+engine methods so the route's *dispatch* stays tested without needing a GPU.
 """
 from __future__ import annotations
 
@@ -35,10 +34,13 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
         }
     assert body["active_sessions"] == 0
 
-    # The mock engine surfaces exactly one slot; a wrong name would break the
-    # tab's load/unload buttons (they would have no matching row).
-    assert len(body["models"]) == 1
-    m = body["models"][0]
+    # The mock engine surfaces exactly one drive_runtime row; portrait
+    # animators are merged in too (test env registers LivePortrait + Wan
+    # 2.2 via side-effect imports). The operator sees one row per
+    # thing-that-can-go-on-the-GPU in the Models tab.
+    engine_rows = [m for m in body["models"] if m["kind"] == "drive_runtime"]
+    assert len(engine_rows) == 1
+    m = engine_rows[0]
     assert m["id"] == "mock_drive"
     assert set(m) >= {
         "id",
@@ -73,9 +75,9 @@ def test_load_unknown_model_returns_404(client):
 
 
 def test_load_calls_engine_when_supported(client, monkeypatch):
-    # When the engine exposes a ``load`` method (the real musetalk path), the
-    # endpoint must call it. Stubs the engine on the session manager so the
-    # dispatch is exercised without GPU weights.
+    # When the engine exposes a ``load`` method, the endpoint must call it.
+    # Stubs the engine on the session manager so the dispatch is exercised
+    # without GPU weights.
     from server.main import _app
 
     engine = _app.state.session_manager.engine
@@ -293,12 +295,12 @@ def test_unload_unknown_model_returns_404(client):
 def test_list_services_exposes_loadable_flags(client, monkeypatch):
     # The Models tab's service rows now also surface ``loaded`` /
     # ``can_load`` / ``can_unload`` so the operator can drive the
-    # load/unload lifecycle for LivePortrait, Wan 2.2, and MuseTalk
-    # silent from this tab. The test just verifies the shape: a
-    # freshly-restarted server should report all rows unloaded with
-    # ``can_load=True`` (each backend now exposes a load method).
+    # load/unload lifecycle for LivePortrait and Wan 2.2 from this tab.
+    # The test just verifies the shape: a freshly-restarted server
+    # should report all rows unloaded with ``can_load=True`` (each
+    # backend now exposes a load method).
     body = client.get("/api/admin/models").json()
-    animator_rows = [s for s in body["services"] if s["kind"] == "portrait_animator"]
+    animator_rows = [m for m in body["models"] if m["kind"] == "portrait_animator"]
     assert animator_rows, "at least one portrait animator should be registered"
     for r in animator_rows:
         assert set(r) >= {
@@ -322,47 +324,21 @@ def test_list_services_exposes_loadable_flags(client, monkeypatch):
         # clear hint at the fetch script).
         assert r["can_load"] is True, (
             f"{r['id']!r} reports can_load=False; the operator cannot "
-            "reload after unload -- this is the bug that broke "
-            "MuseTalk silent (which has no on-disk weights of its own "
-            "but proxies to the main drive engine)."
+            "reload after unload"
         )
-
-
-def test_musetalk_silent_service_row_can_load_after_unload(client):
-    """After the operator unloads MuseTalk silent, the row must still
-    surface a 加载 button.
-
-    Bug surface: ``can_load`` was gated on ``weights_present``, which
-    MuseTalk silent doesn't have (it piggybacks on the main drive
-    engine via ``_engine_runtime_loaded``). After an unload the row
-    fell into the "无可用操作" branch even though ``load()`` is ready
-    to run. ``can_load`` now reflects "the backend exposes a load()
-    method" -- a missing-weights problem surfaces as 503 at click
-    time, not as a silent missing button.
-    """
-    body = client.get("/api/admin/models").json()
-    ms = next(
-        (s for s in body["services"] if s["id"] == "animator:musetalk-silent"),
-        None,
-    )
-    assert ms is not None, "animator:musetalk-silent must appear in /api/admin/models"
-    assert ms["loaded"] is False
-    assert ms["can_load"] is True
-    assert ms["can_unload"] is False
 
 
 def test_liveportrait_service_row_can_load_even_without_weights(client):
     """A LivePortrait row with no on-disk weights must still render a
     加载 button (the click surfaces a 503 with the fetch-script hint).
 
-    Same fix as MuseTalk silent: ``can_load`` keys on "load() method
-    exists", not "weights are present". Otherwise the operator can't
-    even trigger the load attempt that would tell them where the
-    script lives.
+    ``can_load`` keys on "load() method exists", not "weights are
+    present". Otherwise the operator can't even trigger the load
+    attempt that would tell them where the script lives.
     """
     body = client.get("/api/admin/models").json()
     lp = next(
-        (s for s in body["services"] if s["id"] == "animator:liveportrait"),
+        (m for m in body["models"] if m["id"] == "animator:liveportrait"),
         None,
     )
     # Test env pins ``DH_DATA_DIR`` to a tmp dir, so no weights are on
@@ -431,11 +407,113 @@ def test_load_service_for_animation_backend_without_load_is_400(client):
         animators.ANIMATORS.pop("no_load_backend", None)
 
 
+def test_load_model_dispatches_animator_ids_to_anims(client, monkeypatch):
+    """The Models tab UI calls ``POST /api/admin/models/<id>/load`` for
+    every row in its table; portrait animators are now in that table too
+    (under ids like ``animator:liveportrait``). The endpoint must
+    dispatch to the right backend -- engine slot for ``musetalk_runtime``
+    / ``mock_drive``, animator instance for ``animator:<name>``.
+
+    Regression for the bug where moving animators into the models list
+    left their load button wired to the engine-slot dispatcher and the
+    UI surfaced ``model 'animator:liveportrait' not found``.
+    """
+    from server.avatar import animators
+
+    class _Spy:
+        def __init__(self):
+            self.name = "liveportrait"
+            self.calls = []
+
+        def meta(self):
+            return {"label_zh": "LivePortrait", "group_zh": "x", "description": ""}
+
+        @property
+        def is_ready(self):
+            return True
+
+        @property
+        def is_loaded(self):
+            return False
+
+        @property
+        def weights_dir(self):
+            from pathlib import Path
+
+            class _P:
+                def is_dir(self_inner):
+                    return True
+
+                def iterdir(self_inner):
+                    return iter([object()])
+
+            return _P()
+
+        def load(self):
+            self.calls.append("load")
+
+    spy = _Spy()
+    animators.ANIMATORS["_spy"] = spy
+    try:
+        resp = client.post("/api/admin/models/animator:_spy/load")
+        assert resp.status_code == 200, resp.text
+        assert spy.calls == ["load"]
+    finally:
+        animators.ANIMATORS.pop("_spy", None)
+
+
+def test_unload_model_dispatches_animator_ids_to_anims(client, monkeypatch):
+    """Same dispatch as load: ``/models/<id>/unload`` resolves
+    ``animator:<name>`` to the registered instance's ``unload`` method.
+    """
+    from server.avatar import animators
+
+    class _Spy:
+        def __init__(self):
+            self.name = "liveportrait"
+            self.calls = []
+
+        def meta(self):
+            return {"label_zh": "LivePortrait", "group_zh": "x", "description": ""}
+
+        @property
+        def is_ready(self):
+            return True
+
+        @property
+        def is_loaded(self):
+            return True  # must be loaded to unload
+
+        @property
+        def weights_dir(self):
+            from pathlib import Path
+
+            class _P:
+                def is_dir(self_inner):
+                    return True
+
+                def iterdir(self_inner):
+                    return iter([object()])
+
+            return _P()
+
+        def unload(self):
+            self.calls.append("unload")
+
+    spy = _Spy()
+    animators.ANIMATORS["_spy"] = spy
+    try:
+        resp = client.post("/api/admin/models/animator:_spy/unload")
+        assert resp.status_code == 200, resp.text
+        assert spy.calls == ["unload"]
+    finally:
+        animators.ANIMATORS.pop("_spy", None)
+
+
 def test_load_service_calls_animator_load(client, monkeypatch):
     # When the dispatch lands on a real animator (LivePortrait /
-    # Wan / MuseTalk silent), the endpoint must call its ``load``
-    # method. ``is_loaded`` is mocked False so the gate yields, and
-    # the spy records the call.
+    # Wan), the endpoint must call its ``load`` method. ``is_loaded``
+    # is mocked False so the gate yields, and the spy records the call.
     from server.avatar import animators
 
     class _Spy:
@@ -686,8 +764,8 @@ def test_unload_service_400_when_no_unload_method(client):
 def test_list_models_includes_services_field(client):
     # The Models tab surfaces ONE row per engine runtime slot under
     # ``models`` and a SEPARATE list under ``services`` for everything
-    # else this server uses -- portrait animators (LivePortrait, Wan 2.2,
-    # MuseTalk silent) and the MiniMax TTS endpoint. Empty service list
+    # else this server uses -- portrait animators (LivePortrait, Wan 2.2)
+    # and the MiniMax TTS endpoint. Empty service list
     # would be a valid state (a fresh server with no animators imported),
     # so the test only asserts the shape, not the size.
     body = client.get("/api/admin/models").json()
@@ -696,16 +774,17 @@ def test_list_models_includes_services_field(client):
 
 
 def test_list_services_lists_portrait_animators(client):
-    # Each registered ANIMATORS entry surfaces as its own service row, with
-    # an ``id`` like "animator:<name>" so the UI can key them. ``kind``
-    # carries "portrait_animator"; the operator-facing strings come from
-    # the backend's own ``meta()``.
+    # Each registered ANIMATORS entry surfaces as its own model row now
+    # (portrait animators are model-shaped -- they have their own
+    # weights directory and ``load()`` / ``unload()`` lifecycle).
+    # ``kind`` carries "portrait_animator"; the operator-facing strings
+    # come from the backend's own ``meta()``.
     body = client.get("/api/admin/models").json()
-    animators = [s for s in body["services"] if s["kind"] == "portrait_animator"]
+    animators = [m for m in body["models"] if m["kind"] == "portrait_animator"]
     names = {a["id"] for a in animators}
-    # The four backends registered via side-effect imports in admin.py
-    # at module load. The names follow the PatternAnimator.name contract.
-    assert {"animator:liveportrait", "animator:musetalk-silent"} <= names
+    # The backends registered via side-effect imports in admin.py at
+    # module load. The names follow the PatternAnimator.name contract.
+    assert {"animator:liveportrait"} <= names
     # Wan 2.2 has multiple variants; at least one ``animator:wan22-*`` id.
     assert any(a.startswith("animator:wan22-") for a in names)
 
@@ -724,6 +803,53 @@ def test_list_services_includes_minimax_tts(client):
     assert row["description"]
 
 
+def test_models_list_includes_portrait_animators(client):
+    """Portrait animators are model-shaped (own weights, own load/unload
+    lifecycle) so they belong under ``models``, not ``services``.
+
+    The Models tab renders one table per top-level list; the operator
+    expects "what can I put on the GPU right now" to be a single list.
+    TTS is a remote service so it stays in ``services``.
+    """
+    body = client.get("/api/admin/models").json()
+    model_ids = {m["id"] for m in body["models"]}
+    # The drive engine slot is always there (mock in CI, musetalk on
+    # the GPU host). We only assert one engine slot exists, not which
+    # specific id, because the test env uses the mock engine.
+    engine_rows = [m for m in body["models"] if m.get("kind") == "drive_runtime"]
+    assert len(engine_rows) == 1, f"expected one drive_runtime row, got {engine_rows}"
+    # Portrait animators are merged in.
+    animator_models = [m for m in body["models"] if m.get("kind") == "portrait_animator"]
+    assert {a["id"] for a in animator_models} >= {"animator:liveportrait"}
+    assert any(a["id"].startswith("animator:wan22-") for a in animator_models)
+    # Each animator row carries the unified ModelInfo flags.
+    sample = animator_models[0]
+    assert "loaded" in sample
+    assert "can_load" in sample
+    assert "can_unload" in sample
+    # TTS stays in services.
+    service_kinds = {s["kind"] for s in body["services"]}
+    assert "tts_service" in service_kinds
+    # And no portrait animator leaked into services.
+    assert "portrait_animator" not in service_kinds
+
+
+def test_models_list_animator_row_carries_label_zh_and_vram_hint(client):
+    """When the portrait-animator row moved into ``models``, it must
+    carry the operator-facing strings (``label_zh``, ``description``,
+    ``vram_hint``) so the UI's ModelInfo renderer has them.
+    """
+    body = client.get("/api/admin/models").json()
+    lp = next(
+        (m for m in body["models"] if m["id"] == "animator:liveportrait"),
+        None,
+    )
+    assert lp is not None
+    assert lp["label_zh"]
+    assert lp["vram_hint"]
+    assert "description" in lp
+
+
 def test_list_services_animator_row_includes_vram_hint(client):
     # Each animator row carries the same VRAM-fit info its meta() exposes
     # so the operator can scan the Models tab instead of cross-referencing
@@ -731,8 +857,8 @@ def test_list_services_animator_row_includes_vram_hint(client):
     # drive-engine row they may conflict with.
     body = client.get("/api/admin/models").json()
     lp = next(
-        s for s in body["services"]
-        if s["id"] == "animator:liveportrait"
+        m for m in body["models"]
+        if m["id"] == "animator:liveportrait"
     )
     assert set(lp) >= {
         "id",

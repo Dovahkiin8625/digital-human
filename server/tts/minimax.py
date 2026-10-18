@@ -47,6 +47,14 @@ def wav_from_pcm(pcm: bytes, sample_rate: int, channels: int = 1) -> bytes:
 
 
 def _require_configured():
+    """Legacy stub kept for callers that pass ``db=None`` (the test path).
+
+    Real callers should rely on :func:`server.tts.config.read_config`'s
+    own "not configured" branch in :func:`synthesize` -- this helper only
+    exists so importing the symbol doesn't break older call sites.
+    """
+    from server.config import get_settings
+
     settings = get_settings()
     if not settings.minimax_api_key:
         raise AppError(
@@ -72,26 +80,45 @@ def _audio_from_response(body: dict, status_code: int) -> str:
     return audio
 
 
-async def synthesize(text: str, voice_id: str | None = None, *, client: httpx.AsyncClient | None = None) -> bytes:
+async def synthesize(text: str, voice_id: str | None = None, *, client: httpx.AsyncClient | None = None, db=None) -> bytes:
     """Synthesize ``text`` into WAV bytes, or raise AppError.
 
     ``client`` is injectable so tests can drive the real parse path through an
-    httpx.MockTransport instead of the network.
+    httpx.MockTransport instead of the network. ``db`` is the FastAPI request
+    session; passed through so the effective MiniMax config (DB rows layered
+    over env defaults) is read fresh on every call, not cached.
     """
-    settings = _require_configured()
+    # Read from the layered config helper rather than get_settings() so a
+    # console edit via ``PUT /api/admin/tts/config`` takes effect on the
+    # very next request without a server restart. Falls back to env
+    # defaults when ``db`` is None (test path).
+    from server.tts.config import read_config
+
+    if db is not None:
+        cfg = read_config(db)
+    else:
+        cfg = _settings_defaults_as_public()
+
+    if not cfg.get("api_key"):
+        raise AppError(
+            "tts_not_configured",
+            "MiniMax is not configured: set DH_MINIMAX_API_KEY in .env or save it via the Models tab",
+            503,
+        )
+
     payload = {
-        "model": settings.minimax_model,
+        "model": cfg["model"],
         "text": text,
         "stream": False,
         # "hex" is the only output format streaming supports and the one the
         # non-streaming default returns, so the parse path never branches.
         "output_format": "hex",
-        "voice_setting": {"voice_id": voice_id or settings.minimax_voice_id, "speed": 1, "vol": 1, "pitch": 0},
-        "audio_setting": {"format": "pcm", "sample_rate": settings.minimax_sample_rate, "channel": 1},
+        "voice_setting": {"voice_id": voice_id or cfg["voice_id"], "speed": 1, "vol": 1, "pitch": 0},
+        "audio_setting": {"format": "pcm", "sample_rate": cfg["sample_rate"], "channel": 1},
     }
-    params = {"GroupId": settings.minimax_group_id} if settings.minimax_group_id else None
-    url = f"{settings.minimax_base_url}/v1/t2a_v2"
-    headers = {"Authorization": f"Bearer {settings.minimax_api_key}"}
+    params = {"GroupId": cfg["group_id"]} if cfg["group_id"] else None
+    url = f"{cfg['base_url']}/v1/t2a_v2"
+    headers = {"Authorization": f"Bearer {cfg['api_key']}"}
 
     owns_client = client is None
     client = client or httpx.AsyncClient(timeout=60)
@@ -117,4 +144,23 @@ async def synthesize(text: str, voice_id: str | None = None, *, client: httpx.As
         # output_format=hex is pinned, so this means the reply is not what we
         # asked for (e.g. a URL) -- name it rather than 500 on a bare ValueError.
         raise AppError("tts_failed", "MiniMax returned audio that is not hex", 502) from exc
-    return wav_from_pcm(pcm, settings.minimax_sample_rate)
+    return wav_from_pcm(pcm, cfg["sample_rate"])
+
+
+def _settings_defaults_as_public() -> dict:
+    """Mirror of ``read_config`` for callers without a DB session.
+
+    The test path (and any future non-HTTP caller) needs the same
+    public-shape dict without going through SQLAlchemy.
+    """
+    from server.config import get_settings
+
+    s = get_settings()
+    return {
+        "api_key": getattr(s, "minimax_api_key", ""),
+        "group_id": getattr(s, "minimax_group_id", ""),
+        "base_url": getattr(s, "minimax_base_url", "https://api.minimaxi.com"),
+        "model": getattr(s, "minimax_model", "speech-02-hd"),
+        "voice_id": getattr(s, "minimax_voice_id", "male-qn-qingse"),
+        "sample_rate": getattr(s, "minimax_sample_rate", 32000),
+    }
