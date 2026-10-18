@@ -218,11 +218,35 @@ export default function ActivatePortrait() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
 
-  useEffect(() => {
-    void fetchBackends().then((rows) => {
-      setBackends(rows);
-      setPicked((current) => current ?? rows[0]?.name);
-    });
+  // Poll the backend listing so the dropdown stays in sync with the
+// operator's load/unload activity on the Models tab. Without this,
+// a freshly-loaded LivePortrait would not appear here until the next
+// mount. The cadence matches the Models tab (2 s) so the two views
+// converge quickly without hammering the server.
+const BACKEND_POLL_MS = 2000;
+
+useEffect(() => {
+    let cancelled = false;
+    const refreshBackends = () =>
+      void fetchBackends().then((rows) => {
+        if (cancelled) return;
+        setBackends(rows);
+        // If the operator just unloaded the row they had selected, the
+        // dropdown shows an empty value -- reset the selection to the
+        // first available so the next click doesn't 503 on the missing
+        // backend. ``rows[0]?.name`` is undefined when the listing is
+        // empty, which the "暂未注册任何驱动后端" alert already handles.
+        setPicked((current) => {
+          if (current && rows.some((b) => b.name === current)) return current;
+          return rows[0]?.name;
+        });
+      });
+    refreshBackends();
+    const t = setInterval(refreshBackends, BACKEND_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   // Driver list -- only meaningful for the LivePortrait backend, but we fetch
@@ -576,12 +600,13 @@ export default function ActivatePortrait() {
           <Alert
             type="warning"
             showIcon
-            message="暂未注册任何驱动后端"
+            message="暂无可用驱动后端"
             description={
               <span>
-                当前服务器上没有可用的图生视频后端；请确认对应权重已下载并通过对应的
-                <code> server/avatar/</code> 模块注册到{" "}
-                <code>ANIMATORS</code> 字典。
+                下拉菜单只列出已在『系统 → 模型』页加载的后端。
+                请先在 <strong>系统 → 模型</strong> 加载 LivePortrait /
+                Wan 2.2 / MuseTalk 静音驱动，再回到此处；
+                卸载后端也会从这里消失。
               </span>
             }
           />

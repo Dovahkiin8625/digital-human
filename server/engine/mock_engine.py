@@ -13,7 +13,29 @@ class MockEngine(DriveEngine):
         self.fps = fps
 
     def describe(self) -> dict:
-        return {"name": self.name, "gpu": False, "width": self.width, "height": self.height, "fps": self.fps}
+        # The Models admin tab reads ``models`` to decide which buttons to
+        # show. Mock has no weights, so the entry is permanently "loaded,
+        # can't unload" -- the operator still sees a row confirming the
+        # current engine is the CPU placeholder.
+        return {
+            "name": self.name,
+            "gpu": False,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "models": [
+                {
+                    "id": "mock_drive",
+                    "type": "drive_runtime",
+                    "components": [],
+                    "source": None,
+                    "estimated_bytes": 0,
+                    "loaded": True,
+                    "can_unload": False,
+                    "loaded_at": None,
+                }
+            ],
+        }
 
     async def drive(
         self,

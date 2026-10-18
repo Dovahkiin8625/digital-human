@@ -15,6 +15,7 @@ import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
 import { api } from "../api";
 import LivePortraits from "./LivePortraits";
+import Models from "./Models";
 import StatusTag from "../components/StatusTag";
 import type { SessionInfo } from "../types";
 
@@ -130,11 +131,11 @@ export default function System() {
       key: "actions",
       width: 100,
       render: (_: unknown, row) => (
-        <Popconfirm title="关闭此会话？" okText="关闭" cancelText="取消" onConfirm={async () => {
+        <Popconfirm title="删除此会话记录？" okText="删除" cancelText="取消" onConfirm={async () => {
           await api(`/api/admin/sessions/${row.session_id}`, { method: "DELETE" });
           await refresh();
         }}>
-          <Button danger size="small" icon={<DeleteOutlined />}>关闭</Button>
+          <Button danger size="small" icon={<DeleteOutlined />}>删除</Button>
         </Popconfirm>
       ),
     },
@@ -208,7 +209,7 @@ export default function System() {
                       onClick={onSweep}
                       loading={sweeping}
                     >
-                      清理空闲会话
+                      清理已关闭会话
                     </Button>
                   }
                 >
@@ -227,6 +228,11 @@ export default function System() {
             key: "liveportrait",
             label: "动作模板",
             children: <LivePortraits />,
+          },
+          {
+            key: "models",
+            label: "模型",
+            children: <Models />,
           },
         ]}
       />

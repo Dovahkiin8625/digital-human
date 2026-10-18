@@ -226,6 +226,11 @@ def test_animate_writes_mp4_and_forwards_knobs(stub_pipeline, tmp_path, monkeypa
     _seed_weights(tmp_path, variant_name="5b-bf16")
     _gpu_vram_gb(monkeypatch, 16.0)
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path / "models")
+    # Bypass the Models-tab load gate (new lifecycle): this fixture
+    # already stubs _run_pipeline, so we don't need the real pipeline
+    # to be materialised -- just flip the flag.
+    a._loaded = True
+    a._pipeline = object()
 
     src = tmp_path / "src.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
@@ -247,6 +252,8 @@ def test_animate_raises_when_weights_missing(tmp_path, monkeypatch):
 
     monkeypatch.setattr(wan22, "WAN22_WEIGHTS_ROOT", tmp_path / "none", raising=False)
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path / "none")
+    a._loaded = True  # bypass Models-tab gate; this test exercises the weights-missing path
+    a._pipeline = object()
     src = tmp_path / "src.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
     with pytest.raises(animators.AnimatorError) as exc:
@@ -258,6 +265,8 @@ def test_animate_raises_when_validation_fails(tmp_path):
     from server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path)
+    a._loaded = True  # bypass Models-tab gate; this test is about validate()
+    a._pipeline = object()
     src = tmp_path / "src.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
     # Off-grid num_frames is rejected before any weights read or VRAM probe.

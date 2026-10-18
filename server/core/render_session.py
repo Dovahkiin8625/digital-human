@@ -13,7 +13,14 @@ from server.core.errors import AppError
 from server.core.stream_sink import SinkClosed, StreamSink
 from server.engine.base import AvatarPack, DriveEngine
 
-IDLE_AFTER = 2.0
+#: Debounce before flipping SPEAKING -> IDLE after the last audio block.
+#: Picked to roughly match the longest natural inter-sentence pause (~0.5 s),
+#: so a brief breath between sentences does not stutter the avatar back to its
+#: idle pose, but speech that has actually ended returns to the static frame
+#: before the WebRTC video queue (maxsize=8 at 25 fps -> ~320 ms) drains --
+#: the receiver never sits on the last lip-sync frame for long. Raising this
+#: reintroduces the ~1.7 s perceived freeze on the last speech frame.
+IDLE_AFTER = 0.5
 
 #: Blocks retained for the latency summary: 60 s worth at 100 ms blocks.
 LATENCY_WINDOW = 600

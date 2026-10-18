@@ -21,22 +21,147 @@ def _png():
     return buf.getvalue()
 
 
-def test_backends_endpoint_lists_registry(client):
+def test_backends_endpoint_lists_registry(client, monkeypatch):
     # The UI populates its dropdown from /api/admin/backends. Every backend
     # registers itself on import; the page renders one OptGroup per
     # ``group_zh`` bucket, so locking the names gives us coverage for
     # the whole dispatch surface in a single assertion.
-    resp = client.get("/api/admin/backends", )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert isinstance(body.get("backends"), list)
+    #
+    # Since the lifecycle refactor (animate() refuses when not loaded),
+    # the backend listing also filters to ``is_loaded=True`` -- so this
+    # test forces each registered backend to a "loaded" state before
+    # asserting membership. Without that flip, the test env's
+    # not-loaded backends (no weights on disk) would be missing from
+    # the listing and the assertion would fail.
+    from server.avatar import animators, musetalk_silent
+
+    for animator in animators.ANIMATORS.values():
+        # Backing attrs the lifecycle methods look at. ``is_loaded`` is
+        # normally a property; assigning to the underlying ``_loaded``
+        # mirrors what a real ``load()`` call would have flipped.
+        try:
+            animator._loaded = True
+        except AttributeError:
+            pass
+    # MuseTalk silent's ``is_loaded`` is a property that proxies to
+    # the live drive engine's runtime -- not a `_loaded` field. Patch
+    # the proxy to return True so this row also appears in the listing.
+    monkeypatch.setattr(
+        musetalk_silent.MuseTalkSilentAnimator,
+        "_engine_runtime_loaded",
+        lambda self: True,
+    )
+
+    try:
+        resp = client.get("/api/admin/backends", )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert isinstance(body.get("backends"), list)
+        names = {b["name"] for b in body["backends"]}
+        expected = {
+            "liveportrait",
+            "wan22-i2v-5b-bf16",
+            "musetalk-silent",
+        }
+        assert expected.issubset(names), (
+            f"missing backends: {expected - names}; "
+            "is the /api/admin/backends filter dropping them?"
+        )
+    finally:
+        for animator in animators.ANIMATORS.values():
+            try:
+                animator._loaded = False
+            except AttributeError:
+                pass
+
+
+def test_backends_endpoint_hides_unloaded_animators(client, monkeypatch):
+    """The 形象活化 dropdown shows only backends whose pipeline is live.
+
+    Pinning behaviour: an operator looking at the 图生视频 tab must
+    never see an option that will 503 on click. The animation dispatch
+    refuses ``is_loaded=False`` (see test_animator_loadable.py), so
+    listing them in the dropdown would be a UI lie. The endpoint
+    filters to ``is_loaded=True`` and returns whatever's left.
+    """
+    from server.avatar import animators
+
+    class _Loaded:
+        name = "_lp_loaded"
+
+        @property
+        def is_loaded(self):
+            return True
+
+        def meta(self):
+            return {
+                "label_zh": "loaded",
+                "group_zh": "测试",
+                "description": "x",
+                "vram_hint": "0",
+                "accepts_prompt": True,
+                "accepts_num_frames": True,
+                "accepts_steps": True,
+            }
+
+    class _NotLoaded:
+        name = "_lp_offline"
+
+        @property
+        def is_loaded(self):
+            return False
+
+        def meta(self):
+            return {
+                "label_zh": "offline",
+                "group_zh": "测试",
+                "description": "x",
+                "vram_hint": "0",
+                "accepts_prompt": True,
+                "accepts_num_frames": True,
+                "accepts_steps": True,
+            }
+
+    monkeypatch.setitem(animators.ANIMATORS, "_lp_loaded", _Loaded())
+    monkeypatch.setitem(animators.ANIMATORS, "_lp_offline", _NotLoaded())
+
+    body = client.get("/api/admin/backends").json()
     names = {b["name"] for b in body["backends"]}
-    expected = {
-        "liveportrait",
-        "wan22-i2v-5b-bf16",
-        "musetalk-silent",
-    }
-    assert expected.issubset(names)
+    assert "_lp_loaded" in names
+    assert "_lp_offline" not in names
+
+
+def test_backends_endpoint_omits_unloaded_musetalk_silent(client, monkeypatch):
+    """MuseTalk silent's ``is_loaded`` mirrors the main drive engine
+    runtime; when that runtime is unloaded, the silent row must NOT
+    appear in the dropdown (clicking it would 503 immediately).
+
+    Pinning behaviour for the lifecycle coupling added with the
+    load/unload rewrite.
+    """
+    from server.avatar import musetalk_silent
+
+    # Mark MuseTalk silent as unloaded by giving the runtime check a
+    # default-False branch. (The test env's main engine hasn't loaded
+    # a real runtime, so this is the realistic pre-fix state.)
+    monkeypatch.setattr(
+        musetalk_silent.MuseTalkSilentAnimator,
+        "_engine_runtime_loaded",
+        lambda self: False,
+    )
+    body = client.get("/api/admin/backends").json()
+    names = {b["name"] for b in body["backends"]}
+    assert "musetalk-silent" not in names
+    # And when the drive engine IS loaded, MuseTalk silent must reappear
+    # in the dropdown.
+    monkeypatch.setattr(
+        musetalk_silent.MuseTalkSilentAnimator,
+        "_engine_runtime_loaded",
+        lambda self: True,
+    )
+    body = client.get("/api/admin/backends").json()
+    names = {b["name"] for b in body["backends"]}
+    assert "musetalk-silent" in names
 
 
 def test_i2v_rejects_unknown_backend_name(client):

@@ -46,6 +46,12 @@ def fake_lp(monkeypatch, tmp_path):
     output directory; downstream code (the h264 encoder) then sees real
     bytes that decode cleanly. Anything downstream of ``_run_pipeline``
     still runs, which keeps the test honest about the wire format.
+
+    New (since load/unload lifecycle): the fixture flips ``_loaded``
+    to True so tests that don't care about the load state can keep
+    calling ``animate()`` without first wiring the Models tab
+    lifecycle. Tests that DO exercise the lifecycle leave the flag
+    alone.
     """
     # Place a real (tiny) driving clip where the animator looks for it.
     # The bundled asset dir lives under data_dir/liveportrait_drivers in
@@ -70,7 +76,13 @@ def fake_lp(monkeypatch, tmp_path):
         return arr
 
     monkeypatch.setattr(liveportrait.LivePortraitAnimator, "_run_pipeline", stub_pipeline)
-    return liveportrait.LivePortraitAnimator()
+    a = liveportrait.LivePortraitAnimator()
+    # Mark loaded so ``animate()`` doesn't 503-not-loaded; tests that
+    # explicitly verify the lifecycle use their own animator instance
+    # and skip this flip.
+    a._loaded = True
+    a._pipeline = object()
+    return a
 
 
 def test_registration_on_import():
@@ -155,12 +167,20 @@ def test_animate_raises_animator_error_when_not_ready(tmp_path):
     # No drivers, no stub: ``is_ready`` is False. The animator must surface
     # a clean AnimatorError pointing at the fetch script, not a generic
     # exception, so the admin endpoint can map it to a 502 with a hint.
+    # Point ``LIVE_PORTRAIT_DRIVERS_DIR`` at an EMPTY dir so the
+    # "drivers not present" branch in animate() trips (it checks
+    # ``drivers.is_dir() and any(drivers.iterdir())``).
     empty = tmp_path / "no-drivers"
     empty.mkdir()
     a = liveportrait.LivePortraitAnimator.__new__(liveportrait.LivePortraitAnimator)
+    # Bypass the Models-tab load gate (the lifecycle added in this
+    # iteration): the existing "not ready" surface must still fire for
+    # a backend that was *loaded* but is missing the on-disk drivers
+    # it depends on.
+    a._loaded = True
+    a._pipeline = object()
     liveportrait.LivePortraitAnimator.LIVE_PORTRAIT_DRIVERS_DIR = empty
     a.LIVE_PORTRAIT_DRIVERS_DIR = empty
-    # Force is_ready=False path:
     with pytest.raises(animators.AnimatorError) as exc:
         a.animate(tmp_path / "src.png", prompt="", num_frames=10, steps=10, out_dir=tmp_path / "out")
     msg = str(exc.value).lower()
@@ -271,10 +291,13 @@ def test_animate_unknown_driver_raises(monkeypatch, tmp_path):
     driver_dir.mkdir()
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", driver_dir, raising=False)
 
+    a = liveportrait.LivePortraitAnimator()
+    a._loaded = True  # bypass Models-tab gate; this test exercises resolve_driver
+    a._pipeline = object()
+
     src = tmp_path / "src.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
 
-    a = liveportrait.LivePortraitAnimator()
     with pytest.raises(animators.AnimatorError):
         a.animate(src, prompt="", num_frames=10, steps=0, driver="does_not_exist", out_dir=tmp_path / "out")
 
@@ -301,6 +324,8 @@ def test_num_frames_zero_means_full_template_length(monkeypatch, tmp_path):
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
 
     a = liveportrait.LivePortraitAnimator()
+    a._loaded = True  # bypass Models-tab gate (test focuses on num_frames logic)
+    a._pipeline = object()
     seen: dict = {}
 
     def stub(self, source_image, driver_frames, *, num_frames, driver="subtle", out_dir):
@@ -332,6 +357,8 @@ def test_num_frames_still_caps_template_length(monkeypatch, tmp_path):
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
 
     a = liveportrait.LivePortraitAnimator()
+    a._loaded = True  # bypass Models-tab gate
+    a._pipeline = object()
     seen: dict = {}
 
     def stub(self, source_image, driver_frames, *, num_frames, driver="subtle", out_dir):

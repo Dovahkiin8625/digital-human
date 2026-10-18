@@ -41,7 +41,13 @@ def stub_pipeline(monkeypatch):
         return arr
 
     monkeypatch.setattr(musetalk_silent.MuseTalkSilentAnimator, "_run_pipeline", fake)
-    return musetalk_silent.MuseTalkSilentAnimator()
+    # New (load/unload lifecycle): tests in this module that don't care
+    # about the load state can keep calling animate(); the fixture sets
+    # the gate so the not-loaded branch is skipped. Tests that DO test
+    # the lifecycle ignore this attribute.
+    a = musetalk_silent.MuseTalkSilentAnimator()
+    a._engine_runtime_loaded = lambda: True  # noqa: SLF001 -- test seam
+    return a
 
 
 # ----- registration / meta -----
@@ -158,7 +164,11 @@ def test_animate_calls_pipeline_with_the_requested_num_frames(stub_pipeline, tmp
     src = tmp_path / "src.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
     out_dir = tmp_path / "out"
-    musetalk_silent.MuseTalkSilentAnimator().animate(
+    a = musetalk_silent.MuseTalkSilentAnimator()
+    # New (lifecycle): bypass the not-loaded gate that ``animate``
+    # checks before delegating to the main engine runtime.
+    a._engine_runtime_loaded = lambda: True  # noqa: SLF001
+    a.animate(
         src, prompt="", num_frames=125, steps=10, out_dir=out_dir
     )
     assert seen["num_frames"] == 125

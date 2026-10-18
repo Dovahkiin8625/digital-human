@@ -134,3 +134,101 @@ export interface ArtifactInfo {
   size: number;
   kind: "image" | "json" | "tensor" | "mask" | "video" | "binary" | string;
 }
+
+// One slot from /api/admin/models. Today there is always exactly one
+// (the singleton drive-engine runtime), but the shape is a list so
+// adding more slots in future is non-breaking.
+export interface ModelInfo {
+  id: string;
+  // "drive_runtime" is the only flavour the engine exposes today;
+  // the field exists so the column can badge the row cleanly when a
+  // second kind (portrait_animator, tts_voice, ...) lands.
+  type: string;
+  // The model parts the runtime materialises. Renders as a Tag each,
+  // or as "+N" once there are too many to fit a row. Strings are
+  // display hints; not paths.
+  components: string[];
+  // Absolute path on disk the runtime reads weights from. Null when
+  // the engine has no weights (mock).
+  source: string | null;
+  // Stable, reproducible lower bound: sum of all weight files in GB.
+  // The actual VRAM peak is rendered on the GPU snapshot card.
+  estimated_bytes: number;
+  loaded: boolean;
+  // False for engines that hold no loadable weights (mock). Drives the
+  // unload button visibility.
+  can_unload: boolean;
+  // ISO timestamp the runtime last became live (mounted weight).
+  // Null when the model is not currently loaded. Used to render
+  // "已加载 3 分钟前".
+  loaded_at: string | null;
+}
+
+// Top-level shape the Models tab polls. gpu is null on a CPU-only
+// host (the page renders a "CPU" placeholder instead of a bar).
+export interface ModelsPayload {
+  models: ModelInfo[];
+  services: ServiceInfo[];
+  gpu: GpuSnapshot | null;
+  active_sessions: number;
+}
+
+// One row per every OTHER model this server uses -- portrait animators
+// (LivePortrait / Wan 2.2 / MuseTalk silent) + MiniMax TTS. Lifecycle
+// state is surfaced so the operator can drive load / unload from here
+// without bouncing to 形象活化 tab or paying mid-call cold-loads.
+export interface ServiceInfo {
+  id: string;
+  // ``portrait_animator`` or ``tts_service``. Drives which columns +
+  // actions render; same id-shape lets the UI key by id.
+  kind: "portrait_animator" | "tts_service" | string;
+  label_zh: string;
+  group_zh?: string;
+  description?: string;
+  // True when the service is ready to be invoked (animators: weights
+  // + runtime deps; TTS: API key configured).
+  configured: boolean;
+  // True when the on-disk weights directory exists with content.
+  // Always false for TTS (remote service, no on-disk weights).
+  weights_present: boolean;
+  // Path to the weights directory on disk; null when N/A.
+  weights_dir: string | null;
+  // For not-ready backends, the fetch script the operator should run
+  // to fix it. Null for ready rows.
+  missing_script: string | null;
+  // VRAM budget the service needs; null means "shares another budget"
+  // (e.g. musetalk-silent piggybacks on the drive engine).
+  vram_required_gb: number | null;
+  vram_hint: string;
+  // True / false / null -- null means unknown (no CUDA on this host).
+  fits_current_gpu: boolean | null;
+  // Whether the pipeline / engine is currently materialised in VRAM.
+  // Animators: a per-instance flag. TTS: always false (remote).
+  loaded: boolean;
+  // True iff the operator can drive a load from the Models tab.
+  // False for backends with no in-process weights to mount (mock,
+  // TTS-shaped endpoints).
+  can_load: boolean;
+  // True iff a "卸载" action would do something. Mirrors ``loaded``
+  // for the in-process backends.
+  can_unload: boolean;
+  // Pre-baked label for the status cell: "可加载" / "已加载" / "无权重".
+  status: string;
+  // TTS-specific extras; absent for animators.
+  voice_id?: string;
+  model?: string;
+  sample_rate?: number;
+  sample_rate_cap_hz?: number;
+}
+
+// Live per-device counters returned by ``get_vram_snapshot``. All
+// numbers in GB, rounded to 3 decimals.
+export interface GpuSnapshot {
+  device: string;
+  name: string;
+  total_gb: number;
+  allocated_gb: number;
+  reserved_gb: number;
+  peak_gb: number;
+  free_gb: number;
+}

@@ -92,6 +92,24 @@ _CANONICAL_DRIVER_ORDER: tuple[str, ...] = tuple(_DRIVER_SOURCES.keys())
 
 # ----- driver resolution ---------------------------------------------------
 
+def _try_empty_cuda_cache() -> None:
+    """Best-effort CUDA cache flush; mirrors ``musetalk_engine._try_empty_cuda_cache``.
+
+    Called from :meth:`LivePortraitAnimator.unload` so the operator's
+    "释放显存" button releases the OnnxRuntime + InsightFace buffers the
+    pipeline was holding. Never raises: a host without CUDA simply gets
+    a no-op, matching the engine's own helper so both paths can be
+    trusted in the same code review.
+    """
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 -- torch absent or CUDA broken: nothing to free
+        pass
+
+
 def _driver_file(stem: str) -> tuple[str, int] | None:
     """Return ``(filename, size_bytes)`` of the effective on-disk file for a driver
     stem, or ``None`` if neither ``.pkl`` nor ``.mp4`` is present.
@@ -233,6 +251,92 @@ class LivePortraitAnimator:
 
     name = "liveportrait"
 
+    def __init__(self) -> None:
+        # Pre-allocation lifecycle owned by the Models tab: ``_loaded``
+        # gates ``animate()`` so the dispatcher surfaces a clear error
+        # for an un-preallocated backend rather than silently paying
+        # ~30 s inside the first generation call.
+        self._loaded: bool = False
+        self._pipeline: object | None = None
+
+    @property
+    def is_loaded(self) -> bool:
+        """True iff ``load()`` has built the upstream pipeline.
+
+        The Models tab's load/unload buttons key on this flag -- the
+        endpoint reads it through ``describe()`` so the operator sees
+        the current state and the dispatcher enforces it before
+        :meth:`animate` lands.
+        """
+        return self._loaded
+
+    # ----- pre-allocation (Models tab lifecycle) -----
+
+    def load(self) -> None:
+        """Build the LivePortrait pipeline + flip the loaded flag.
+
+        Idempotent: a second call is a no-op once the pipeline is up.
+        The heavy construction is delegated to :meth:`_load_pipeline`
+        so tests can stub it without touching torch / onnxruntime.
+        """
+        if self._loaded:
+            return
+        self._pipeline = self._load_pipeline()
+        self._loaded = True
+
+    def _load_pipeline(self) -> object:
+        """Construct the heavy LivePortrait pipeline. Tests stub this.
+
+        Default path: assemble the project-managed weights + point
+        upstream's :class:`LivePortraitPipeline` at them, mirroring
+        what ``_run_pipeline`` previously did inline before the first
+        ``animate()`` call.
+
+        Raises :class:`AnimatorError` (not ``ImportError``) when the
+        LivePortrait runtime isn't installed -- the dispatcher maps
+        that to a clean 503 with a fetch-script hint, the same surface
+        the lazy-init path used to raise from inside ``animate()``.
+        """
+        try:
+            from LivePortrait.live_portrait_pipeline import LivePortraitPipeline  # type: ignore[import-not-found]
+            from src.config.inference_config import InferenceConfig  # type: ignore[import-not-found]
+            from src.config.crop_config import CropConfig  # type: ignore[import-not-found]
+        except ImportError as exc:
+            raise AnimatorError(
+                f"the LivePortrait runtime is not installed ({exc}); "
+                "run scripts/setup_liveportrait.sh, then scripts/fetch_liveportrait_weights.sh"
+            )
+
+        from server.config import get_settings
+
+        settings = get_settings()
+        weights = Path(settings.data_dir) / "models" / "liveportrait"
+        inference_cfg = InferenceConfig(
+            checkpoint_F=str(weights / "liveportrait" / "base_models" / "appearance_feature_extractor.pth"),
+            checkpoint_M=str(weights / "liveportrait" / "base_models" / "motion_extractor.pth"),
+            checkpoint_G=str(weights / "liveportrait" / "base_models" / "spade_generator.pth"),
+            checkpoint_W=str(weights / "liveportrait" / "base_models" / "warping_module.pth"),
+            checkpoint_S=str(weights / "liveportrait" / "retargeting_models" / "stitching_retargeting_module.pth"),
+        )
+        crop_cfg = CropConfig(
+            insightface_root=str(weights / "insightface"),
+            landmark_ckpt_path=str(weights / "liveportrait" / "landmark.onnx"),
+        )
+        return LivePortraitPipeline(inference_cfg=inference_cfg, crop_cfg=crop_cfg)
+
+    def unload(self) -> None:
+        """Drop the cached pipeline + release CUDA cache.
+
+        Idempotent. The Models tab calls this on the operator's
+        "释放显存" button so a LivePortrait generation that was holding
+        ~6 GB can be released without bouncing the whole process. The
+        next animate() will rebuild the pipeline (paying the cost once)
+        unless the operator pre-loads again.
+        """
+        self._pipeline = None
+        self._loaded = False
+        _try_empty_cuda_cache()
+
     # ----- introspection (used by /api/admin/backends) -----
 
     def meta(self) -> dict:
@@ -312,6 +416,16 @@ class LivePortraitAnimator:
         driver: str = "subtle",
         out_dir: Path,
     ) -> None:
+        # Models tab owns the lifecycle: ``animate`` only runs after the
+        # operator has clicked "加载" on the LivePortrait row. The
+        # dispatcher / generation endpoint catches the resulting
+        # AnimatorError and surfaces it as a 503 with a hint at the
+        # Models tab -- never a silent cold-load mid-generation.
+        if not self._loaded:
+            raise AnimatorError(
+                "not_loaded: LivePortrait is not loaded; "
+                "open the Models tab in the admin console and click '加载' first"
+            )
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         drivers = self._drivers_dir()
@@ -403,56 +517,23 @@ class LivePortraitAnimator:
         of it; the wrapper still encodes the returned ndarray to mp4 via
         :func:`server.avatar.video._encode_h264`.
         """
-        try:
-            from LivePortrait.live_portrait_pipeline import LivePortraitPipeline
-            from src.config.argument_config import ArgumentConfig  # type: ignore[import-not-found]
-            from src.config.inference_config import InferenceConfig  # type: ignore[import-not-found]
-            from src.config.crop_config import CropConfig  # type: ignore[import-not-found]
-        except ImportError as exc:
-            # ``LivePortrait`` is the in-tree shim re-exporting the upstream
-            # KwaiVGI/LivePortrait repo. The shim populates
-            # ``sys.modules['LivePortrait.live_portrait_pipeline']`` so the
-            # plain import works; this ImportError covers "shim not installed"
-            # or "shim installed but upstream's heavy deps missing" -- both
-            # route through the same setup script.
-            raise AnimatorError(
-                f"the LivePortrait runtime is not installed ({exc}); "
-                f"run scripts/setup_liveportrait.sh, then scripts/fetch_liveportrait_weights.sh"
-            )
-
+        from src.config.argument_config import ArgumentConfig  # type: ignore[import-not-found]
         from server.config import get_settings
 
         settings = get_settings()
-        # Project-managed weight tree, populated by ``fetch_liveportrait_weights.sh``.
-        # Upstream's InferenceConfig defaults expect the same file layout but
-        # under ``vendor/LivePortrait-upstream/pretrained_weights/...``; we
-        # override so a fresh ``scripts/setup_liveportrait.sh`` run that
-        # forgets to fetch weights still fails fast on a missing file rather
-        # than silently using whatever defaults ``make_abs_path`` resolves.
-        weights = Path(settings.data_dir) / "models" / "liveportrait"
-        inference_cfg = InferenceConfig(
-            checkpoint_F=str(weights / "liveportrait" / "base_models" / "appearance_feature_extractor.pth"),
-            checkpoint_M=str(weights / "liveportrait" / "base_models" / "motion_extractor.pth"),
-            checkpoint_G=str(weights / "liveportrait" / "base_models" / "spade_generator.pth"),
-            checkpoint_W=str(weights / "liveportrait" / "base_models" / "warping_module.pth"),
-            checkpoint_S=str(weights / "liveportrait" / "retargeting_models" / "stitching_retargeting_module.pth"),
-        )
-        crop_cfg = CropConfig(
-            insightface_root=str(weights / "insightface"),
-            landmark_ckpt_path=str(weights / "liveportrait" / "landmark.onnx"),
-        )
+        # ``LivePortraitPipeline`` is heavy -- 1.5 GB of weights + the
+        # ONNX / InsightFace graph. The construction moved into
+        # :meth:`_load_pipeline` (called once by :meth:`load`) so a
+        # second ``animate()`` doesn't re-pay the cost.
+        pipe = self._pipeline
+        if pipe is None:
+            raise AnimatorError(
+                "LivePortrait pipeline is not initialised; "
+                "call load() before animate()"
+            )
 
-        # Resolve driver name -> file (pre-extracted .pkl preferred over .mp4).
-        # ``resolve_driver`` already raises AnimatorError with the available
-        # list if the name is unknown, so we don't need a separate existence
-        # check here.
         driver_clip = resolve_driver(driver)
 
-        pipe = LivePortraitPipeline(inference_cfg=inference_cfg, crop_cfg=crop_cfg)
-        # ``ArgumentConfig`` defaults use ``make_abs_path`` which joins
-        # against the upstream config dir. Passing absolute paths makes the
-        # join a no-op (``os.path.join`` discards earlier segments when a
-        # later one is absolute) so the project paths win.
         args = ArgumentConfig(
             source=str(source_path.absolute()),
             driving=str(driver_clip.absolute()),
@@ -461,8 +542,6 @@ class LivePortraitAnimator:
 
         wfp, _wfp_concat = pipe.execute(args)
 
-        # Upstream returns an mp4 file path; the surrounding wrapper expects
-        # an ndarray so it can h264-encode. Decode back to the project canvas.
         from server.avatar.video import decode_frames
 
         arr, _src_fps = decode_frames(

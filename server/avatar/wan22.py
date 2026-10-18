@@ -100,8 +100,97 @@ class Wan22I2VAnimator:
         self._weights_root = (
             Path(weights_root) if weights_root else WAN22_WEIGHTS_ROOT
         )
+        # Pre-allocation lifecycle owned by the Models tab: ``_loaded``
+        # gates ``animate()`` so the dispatcher surfaces a 503 with a
+        # hint at the Models tab -- never a silent cold-load mid-call.
+        self._loaded: bool = False
+        self._pipeline: object | None = None
 
     # ----- identity -----
+
+    @property
+    def is_loaded(self) -> bool:
+        """True iff ``load()`` has built the diffusers pipeline.
+
+        The Models tab reads this flag through ``describe()`` to decide
+        which row gets the 加载 / 卸载 button enabled.
+        """
+        return self._loaded
+
+    # ----- pre-allocation (Models tab lifecycle) -----
+
+    def load(self) -> None:
+        """Build the diffusers Wan pipeline + flip the loaded flag.
+
+        Idempotent: a second call while already loaded is a no-op
+        (the pipeline construction is heavy). The actual ``from_pretrained``
+        + ``enable_sequential_cpu_offload`` work moved into
+        :meth:`_load_pipeline` so tests can stub it without importing
+        diffusers.
+        """
+        if self._loaded:
+            return
+        self._pipeline = self._load_pipeline()
+        self._loaded = True
+
+    def _load_pipeline(self) -> object:
+        """Construct the heavy diffusers pipeline. Tests stub this.
+
+        Default path mirrors what ``_run_pipeline`` previously did inline
+        before each ``animate()`` call. Maps the spec's dtype string to
+        the matching ``torch`` dtype, applies sequential CPU offload on
+        supported devices, and returns the live pipeline object.
+        """
+        try:
+            import torch
+            from diffusers import WanImageToVideoPipeline
+        except ImportError as exc:
+            raise AnimatorError(
+                f"diffusers + torch not installed ({exc}); pip install diffusers torch"
+            )
+
+        dtype_name = self.spec["torch_dtype"]
+        torch_dtype = {
+            "bfloat16": torch.bfloat16,
+            "float8_e4m3fn": torch.float8_e4m3fn,
+        }.get(dtype_name)
+        if torch_dtype is None:
+            raise AnimatorError(
+                f"wan22 variant {self.variant!r} has unknown torch_dtype {dtype_name!r}"
+            )
+
+        try:
+            pipe = WanImageToVideoPipeline.from_pretrained(
+                str(self.weights_dir),
+                torch_dtype=torch_dtype,
+            )
+        except (OSError, ValueError) as exc:
+            raise AnimatorError(
+                f"could not load Wan 2.2 weights from {self.weights_dir}: {exc}"
+            )
+
+        try:
+            pipe.enable_sequential_cpu_offload()
+        except (AttributeError, ValueError):
+            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
+        return pipe
+
+    def unload(self) -> None:
+        """Drop the cached diffusers pipeline + release CUDA cache.
+
+        Idempotent. Frees the heavy 5-10 GB the diffusers pipeline holds
+        on first use; the next ``animate()`` will rebuild it via
+        :meth:`load` rather than pay the cost silently.
+        """
+        self._pipeline = None
+        self._loaded = False
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 -- torch absent or CUDA broken: nothing to free
+            pass
 
     @property
     def name(self) -> str:
@@ -183,6 +272,15 @@ class Wan22I2VAnimator:
         steps: int,
         out_dir: Path,
     ) -> None:
+        # Models tab owns the lifecycle: ``animate`` only runs after the
+        # operator has clicked "加载" on the Wan row in the Models tab.
+        # The dispatcher catches the resulting AnimatorError and surfaces
+        # it as a 503 with a hint at the tab -- never a silent cold-load.
+        if not self._loaded:
+            raise AnimatorError(
+                f"not_loaded: Wan 2.2 {self.variant!r} is not loaded; "
+                "open the Models tab in the admin console and click '加载' first"
+            )
         # Validate first so a bad input fails *before* any weights read or
         # GPU probe. The dispatcher already calls ``validate``; this is a
         # belt-and-braces check for direct callers (tests + future paths).
@@ -265,50 +363,27 @@ class Wan22I2VAnimator:
         steps: int,
         out_dir: Path,
     ) -> np.ndarray:
-        """Run the real Wan 2.2 I2V pipeline.
+        """Run the real Wan 2.2 I2V pipeline against the cached pipeline.
 
-        Lazy-imports the diffusers stack so CI doesn't pay for torch's
-        2 GB init graph when only LivePortrait is configured.
+        Pre-allocation belongs to :meth:`load`; the heavy ``from_pretrained``
+        + ``enable_sequential_cpu_offload`` construction moved into
+        :meth:`_load_pipeline` so the same diffusers pipeline is reused
+        across calls. Tests stub this method so CI doesn't pay for torch's
+        2 GB init graph.
         """
         try:
             import torch
-            from diffusers import WanImageToVideoPipeline
         except ImportError as exc:
             raise AnimatorError(
                 f"diffusers + torch not installed ({exc}); pip install diffusers torch"
             )
 
-        dtype_name = self.spec["torch_dtype"]
-        torch_dtype = {
-            "bfloat16": torch.bfloat16,
-            "float8_e4m3fn": torch.float8_e4m3fn,
-        }.get(dtype_name)
-        if torch_dtype is None:
-            # Defensive: an unknown dtype string would crash diffusers with a
-            # confusing AttributeError deep inside the loader.
+        pipe = self._pipeline
+        if pipe is None:
             raise AnimatorError(
-                f"wan22 variant {self.variant!r} has unknown torch_dtype {dtype_name!r}"
+                "Wan 2.2 pipeline is not initialised; "
+                "call load() before animate()"
             )
-
-        try:
-            pipe = WanImageToVideoPipeline.from_pretrained(
-                str(self.weights_dir),
-                torch_dtype=torch_dtype,
-            )
-        except (OSError, ValueError) as exc:
-            raise AnimatorError(
-                f"could not load Wan 2.2 weights from {self.weights_dir}: {exc}"
-            )
-
-        # Sequential CPU offload keeps peak GPU memory under control on
-        # consumer cards. The 5 B bf16 model fits a 24 GB card natively; on
-        # smaller hosts the offload path slides it into 16 GB at the cost
-        # of inference wall time. If we add an FP8 variant later this is
-        # where it gets the additional VRAM headroom.
-        try:
-            pipe.enable_sequential_cpu_offload()
-        except (AttributeError, ValueError):
-            pipe.to("cuda" if torch.cuda.is_available() else "cpu")
 
         from PIL import Image as _PilImage
 
@@ -325,7 +400,6 @@ class Wan22I2VAnimator:
                 guidance_scale=float(self.spec["guidance_scale"]),
                 generator=torch.Generator(device="cpu").manual_seed(0),
             ).frames[0]
-        del pipe  # release GPU memory before re-encode
 
         # Return as RGB uint8 stack; ``animate()`` handles resize + encode.
         # diffusers' Wan I2V pipeline returns float32 [0, 1] arrays when

@@ -70,6 +70,61 @@ def _settle(future: concurrent.futures.Future, *, result=None, exc=None) -> None
         pass  # cancelled between the check above and here
 
 
+def _try_empty_cuda_cache() -> None:
+    """Drop cached CUDA blocks if torch + CUDA are reachable. Never raises.
+
+    Imported as a module-level seam so ``unload()`` can release GPU memory
+    even when the engine was constructed in a venv without torch (the
+    default test suite). A failure here is non-fatal: the memory will be
+    reclaimed when the dropped ``_runtime`` is GC'd anyway.
+    """
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: BLE001 -- torch absent or CUDA broken: nothing to free
+        pass
+
+
+def _model_components(models_dir: Path) -> list[str]:
+    """The MuseTalk runtime's on-disk components, as a stable display list.
+
+    Mirrors the keys :data:`RUNTIME_WEIGHTS` enumerates so each displayed
+    name maps to a real file the operator can find under ``models/musetalk``.
+    Returned in the same order ``_Runtime`` loads them.
+    """
+    return [
+        "sd-vae",
+        "musetalkV15/unet.pth",
+        "whisper",
+        "audio_processor",  # driven by whisper weights; surfaces for transparency
+    ]
+
+
+def _estimated_bytes(models_dir: Path) -> int:
+    """Sum of every weight file's size on disk. Exact, not approximate.
+
+    The Models tab renders this as a *reproducible lower bound* for the
+    runtime's footprint; the actual VRAM peak is higher and is shown on the
+    VRAM card (it moves with workload). The on-disk sum is stable across
+    reboots, so the operator can match it against `du -sh models/musetalk`.
+    """
+    from server.avatar.musetalk_pipeline import RUNTIME_WEIGHTS
+
+    total = 0
+    for rel in RUNTIME_WEIGHTS:
+        path = models_dir / rel
+        if path.is_file():
+            try:
+                total += path.stat().st_size
+            except OSError:
+                # A missing weight (we test that path) must not blow up
+                # describe() -- it already reports weights_present = False.
+                continue
+    return total
+
+
 def cycle_index(frame: int, n: int) -> int:
     """Ping-pong index into an n-frame cycle: 0..n-1, n-1..1, 0..
 
@@ -454,6 +509,7 @@ class MuseTalkEngine(DriveEngine):
         self._worker.start()
         self._lock = threading.Lock()
         self._runtime: _Runtime | None = None
+        self._loaded_at: str | None = None
         self._avatars: OrderedDict[str, _AvatarState] = OrderedDict()
         # Session contexts seen recently, by id -> last block time. Touched only
         # on the worker thread (in _advance and _worker_loop), so it needs no
@@ -470,14 +526,27 @@ class MuseTalkEngine(DriveEngine):
 
     def describe(self) -> dict:
         """Cheap status for the admin System page. Never loads a weight."""
+        loaded = self._runtime is not None
         return {
             "name": self.name,
             "gpu": gpu_available(),
             "models_dir": str(self.models_dir),
             "weights_present": not self._missing_weights(),
-            "loaded": self._runtime is not None,
+            "loaded": loaded,
             "avatars_cached": len(self._avatars),
             "pending": self._jobs.qsize(),
+            "models": [
+                {
+                    "id": "musetalk_runtime",
+                    "type": "drive_runtime",
+                    "components": _model_components(self.models_dir),
+                    "source": str(self.models_dir),
+                    "estimated_bytes": _estimated_bytes(self.models_dir),
+                    "loaded": loaded,
+                    "can_unload": loaded,
+                    "loaded_at": self._loaded_at,
+                }
+            ],
         }
 
     # -- lifecycle ------------------------------------------------------
@@ -489,6 +558,24 @@ class MuseTalkEngine(DriveEngine):
                 "run scripts/fetch_musetalk_weights.sh"
             )
         await self._submit(self._warmup_sync)
+
+    async def load(self) -> None:
+        """Operator-facing alias for ``warmup()``.
+
+        The Models tab POSTs ``/api/admin/models/{id}/load`` and the admin
+        router dispatches via ``getattr(engine, "load", None)``. The
+        engine's actual entry point has been ``warmup`` since pre-launch;
+        ``load()`` keeps the admin endpoint engine-agnostic (mock has no
+        ``load``, real engines do) without renaming the lifespan-managed
+        lifecycle call.
+
+        Calls ``warmup`` unchanged, so cold start still costs the same
+        ~30 s the lifespan task was paying. Idempotent-ish: a second call
+        walks the same warmup path (re-mounts ``_Runtime`` under the
+        lock), which is the desired behaviour after ``unload()`` has
+        dropped ``_runtime`` to None.
+        """
+        await self.warmup()
 
     def _warmup_sync(self) -> None:
         import torch
@@ -895,7 +982,32 @@ class MuseTalkEngine(DriveEngine):
                         "run scripts/fetch_musetalk_weights.sh"
                     )
                 self._runtime = _Runtime(self.models_dir)
+                # Stamp the moment the runtime became live so the admin
+                # Models tab can render "已加载 X 分钟". Updated on every
+                # cold load, including post-unload re-loads.
+                from datetime import datetime, timezone
+
+                self._loaded_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         return self._runtime
+
+    def unload(self) -> None:
+        """Drop the loaded runtime + avatar cache and release CUDA memory.
+
+        The Models tab's ``释放显存`` button posts this. Idempotent: called
+        twice, the second call is a no-op. Refuses nothing -- callers (the
+        HTTP layer) must check for active sessions themselves before
+        invoking; unloading underfoot of a live session leaves its next
+        ``drive()`` to reload the runtime, which is recoverable but hangs
+        the call for ~30 s while weights load.
+        """
+        with self._lock:
+            self._runtime = None
+            self._loaded_at = None
+            # Per-avatar latents live on the runtime's device, so the cache
+            # is garbage the instant the runtime is; clearing it explicitly
+            # also keeps describe() honest (avatars_cached drops to 0).
+            self._avatars.clear()
+        _try_empty_cuda_cache()
 
     def _ensure_avatar(self, rt: _Runtime, pack: AvatarPack) -> _AvatarState:
         state = self._avatars.get(pack.avatar_id)

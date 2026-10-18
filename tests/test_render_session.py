@@ -194,6 +194,28 @@ async def test_maybe_idle_transitions(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_maybe_idle_returns_to_idle_within_one_second(tmp_path):
+    """After speech ends, the session must reach IDLE within ~1s.
+
+    Regression for the perceived ~1.7s freeze on the last speech frame after
+    audio stopped: IDLE_AFTER was 2.0s, so the WebRTC video queue drained
+    (~320 ms for maxsize=8 at 25 fps) and then the receiver sat on the last
+    frame until the keep-alive loop was allowed to push idle frames again.
+    With IDLE_AFTER at half a second the queue has barely started draining
+    before idle frames take over, so the freeze is bounded by the queue.
+    """
+    session, _ = _session(tmp_path)
+    await session.start()
+    await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())
+    assert session.state == SessionState.SPEAKING
+    # 1.0s is past the new IDLE_AFTER (0.5s) but well under the old 2.0s --
+    # so a regression to the old value flips this back to SPEAKING and fails.
+    session.maybe_idle(now=session.last_audio_at + 1.0)
+    assert session.state == SessionState.IDLE
+    await session.close()
+
+
+@pytest.mark.asyncio
 async def test_close_flushes_audio_tail(tmp_path):
     session, _ = _session(tmp_path)
     await session.start()

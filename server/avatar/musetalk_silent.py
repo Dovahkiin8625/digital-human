@@ -90,6 +90,92 @@ class MuseTalkSilentAnimator:
             return False
         return True
 
+    # ----- pre-allocation (Models tab lifecycle) -----
+
+    @property
+    def is_loaded(self) -> bool:
+        """True iff the shared MuseTalk drive-engine runtime is live.
+
+        The Models tab reads this flag to render the load/unload buttons
+        for the silent row. The silent animator doesn't allocate its
+        own VRAM -- it calls into the main drive engine -- so its
+        state is just a window onto the engine's.
+        """
+        return bool(self._engine_runtime_loaded())
+
+    async def load(self) -> None:
+        """Trigger the main drive engine's warmup.
+
+        Idempotent: a second call while already loaded is a no-op.
+        Delegates straight to ``engine.load()`` (which calls
+        :meth:`warmup`); the silent animator pulls no extra weights.
+        """
+        if self.is_loaded:
+            return
+        loader = self._warmup_main_engine()
+        if hasattr(loader, "__await__"):
+            await loader
+
+    def unload(self) -> None:
+        """Delegate to the main drive engine's unload.
+
+        Idempotent. Unloading here also clears the main drive engine
+        runtime -- the Models tab intent is "release the VRAM that
+        MuseTalk is holding", and the silent row is the operator-visible
+        surface for that. The main engine's load state mirrors.
+        """
+        if not self.is_loaded:
+            return
+        self._unload_main_engine()
+
+    # Separated so tests can stub each piece without standing up the
+    # full app. ``_engine_runtime_loaded`` answers the gate, the other
+    # two do the mutation. All three default to the live session
+    # manager's drive engine.
+
+    def _engine_runtime_loaded(self) -> bool:
+        """``True`` iff the singleton drive engine has a live runtime."""
+        try:
+            from server.main import get_session_manager
+        except Exception:  # noqa: BLE001 -- app module may be unimportable in some venvs
+            return False
+        try:
+            engine = get_session_manager().engine
+        except Exception:  # noqa: BLE001 -- session manager may not be ready yet
+            return False
+        try:
+            return bool(getattr(engine, "_runtime", None))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _warmup_main_engine(self):
+        """Default: drive engine's ``load()``. Returns awaitable when async."""
+        from server.main import get_session_manager
+
+        engine = get_session_manager().engine
+        loader = getattr(engine, "load", None)
+        if loader is None:
+            # Backwards-compat: an engine without ``load`` (the legacy
+            # name) -- fall back to ``warmup``.
+            loader = getattr(engine, "warmup", None)
+        if loader is None:
+            raise AnimatorError(
+                "drive engine has neither load() nor warmup(); "
+                "cannot pre-allocate the MuseTalk runtime"
+            )
+        return loader()
+
+    def _unload_main_engine(self) -> None:
+        from server.main import get_session_manager
+
+        engine = get_session_manager().engine
+        unloader = getattr(engine, "unload", None)
+        if unloader is None:
+            # Engines without an ``unload`` method can't release VRAM --
+            # the silent row's button should be hidden, not 400.
+            return
+        unloader()
+
     # ----- validation (called by the dispatcher) -----
 
     def validate(self, *, prompt: str, num_frames: int, steps: int) -> dict[str, str]:
@@ -111,6 +197,17 @@ class MuseTalkSilentAnimator:
         steps: int,
         out_dir: Path,
     ) -> None:
+        # The silent animator piggybacks on the main drive engine's
+        # runtime -- if the operator hasn't loaded that, ``animate``
+        # errors with a hint at the Models tab rather than silently
+        # paying the cold-load. ``is_loaded`` reads through
+        # ``_engine_runtime_loaded`` so the same flag drives both the
+        # Models tab render and this gate.
+        if not self.is_loaded:
+            raise AnimatorError(
+                "not_loaded: MuseTalk silent needs the main drive engine runtime; "
+                "open the Models tab in the admin console and click '加载' on 'musetalk-runtime' first"
+            )
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
 

@@ -877,17 +877,31 @@ def admin_delete_liveportrait_driver(name: str) -> Response:
 
 @router.get("/backends")
 def admin_list_backends() -> dict:
-    """Surface the registered portrait animators to the "形象活化" tab.
+    """Surface the *loaded* portrait animators to the "形象活化" tab.
 
     Each backend declares its own ``meta()`` block (label, VRAM hint, which
-    knobs it honours); the page renders them in a grouped dropdown. An empty
-    registry is a valid state -- the page renders a placeholder card and
-    no backend is selectable.
+    knobs it honours); the page renders them in a grouped dropdown. The
+    listing is filtered to ``is_loaded=True`` so the dropdown only shows
+    options the operator can actually click without getting a 503 --
+    the dispatcher's animate() refuses any backend whose pipeline hasn't
+    been pre-allocated, and listing a not-loaded backend in the dropdown
+    would set the operator up for a guaranteed-failure click.
+
+    An empty registry is a valid state -- the page renders a placeholder
+    card and no backend is selectable. The page also re-fetches this
+    listing as the operator loads / unloads entries on the Models tab,
+    so a freshly-loaded LivePortrait row appears here within one poll.
     """
     from server.avatar.animators import ANIMATORS
 
     out: list[dict] = []
     for name, animator in ANIMATORS.items():
+        try:
+            loaded = bool(getattr(animator, "is_loaded", False))
+        except Exception:  # noqa: BLE001 -- the property may probe torch
+            loaded = False
+        if not loaded:
+            continue
         meta = animator.meta()
         out.append({"name": name, **meta})
     return {"backends": out}
@@ -1190,18 +1204,30 @@ def admin_list_sessions(db=Depends(get_db)) -> list[dict]:
 
 @router.post("/sessions/sweep")
 def admin_sweep(db=Depends(get_db)) -> dict:
-    import asyncio
+    """Purge every StreamSession row whose status is 'closed'.
 
-    from server.main import get_session_manager
-
-    manager = get_session_manager()
-    closed = asyncio.run(manager.sweep_idle(db))
+    The lifespan sweeper force-closes idle sessions by flipping the row's
+    status without deleting it; over time that leaves a long tail in the
+    admin list. This endpoint drops those rows so the System page list
+    shrinks after a sweep. Returns the count for the UI toast.
+    """
+    closed = db.execute(
+        sa_delete(StreamSession).where(StreamSession.status == "closed")
+    ).rowcount
+    db.commit()
     return {"closed": closed}
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
 def admin_close_session(session_id: str, db=Depends(get_db)) -> Response:
-    """Force-close any active session. Admin escape hatch for wedged sessions."""
+    """Drop a session row from the admin list.
+
+    Closes any live render first (so an active conversation is also
+    unwound) and then deletes the StreamSession row. Active sessions
+    disappear from the list immediately; the prior "force-close but
+    keep the row" behaviour left a long tail of closed rows the
+    operator had to live with.
+    """
     import asyncio
 
     from server.main import get_session_manager
@@ -1209,5 +1235,500 @@ def admin_close_session(session_id: str, db=Depends(get_db)) -> Response:
     row = db.get(StreamSession, session_id)
     if row is None:
         raise AppError("not_found", f"session {session_id} not found", 404)
-    asyncio.run(get_session_manager().close(db, session_id))
+    manager = get_session_manager()
+    # Awaiting close() inside asyncio.run is safe: the per-session
+    # RenderSession holds no reference back to the request loop.
+    asyncio.run(manager.close(db, session_id))
+    # close() may have transitioned status to "closed" without removing
+    # the row (it never deletes), so delete here unconditionally.
+    db.delete(row)
+    db.commit()
     return Response(status_code=204)
+
+
+# ----- Models: load / unload -----------------------------------------------
+
+
+def _active_session_count(db) -> int:
+    """How many streaming sessions are currently *running*.
+
+    The Models tab uses this to refuse ``unload`` under live traffic --
+    tearing the engine runtime out from under a session makes its next
+    ``drive()`` pay the ~30 s cold load. Same definition the lifespan
+    sweeper uses so the unload gate and the sweep tick never disagree.
+    """
+    from sqlalchemy import func
+
+    return int(
+        db.execute(
+            select(func.count())
+            .select_from(StreamSession)
+            .where(StreamSession.status == "active")
+        ).scalar_one()
+    )
+
+
+def _resolve_engine_slot(engine, model_id: str) -> dict | None:
+    """Look up the engine model slot by id. Returns ``None`` if missing.
+
+    Used by the load/unload routes so a typo'd id is a clean 404, not a
+    500. The lookup is read-only; the response shape matches the row in
+    ``describe()["models"]`` so the caller can use the slot's ``loaded``
+    + ``can_unload`` flags without re-reading describe().
+    """
+    described = engine.describe()
+    for row in described.get("models") or []:
+        if row.get("id") == model_id:
+            return row
+    return None
+
+
+# ----- service surface (animators + TTS) -----------------------------------
+
+# Animators register into ``ANIMATORS`` via side-effect imports at module
+# load time (the ``# noqa: F401`` lines at the top of this file). Each
+# entry below reads its meta() + is_ready + on-disk weights path so the
+# Models tab can render every backend this server ships with in one row
+# per entry, even though the backends themselves are loaded on demand
+# during a single ``animate()`` call rather than held long-term.
+
+#: The display key for a TTS row in the services list.
+_TTS_ID = "tts:minimax"
+
+
+def _animator_service_row(animator) -> dict | None:
+    """Render one portrait animator as a Models tab row.
+
+    Each backend (LivePortrait / Wan 2.2 / MuseTalk silent) has its own
+    weights directory and (for Wan 2.2) multiple variants. The Models
+    tab aggregates them into a single list so the operator can confirm
+    "which backends are wired in right now" at a glance -- without
+    flipping to the 形象活化 tab.
+
+    Returns ``None`` only when the backend is unregistered (rare); a
+    broken / unloaded backend still appears, with ``configured=False``
+    + a ``missing_script`` hint at the fetch script that would fix it.
+
+    Each row also carries ``loaded`` / ``can_load`` / ``can_unload``
+    so the operator can pre-allocate the backend's pipeline from the
+    Models tab. ``can_load`` is True when the backend has its
+    pre-allocation method (liveportrait + wan22 + musetalk-silent --
+    all three gained a ``load()`` for the operator-driven lifecycle);
+    ``can_unload`` mirrors ``loaded``: a row that's already in VRAM
+    can release it.
+    """
+    from server.avatar.vram import get_vram_gb
+
+    try:
+        meta = animator.meta()
+    except Exception:  # noqa: BLE001 -- meta() can probe torch; failure == unregistered
+        return None
+
+    try:
+        ready = bool(animator.is_ready)
+    except Exception:  # noqa: BLE001 -- readiness probe must never raise
+        ready = False
+
+    weights_dir = None
+    for attr in ("weights_dir", "WEIGHTS_ROOT", "_weights_root"):
+        candidate = getattr(animator, attr, None)
+        if candidate is not None:
+            try:
+                weights_dir = str(Path(str(candidate)))
+            except Exception:  # noqa: BLE001
+                weights_dir = None
+            break
+
+    weights_present = False
+    if weights_dir:
+        try:
+            wd = Path(weights_dir)
+            weights_present = wd.is_dir() and any(wd.iterdir())
+        except OSError:
+            weights_present = False
+
+    # The lifecycle flags surface the operator's two questions: "is
+    # this on the GPU right now?" (``loaded``) and "can the Models tab
+    # release it?" (``can_unload``).
+    #
+    # ``can_load`` keys on "the backend exposes a ``load()`` method"
+    # -- NOT on ``weights_present``. The reason: animators like
+    # MuseTalk silent piggyback on the main drive engine, so they
+    # have no on-disk weights of their own; gating on weights_present
+    # would render their 加载 button as "无可用操作" forever, with no
+    # way for the operator to even trigger the 503 that would tell
+    # them where the real problem lies. ``load()`` itself surfaces the
+    # right error (503 with the fetch-script hint) when it fails.
+    try:
+        loaded = bool(getattr(animator, "is_loaded", False))
+    except Exception:  # noqa: BLE001
+        loaded = False
+    can_load = bool(getattr(animator, "load", None))
+    can_unload = loaded
+
+    script = None
+    cid = getattr(animator, "name", "")
+    if not ready:
+        if cid == "liveportrait":
+            script = "scripts/fetch_liveportrait_weights.sh"
+        elif cid.startswith("wan22-"):
+            script = "scripts/fetch_wan22_weights.sh"
+        elif cid == "musetalk-silent":
+            script = None
+
+    # Status string covers four states the operator cares about:
+    # weights missing (fetch script), dependencies missing
+    # (no script, run install), ready (unloaded), and live (loaded).
+    if not weights_present and script:
+        status = "无权重"
+    elif not ready:
+        status = "环境异常"
+    elif loaded:
+        status = "已加载"
+    else:
+        status = "可加载"
+
+    return {
+        "id": f"animator:{cid}",
+        "kind": "portrait_animator",
+        "label_zh": meta.get("label_zh", cid),
+        "group_zh": meta.get("group_zh", ""),
+        "description": meta.get("description", ""),
+        "vram_required_gb": meta.get("vram_required_gb"),
+        "vram_hint": meta.get("vram_hint", ""),
+        "fits_current_gpu": meta.get("fits_current_gpu"),
+        "configured": ready,
+        "weights_present": weights_present,
+        "weights_dir": weights_dir,
+        "missing_script": script,
+        "loaded": loaded,
+        "can_load": can_load,
+        "can_unload": can_unload,
+        # Status covers four operator-visible states (see above).
+        "status": status,
+    }
+
+
+def _animator_service_rows() -> list[dict]:
+    """Walk ANIMATORS + Wan 2.2 variants and render each as a row.
+
+    ``ANIMATORS`` is the canonical map populated by side-effect imports
+    at module load. Wan 2.2 isn't in there -- each variant is a fresh
+    instance built by ``all_animators()`` -- so we walk both for
+    exhaustive coverage.
+    """
+    out: list[dict] = []
+    try:
+        from server.avatar.animators import ANIMATORS
+    except Exception:  # noqa: BLE001 -- registry import may fail in stub venvs
+        ANIMATORS = {}
+
+    seen_ids: set[str] = set()
+    for name, animator in ANIMATORS.items():
+        row = _animator_service_row(animator)
+        if row is not None:
+            out.append(row)
+            seen_ids.add(row["id"])
+
+    # Wan 2.2 variants are not in ANIMATORS -- they're constructed per
+    # request by ``all_animators()``. Walk the variants directly so the
+    # Models tab sees each one as its own row.
+    try:
+        from server.avatar import wan22
+
+        for animator in wan22.all_animators():
+            row = _animator_service_row(animator)
+            if row is not None and row["id"] not in seen_ids:
+                out.append(row)
+                seen_ids.add(row["id"])
+    except Exception:  # noqa: BLE001 -- wan22 may not be importable in stub venvs
+        pass
+
+    return out
+
+
+def _tts_service_row() -> dict:
+    """MiniMax TTS as a Models tab row.
+
+    TTS isn't a local model -- the audio comes from api.minimaxi.com --
+    but the operator still wants to see "is it configured, what's the
+    voice, can I synthesise at all" on the Models tab. Local weight
+    presence is replaced with ``configured`` + voice id + sample rate cap,
+    all read from settings.
+    """
+    from server.config import get_settings
+
+    settings = get_settings()
+    configured = bool(getattr(settings, "minimax_api_key", ""))
+    return {
+        "id": _TTS_ID,
+        "kind": "tts_service",
+        "label_zh": "MiniMax TTS",
+        "group_zh": "云端服务",
+        "description": (
+            "数字人对话使用 MiniMax 的语音合成接口；"
+            "需要配置 DH_MINIMAX_API_KEY；采样率上限 44100 Hz"
+        ),
+        "configured": configured,
+        "weights_present": False,  # remote service, no on-disk weights
+        "weights_dir": None,
+        "missing_script": None if configured else "set DH_MINIMAX_API_KEY in .env",
+        "vram_required_gb": 0,
+        "vram_hint": "云端",
+        "fits_current_gpu": None,
+        "voice_id": getattr(settings, "minimax_voice_id", ""),
+        "model": getattr(settings, "minimax_model", "speech-02-hd"),
+        "sample_rate_cap_hz": 44100,
+        "sample_rate": getattr(settings, "minimax_sample_rate", 32000),
+        "status": "已配置" if configured else "未配置",
+    }
+
+
+@router.get("/models")
+def admin_list_models(db=Depends(get_db)) -> dict:
+    """Surface the live drive-engine runtime state for the Models tab.
+
+    Single payload the page polls every 2 s. Returns:
+
+    * ``models`` -- one entry per engine slot (today: a single
+      ``drive_runtime``). Each entry carries its ``loaded`` flag plus a
+      per-component breakdown so the operator can see "what is on the
+      GPU right now".
+    * ``services`` -- one entry per every other model this server uses:
+      portrait animators (LivePortrait / Wan 2.2 variants / MuseTalk
+      silent) and the MiniMax TTS endpoint. These aren't held long-term
+      so they have no ``loaded`` / ``can_unload`` flags; instead they
+      expose a ``configured`` flag + on-disk weights directory so the
+      operator can spot a missing-weight backend without flipping tabs.
+    * ``gpu`` -- a :func:`get_vram_snapshot` dict or ``None`` when CUDA
+      isn't available (the tab renders a CPU placeholder instead).
+    * ``active_sessions`` -- count of currently-running StreamSession
+      rows; the unload button refuses when this is non-zero.
+    """
+    from server.avatar.vram import get_vram_snapshot
+    from server.main import get_session_manager
+
+    engine = get_session_manager().engine
+    described = engine.describe()
+    return {
+        "models": described.get("models") or [],
+        "services": _animator_service_rows() + [_tts_service_row()],
+        "gpu": get_vram_snapshot(),
+        "active_sessions": _active_session_count(db),
+    }
+
+
+@router.post("/models/{model_id}/load")
+async def admin_load_model(model_id: str) -> dict:
+    """Trigger the engine's ``load`` for the named slot.
+
+    Routes to ``engine.load()`` if exposed; falls back to a 400 for
+    engines with nothing material to load (mock). 409 if the slot is
+    already loaded, 503 if loading raises an ``EngineUnavailable`` (e.g.
+    weights missing on disk).
+    """
+    from server.main import get_session_manager
+
+    engine = get_session_manager().engine
+    slot = _resolve_engine_slot(engine, model_id)
+    if slot is None:
+        raise AppError("not_found", f"model {model_id!r} not found", 404)
+    if slot.get("loaded"):
+        raise AppError(
+            "already_loaded",
+            f"model {model_id!r} is already loaded",
+            409,
+            detail={"id": model_id},
+        )
+    loader = getattr(engine, "load", None)
+    if loader is None:
+        raise AppError(
+            "no_weights_to_load",
+            f"engine {engine.name!r} has no weights to load",
+            400,
+            detail={"engine": engine.name},
+        )
+    try:
+        # Real engine.load() may touch torch; run on the engine's own
+        # worker so the event loop isn't blocked for ~30 s on a cold load.
+        maybe = loader()
+        if hasattr(maybe, "__await__"):
+            await maybe
+    except Exception as exc:  # noqa: BLE001 -- surface verbatim to the operator
+        # EngineUnavailable from warmup() means weights missing; mirror its
+        # production log surface so the operator sees the same hint.
+        raise AppError(
+            "load_failed",
+            f"{exc}",
+            503,
+            detail={"engine": engine.name, "id": model_id},
+        )
+    return {"id": model_id, "loaded": True}
+
+
+@router.post("/models/{model_id}/unload")
+def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
+    """Free the engine runtime for the named slot.
+
+    Refuses with 409 while any session is active so tearing the runtime
+    out doesn't silently wedge live conversations; refuses with 400 when
+    the engine reports ``can_unload=False`` (mock); 404 for an unknown id.
+    """
+    from server.main import get_session_manager
+
+    engine = get_session_manager().engine
+    slot = _resolve_engine_slot(engine, model_id)
+    if slot is None:
+        raise AppError("not_found", f"model {model_id!r} not found", 404)
+    if not slot.get("can_unload"):
+        raise AppError(
+            "not_unloadable",
+            f"model {model_id!r} has no weights to unload",
+            400,
+            detail={"engine": engine.name, "id": model_id},
+        )
+    if not slot.get("loaded"):
+        # Idempotent: already unloaded. Surface the same way as load's
+        # "already_loaded" 409 so the UI can show a clear message instead
+        # of a confusing 200.
+        raise AppError(
+            "not_loaded",
+            f"model {model_id!r} is not loaded",
+            409,
+            detail={"id": model_id},
+        )
+    busy = _active_session_count(db)
+    if busy > 0:
+        # Operator is told how many active sessions block the unload -- they
+        # go to the 会话 tab and clean up, then come back.
+        raise AppError(
+            "engine_busy",
+            f"engine has {busy} active session(s); close them before unloading",
+            409,
+            detail={"id": model_id, "active_sessions": busy},
+        )
+    engine.unload()
+    return {"id": model_id, "loaded": False}
+
+
+# ----- service load / unload (animators) -----------------------------------
+
+
+def _resolve_animator_by_id(service_id: str):
+    """Find an ANIMATORS entry by the Models-tab id ``animator:<name>``.
+
+    Returns ``None`` when the prefix doesn't match or the backend is
+    unregistered (the typo case). TTS services have their own id
+    pattern (``tts:minimax``) and don't go through here -- they have
+    no operator-loadable lifecycle.
+    """
+    prefix = "animator:"
+    if not service_id.startswith(prefix):
+        return None
+    name = service_id[len(prefix):]
+    try:
+        from server.avatar.animators import ANIMATORS
+    except Exception:  # noqa: BLE001 -- registry import may fail in stub venvs
+        return None
+    return ANIMATORS.get(name)
+
+
+@router.post("/services/{service_id}/load")
+async def admin_load_service(service_id: str) -> dict:
+    """Trigger ``load()`` on the named service.
+
+    Dispatches to the appropriate backend's pre-allocation method.
+    Returns the same 200/409/503 semantics as the drive-engine
+    ``models/.../load`` route so the operator gets a uniform error
+    surface across the Models tab.
+
+    * 200 -- service moved from ``loaded=False`` to ``loaded=True``.
+    * 409 -- already loaded (idempotency rejected so the operator can
+      tell the click was processed).
+    * 400 -- service has no weights to load (mock or remote TTS).
+    * 503 -- load raised an ``AnimatorError`` (missing runtime /
+      weights -- the operator must run the fetch script).
+    """
+    animator = _resolve_animator_by_id(service_id)
+    if animator is None:
+        raise AppError("not_found", f"service {service_id!r} not found", 404)
+
+    # ``is_loaded`` is the source of truth across all three backends:
+    # LivePortrait / Wan read it from their own flag; MuseTalk silent
+    # proxies to the main drive engine's runtime.
+    try:
+        loaded = bool(getattr(animator, "is_loaded", False))
+    except Exception:  # noqa: BLE001
+        loaded = False
+
+    if loaded:
+        raise AppError(
+            "already_loaded",
+            f"service {service_id!r} is already loaded",
+            409,
+            detail={"id": service_id},
+        )
+
+    loader = getattr(animator, "load", None)
+    if loader is None:
+        raise AppError(
+            "no_weights_to_load",
+            f"service {service_id!r} has no weights to load",
+            400,
+            detail={"id": service_id},
+        )
+
+    try:
+        result = loader()
+        if hasattr(result, "__await__"):
+            await result
+    except Exception as exc:  # noqa: BLE001 -- surface verbatim to the operator
+        raise AppError(
+            "load_failed",
+            f"{exc}",
+            503,
+            detail={"id": service_id, "engine": getattr(animator, "name", service_id)},
+        )
+    return {"id": service_id, "loaded": True}
+
+
+@router.post("/services/{service_id}/unload")
+def admin_unload_service(service_id: str) -> dict:
+    """Release any VRAM the named service is holding.
+
+    Mirror image of the load route. ``is_loaded`` is the gate: a
+    not-loaded service returns 409 ``not_loaded`` so the operator can
+    tell the click was processed without a confusing 200-no-op.
+
+    Services without an ``unload`` method (the future TTS-shaped
+    entrypoints) return 400 ``not_unloadable`` instead of 200, so the
+    operator's button is correctly disabled on the client side and
+    any race gives a clear error.
+    """
+    animator = _resolve_animator_by_id(service_id)
+    if animator is None:
+        raise AppError("not_found", f"service {service_id!r} not found", 404)
+
+    try:
+        loaded = bool(getattr(animator, "is_loaded", False))
+    except Exception:  # noqa: BLE001
+        loaded = False
+
+    if not loaded:
+        raise AppError(
+            "not_loaded",
+            f"service {service_id!r} is not loaded",
+            409,
+            detail={"id": service_id},
+        )
+
+    unloader = getattr(animator, "unload", None)
+    if unloader is None:
+        raise AppError(
+            "not_unloadable",
+            f"service {service_id!r} has no unload method",
+            400,
+            detail={"id": service_id},
+        )
+    unloader()
+    return {"id": service_id, "loaded": False}
