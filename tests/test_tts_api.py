@@ -101,24 +101,24 @@ async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_env):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_defaults_to_the_configured_voice(tts_env):
+async def test_synthesize_rejects_empty_voice_id(tts_env):
+    """``voice_id`` is required -- the operator picks it per session in the
+    debug page, so there is no server-wide default. An empty string
+    surfaces as 400 ``missing_voice_id`` so the UI can prompt the user
+    rather than silently picking one.
+    """
     from server.tts.minimax import synthesize
 
-    seen: dict = {}
+    with pytest.raises(AppError) as excinfo:
+        await synthesize("hi", "")
+    assert excinfo.value.status == 400
+    assert excinfo.value.code == "missing_voice_id"
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(
-            200, json={"base_resp": {"status_code": 0}, "data": {"audio": b"\x00\x00".hex()}}
-        )
-
-    client = _mock_client(handler)
-    try:
-        await synthesize("hi", client=client)
-    finally:
-        await client.aclose()
-
-    assert seen["body"]["voice_setting"]["voice_id"] == "male-qn-qingse"
+    # Whitespace-only counts as missing too (UI often ends up with that).
+    with pytest.raises(AppError) as excinfo:
+        await synthesize("hi", "   ")
+    assert excinfo.value.status == 400
+    assert excinfo.value.code == "missing_voice_id"
 
 
 @pytest.mark.asyncio
@@ -130,7 +130,7 @@ async def test_synthesize_without_api_key_raises_not_configured(monkeypatch):
     get_settings.cache_clear()
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi")
+            await synthesize("hi", "female-shaonv")
         assert excinfo.value.status == 503
         assert excinfo.value.code == "tts_not_configured"
     finally:
@@ -153,7 +153,7 @@ async def test_synthesize_surfaces_a_minimax_error(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", client=client)
+            await synthesize("hi", "female-shaonv", client=client)
     finally:
         await client.aclose()
 
@@ -180,7 +180,7 @@ async def test_synthesize_rejects_a_non_hex_payload(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", client=client)
+            await synthesize("hi", "female-shaonv", client=client)
     finally:
         await client.aclose()
 
@@ -198,7 +198,7 @@ async def test_synthesize_surfaces_a_transport_error(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", client=client)
+            await synthesize("hi", "female-shaonv", client=client)
     finally:
         await client.aclose()
 
@@ -230,7 +230,7 @@ def test_tts_endpoint_returns_wav(client, monkeypatch):
 
 
 def test_tts_endpoint_rejects_blank_text(client):
-    resp = client.post("/api/admin/tts", headers=ADMIN, json={"text": "   "})
+    resp = client.post("/api/admin/tts", headers=ADMIN, json={"text": "   ", "voice_id": "female-shaonv"})
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "empty_text"
 
@@ -242,7 +242,21 @@ def test_tts_endpoint_reports_missing_configuration(client, monkeypatch):
 
     get_settings.cache_clear()
 
-    resp = client.post("/api/admin/tts", headers=ADMIN, json={"text": "hi"})
+    resp = client.post(
+        "/api/admin/tts", headers=ADMIN, json={"text": "hi", "voice_id": "female-shaonv"}
+    )
 
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "tts_not_configured"
+
+
+def test_tts_endpoint_reports_missing_voice_id(client):
+    """The synthesise endpoint requires a ``voice_id``; Pydantic rejects the
+    missing field at the request boundary as 422 with the field name in the
+    error blob. The synthesise path itself also raises 400 ``missing_voice_id``
+    when called directly (e.g. the chat worker) -- that branch is covered by
+    ``test_synthesize_rejects_empty_voice_id`` above.
+    """
+    resp = client.post("/api/admin/tts", headers=ADMIN, json={"text": "hi"})
+    assert resp.status_code == 422
+    assert "voice_id" in str(resp.json())

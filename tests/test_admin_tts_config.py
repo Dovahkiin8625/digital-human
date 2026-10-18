@@ -24,14 +24,17 @@ def test_get_returns_masked_api_key(client):
 
 def test_get_includes_public_config_fields(client):
     """The GET response carries every operator-facing field. The
-    ``voice_id`` / ``model`` / ``sample_rate`` defaults come from
-    Settings; ``group_id`` / ``base_url`` likewise.
+    ``model`` / ``sample_rate`` defaults come from Settings;
+    ``group_id`` / ``base_url`` likewise. ``voice_id`` used to live here
+    -- the operator now picks it per session in the debug page, so it
+    isn't a server-wide setting anymore.
     """
     body = client.get("/api/admin/tts/config").json()
-    for field in ("voice_id", "model", "sample_rate", "group_id", "base_url"):
+    for field in ("model", "sample_rate", "group_id", "base_url"):
         assert field in body
+    # ``voice_id`` is gone from the GET shape.
+    assert "voice_id" not in body
     # Defaults from Settings.
-    assert body["voice_id"] == "male-qn-qingse"
     assert body["model"] == "speech-02-hd"
     assert body["sample_rate"] == 32000
 
@@ -42,7 +45,6 @@ def test_put_updates_db_and_subsequent_get_reflects(client):
     honest)."""
     payload = {
         "api_key": "test-key-1234567890",
-        "voice_id": "female-shaonv",
         "model": "speech-02-turbo",
         "sample_rate": 24000,
         "group_id": "g-test",
@@ -51,17 +53,32 @@ def test_put_updates_db_and_subsequent_get_reflects(client):
     resp = client.put("/api/admin/tts/config", json=payload)
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["voice_id"] == "female-shaonv"
+    assert body["model"] == "speech-02-turbo"
     # api_key_masked reflects the new value: last 4 of "test-key-1234567890".
     assert body["api_key_masked"] == "****7890"
     # Raw api_key stays out of the response -- only the masked form leaks.
     assert "api_key" not in body
+    # ``voice_id`` is gone from the response shape.
+    assert "voice_id" not in body
 
     # And the next GET agrees.
     body2 = client.get("/api/admin/tts/config").json()
-    assert body2["voice_id"] == "female-shaonv"
     assert body2["model"] == "speech-02-turbo"
     assert body2["sample_rate"] == 24000
+
+
+def test_put_rejects_voice_id_field(client):
+    """``voice_id`` used to be a configurable field -- it isn't anymore.
+    Pydantic's ``extra='forbid'`` rejects it at the request boundary so a
+    stale client sending voice_id gets a 422 with the field name in the
+    error rather than a silently dropped key.
+    """
+    resp = client.put(
+        "/api/admin/tts/config",
+        json={"voice_id": "female-shaonv"},
+    )
+    assert resp.status_code == 422
+    assert "voice_id" in str(resp.json())
 
 
 def test_put_rejects_unknown_field(client):

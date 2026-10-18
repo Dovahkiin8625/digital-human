@@ -40,227 +40,238 @@ const VOICES = [
 const CUSTOM_VOICE = "__custom__";
 
 function Metric({ title, value, suffix }: { title: string; value: number | string; suffix?: string }) {
-  return <Statistic title={title} value={value} suffix={suffix} />;
+  return <Statistic title={title} value={value} suffix={suffix} />
 }
 
 // Look up an avatar display name from a list, falling back to the bare id when
 // the session was for an avatar that's been deleted since.
 function nameFor(avatars: AvatarInfo[], id?: string): string {
-  if (!id) return "—";
-  const a = avatars.find((x) => x.avatar_id === id);
-  return a ? a.name : id.slice(0, 8);
+  if (!id) return "—"
+  const a = avatars.find((x) => x.avatar_id === id)
+  return a ? a.name : id.slice(0, 8)
 }
 
 export default function Debug() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const clientRef = useRef<DigitalHumanClient | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const clientRef = useRef<DigitalHumanClient | null>(null)
   // Microphone recording lives in refs: the recorder's onstop closure is
   // registered once and must not capture stale React state.
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
-  const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
-  const [avatarId, setAvatarId] = useState("");
-  const [sessionId, setSessionId] = useState("");
-  const [metrics, setMetrics] = useState<SessionInfo["metrics"]>({});
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState("");
-  const [text, setText] = useState("");
-  const [voice, setVoice] = useState(VOICES[0].id);
-  const [customVoice, setCustomVoice] = useState("");
-  const [ttsBusy, setTtsBusy] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [micBusy, setMicBusy] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [sys, setSys] = useState<SystemInfo | null>(null);
-  const { message } = AntApp.useApp();
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<Blob[]>([])
+  const [avatars, setAvatars] = useState<AvatarInfo[]>([])
+  const [avatarId, setAvatarId] = useState("")
+  const [sessionId, setSessionId] = useState("")
+  const [metrics, setMetrics] = useState<SessionInfo["metrics"]>({})
+  const [status, setStatus] = useState("idle")
+  const [error, setError] = useState("")
+  const [text, setText] = useState("")
+  // The debug page picks the voice per session now -- voice_id was
+  // removed from the MiniMax settings card. The empty default nudges
+  // the operator to make a choice rather than silently picking one;
+  // ``合成并驱动`` stays disabled until they do.
+  const [voice, setVoice] = useState("")
+  const [customVoice, setCustomVoice] = useState("")
+  const [ttsBusy, setTtsBusy] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [micBusy, setMicBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [sys, setSys] = useState<SystemInfo | null>(null)
+  const { message } = AntApp.useApp()
 
   useEffect(
     () => () => {
       // Stop an in-flight recording and release the mic on unmount.
-      recorderRef.current?.stream.getTracks().forEach((t) => t.stop());
-      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+      recorderRef.current?.stream.getTracks().forEach((t) => t.stop())
+      if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop()
     },
     []
-  );
+  )
 
   useEffect(() => {
     api<AvatarInfo[]>("/api/admin/avatars")
       .then((rows) => setAvatars(rows.filter((a) => a.status === "ready")))
-      .catch((err) => setError((err as Error).message));
-  }, []);
+      .catch((err) => setError((err as Error).message))
+  }, [])
 
   // Engine / media card: poll the same /system the header uses so a name
   // change shows up here too without a manual refresh.
   useEffect(() => {
-    let alive = true;
+    let alive = true
     async function tick() {
       try {
-        const data = await api<SystemInfo>("/api/admin/system");
-        if (alive) setSys(data);
+        const data = await api<SystemInfo>("/api/admin/system")
+        if (alive) setSys(data)
       } catch {
         /* header already shows the cached value; skip on transient failure */
       }
     }
-    tick();
-    const t = window.setInterval(tick, 5000);
+    tick()
+    const t = window.setInterval(tick, 5000)
     return () => {
-      alive = false;
-      window.clearInterval(t);
-    };
-  }, []);
+      alive = false
+      window.clearInterval(t)
+    }
+  }, [])
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId) return
     const timer = setInterval(async () => {
       try {
-        const data = await api<SessionInfo>(`/api/v1/sessions/${sessionId}`);
-        setMetrics(data.metrics);
-        setStatus(data.status);
+        const data = await api<SessionInfo>(`/api/v1/sessions/${sessionId}`)
+        setMetrics(data.metrics)
+        setStatus(data.status)
       } catch {
         /* transient poll failure: keep the previous reading */
       }
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [sessionId]);
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [sessionId])
 
   // For the "current avatar" hint below the metrics: resolve the session's
   // avatar_id by reading the latest /api/v1/sessions/{id} once a session
   // exists; sessions endpoint is the only place the avatar_id ships with
   // metrics.
   const sessionAvatarId = useMemo(() => {
-    const ai = (metrics as unknown as { avatar_id?: string }).avatar_id;
-    return ai ?? "";
-  }, [metrics]);
+    const ai = (metrics as unknown as { avatar_id?: string }).avatar_id
+    return ai ?? ""
+  }, [metrics])
   const resolvedAvatarName = useMemo(() => {
     // Prefer the avatar currently selected in the picker (the one driving);
     // fall back to whatever the session metrics hint at.
-    return nameFor(avatars, avatarId || sessionAvatarId);
-  }, [avatars, avatarId, sessionAvatarId]);
+    return nameFor(avatars, avatarId || sessionAvatarId)
+  }, [avatars, avatarId, sessionAvatarId])
 
   async function start() {
-    setStarting(true);
+    setStarting(true)
     try {
-      setError("");
+      setError("")
       const resp = await fetch("/api/v1/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ avatar_id: avatarId }),
-      });
-      const body = await resp.json();
-      if (!resp.ok) throw new Error(body?.error?.message ?? "create session failed");
-      const wsBase = location.origin.replace(/^http/, "ws");
+      })
+      const body = await resp.json()
+      if (!resp.ok) throw new Error(body?.error?.message ?? "create session failed")
+      const wsBase = location.origin.replace(/^http/, "ws")
       const client = new DigitalHumanClient(
         `${wsBase}${body.signal_url}`,
         `${wsBase}${body.audio_url}`
-      );
-      await client.connect(videoRef.current!);
-      clientRef.current = client;
-      setSessionId(body.session_id);
-      setStatus("active");
+      )
+      await client.connect(videoRef.current!)
+      clientRef.current = client
+      setSessionId(body.session_id)
+      setStatus("active")
     } catch (err) {
-      setError((err as Error).message);
+      setError((err as Error).message)
     } finally {
-      setStarting(false);
+      setStarting(false)
     }
   }
 
   async function stop() {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
-    recorderRef.current = null;
-    setRecording(false);
-    clientRef.current?.close();
-    clientRef.current = null;
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop()
+    recorderRef.current = null
+    setRecording(false)
+    clientRef.current?.close()
+    clientRef.current = null
     if (sessionId) {
-      await api(`/api/v1/sessions/${sessionId}`, { method: "DELETE" });
+      await api(`/api/v1/sessions/${sessionId}`, { method: "DELETE" })
     }
-    setSessionId("");
-    setStatus("closed");
+    setSessionId("")
+    setStatus("closed")
   }
 
   async function speak() {
-    const client = clientRef.current;
-    if (!client || !text.trim()) return;
-    setError("");
-    setTtsBusy(true);
+    const client = clientRef.current
+    if (!client || !text.trim()) return
+    const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice
+    // voice_id is now required by the synthesise endpoint (no server-
+    // wide default). The button is also disabled while voice is empty,
+    // but this guard catches the "custom voice not typed yet" case.
+    if (!voiceId) {
+      message.warning("请先选择音色")
+      return
+    }
+    setError("")
+    setTtsBusy(true)
     try {
-      const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice;
       const resp = await fetch("/api/admin/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, ...(voiceId ? { voice_id: voiceId } : {}) }),
-      });
+        body: JSON.stringify({ text, voice_id: voiceId }),
+      })
       if (!resp.ok) {
-        let msg = resp.statusText;
+        let msg = resp.statusText
         try {
-          msg = (await resp.json())?.error?.message ?? msg;
+          msg = (await resp.json())?.error?.message ?? msg
         } catch {
           /* non-json error */
         }
-        throw new Error(msg);
+        throw new Error(msg)
       }
       // The clip is sent as driving PCM; the server returns it as audio on the
       // WebRTC MediaStream, in sync with the generated mouth movement.
-      const blob = await resp.blob();
-      await client.sendAudioBlob(blob);
-      message.success("已合成并发送");
+      const blob = await resp.blob()
+      await client.sendAudioBlob(blob)
+      message.success("已合成并发送")
     } catch (err) {
-      message.error((err as Error).message);
+      message.error((err as Error).message)
     } finally {
-      setTtsBusy(false);
+      setTtsBusy(false)
     }
   }
 
   async function toggleMic() {
-    const client = clientRef.current;
-    if (!client) return;
+    const client = clientRef.current
+    if (!client) return
     if (recording) {
       // onstop ships the recording through the same driving path as TTS.
-      recorderRef.current?.stop();
-      setRecording(false);
-      return;
+      recorderRef.current?.stop()
+      setRecording(false)
+      return
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
-        : "";
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorderRef.current = recorder;
-      recordedChunksRef.current = [];
+        : ""
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      recorderRef.current = recorder
+      recordedChunksRef.current = []
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
-      };
+        if (e.data.size > 0) recordedChunksRef.current.push(e.data)
+      }
       recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
+        stream.getTracks().forEach((t) => t.stop())
         const blob = new Blob(recordedChunksRef.current, {
           type: recorder.mimeType || "audio/webm",
-        });
-        if (!clientRef.current) return; // session stopped while recording
-        setMicBusy(true);
+        })
+        if (!clientRef.current) return // session stopped while recording
+        setMicBusy(true)
         try {
-          await clientRef.current.sendAudioBlob(blob);
-          message.success("录音已发送");
+          await clientRef.current.sendAudioBlob(blob)
+          message.success("录音已发送")
         } catch (err) {
-          message.error((err as Error).message);
+          message.error((err as Error).message)
         } finally {
-          setMicBusy(false);
+          setMicBusy(false)
         }
-      };
-      recorder.start();
-      setRecording(true);
+      }
+      recorder.start()
+      setRecording(true)
     } catch (err) {
-      message.error(`无法使用麦克风：${(err as Error).message}`);
+      message.error(`无法使用麦克风：${(err as Error).message}`)
     }
   }
 
   // Pre-format media values once so the JSX reads cleanly. The fallback
   // empties are chosen so a partial response does not NaN the descriptions.
-  const frameW = sys?.frame_width ?? "—";
-  const frameH = sys?.frame_height ?? "—";
-  const fps = sys?.fps ?? "—";
-  const sr = sys?.sample_rate ?? "—";
-  const br = sys?.video_bitrate;
-  const idle = sys?.session_idle_timeout;
+  const frameW = sys?.frame_width ?? "—"
+  const frameH = sys?.frame_height ?? "—"
+  const fps = sys?.fps ?? "—"
+  const sr = sys?.sample_rate ?? "—"
+  const br = sys?.video_bitrate
+  const idle = sys?.session_idle_timeout
 
   return (
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
@@ -401,7 +412,8 @@ export default function Debug() {
           <Space wrap>
             <Select
               style={{ minWidth: 200 }}
-              value={voice}
+              value={voice || undefined}
+              placeholder="请选择音色"
               onChange={setVoice}
               options={[
                 ...VOICES.map((v) => ({ value: v.id, label: v.label })),
@@ -421,7 +433,7 @@ export default function Debug() {
               icon={<SoundOutlined />}
               onClick={speak}
               loading={ttsBusy}
-              disabled={!sessionId || !text.trim()}
+              disabled={!sessionId || !text.trim() || !voice || (voice === CUSTOM_VOICE && !customVoice.trim())}
             >
               合成并驱动
             </Button>
@@ -457,14 +469,14 @@ export default function Debug() {
               disabled={!sessionId}
               style={{ display: "none" }}
               onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) clientRef.current?.sendAudioFile(f);
-                e.target.value = "";
+                const f = e.target.files?.[0]
+                if (f) clientRef.current?.sendAudioFile(f)
+                e.target.value = ""
               }}
             />
           </label>
         </Space>
       </Card>
     </Space>
-  );
+  )
 }

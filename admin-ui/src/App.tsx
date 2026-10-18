@@ -8,6 +8,7 @@ import { useTheme } from "./theme";
 import ActivatePortrait from "./pages/ActivatePortrait";
 import Avatars from "./pages/Avatars";
 import AvatarDetail from "./pages/AvatarDetail";
+import Chat from "./pages/Chat";
 import Debug from "./pages/Debug";
 import System from "./pages/System";
 import type { SystemInfo } from "./types";
@@ -16,6 +17,10 @@ const NAV: MenuProps["items"] = [
   { key: "/activate-portrait", label: "图生视频" },
   { key: "/avatars", label: "形象管理" },
   { key: "/debug", label: "会话调试" },
+  // 数字人对话 sits next to 会话调试 -- the LLM chat panel is its
+  // own focused tab (own session, own voice picker, own subtitle
+  // overlay), not a sub-section of Debug.
+  { key: "/chat", label: "数字人对话" },
   { key: "/system", label: "系统" },
 ];
 
@@ -135,6 +140,7 @@ export default function App() {
         <Route path="/avatars" element={<Avatars />} />
         <Route path="/avatars/:id" element={<AvatarDetail />} />
         <Route path="/debug" element={<Debug />} />
+        <Route path="/chat" element={<Chat />} />
         <Route path="/system" element={<System />} />
       </Route>
       <Route path="*" element={<Navigate to="/avatars" replace />} />

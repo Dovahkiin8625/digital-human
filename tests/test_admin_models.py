@@ -909,3 +909,59 @@ def test_list_services_tts_configured_flips_with_api_key(client, monkeypatch):
         assert tts["status"] == "已配置"
     finally:
         get_settings.cache_clear()
+
+
+def test_list_services_includes_llm(client):
+    """The LLM row sits next to MiniMax TTS in ``services`` -- same
+    remote-service shape, different ``kind`` so the UI's kind switch
+    can render an LLM-flavoured row.
+    """
+    body = client.get("/api/admin/models").json()
+    llm_entries = [s for s in body["services"] if s["kind"] == "llm_service"]
+    assert any(s["id"] == "llm:openai" for s in llm_entries)
+    row = next(s for s in llm_entries if s["id"] == "llm:openai")
+    # Test env pins api_key + base_url to empty, so configured is False.
+    assert row["configured"] is False
+    assert row["label_zh"]
+    assert row["description"]
+    # ``model`` carries its Settings default rather than going empty.
+    assert row["model"] == "gpt-3.5-turbo"
+    # base_url is empty by default -- the operator must wire it.
+    assert row["base_url"] == ""
+    # ``missing_script`` must stay None: LLM has no fetch-script to run,
+    # the Models tab's [设置] button is the entry point. A non-null value
+    # here would short-circuit the action-column renderer to a hint text
+    # and hide the button -- the bug this assertion guards against.
+    assert row["missing_script"] is None
+
+
+def test_list_services_llm_configured_flips_with_keys(client, monkeypatch):
+    """The configured flag flips only when BOTH api_key AND base_url
+    are wired -- ``model`` has a default so it doesn't gate readiness.
+    """
+    from server.api import admin as admin_module
+
+    # Unconfigured (test default).
+    body = client.get("/api/admin/models").json()
+    llm = next(s for s in body["services"] if s["id"] == "llm:openai")
+    assert llm["configured"] is False
+
+    # Patch the helper to simulate a wired-up LLM.
+    original = admin_module._llm_service_row
+
+    def configured_row(*args, **kwargs):
+        # Accept the ``db=`` kwarg the live call site passes (we don't
+        # need it here -- the goal is to flip ``configured`` regardless
+        # of what the DB says).
+        row = original(*args, **kwargs)
+        row["configured"] = True
+        row["status"] = "已配置"
+        row["base_url"] = "https://api.example.test/v1"
+        return row
+
+    monkeypatch.setattr(admin_module, "_llm_service_row", configured_row)
+    body = client.get("/api/admin/models").json()
+    llm = next(s for s in body["services"] if s["id"] == "llm:openai")
+    assert llm["configured"] is True
+    assert llm["status"] == "已配置"
+    assert llm["base_url"] == "https://api.example.test/v1"

@@ -38,14 +38,24 @@ class Settings(BaseSettings):
     # Empty api_key means "not configured": the endpoint returns 503 rather than
     # calling out. group_id is optional -- newer accounts authenticate on the
     # bearer token alone, and MiniMax ignores the query param when it is absent.
+    # voice_id is *not* here: the operator picks it per session in the debug
+    # page, so the synthesise endpoint takes it as a required argument rather
+    # than reading a server-wide default.
     minimax_api_key: str = ""
     minimax_group_id: str = ""
     minimax_base_url: str = "https://api.minimaxi.com"
     minimax_model: str = "speech-02-hd"
-    minimax_voice_id: str = "male-qn-qingse"
     # MiniMax tops out at 44100 Hz, so this is never the render session's 48000;
     # the browser resamples onto the WS audio channel (webrtc.ts).
     minimax_sample_rate: int = 32000
+
+    # NOTE: LLM config (api_key / base_url / model) lives entirely in the
+    # SQLite ``settings`` table and is configured from the Models tab.
+    # There are deliberately no ``DH_LLM_*`` env defaults here -- env vars
+    # are a deployment concern, but the LLM is a per-box operator choice
+    # that's expected to be wired through the UI. Removing the env shim
+    # also keeps a leaked ``DH_LLM_API_KEY`` from silently turning the chat
+    # endpoint on in environments where the operator hasn't opted in.
 
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env")
 

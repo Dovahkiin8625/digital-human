@@ -80,14 +80,26 @@ def _audio_from_response(body: dict, status_code: int) -> str:
     return audio
 
 
-async def synthesize(text: str, voice_id: str | None = None, *, client: httpx.AsyncClient | None = None, db=None) -> bytes:
+async def synthesize(text: str, voice_id: str, *, client: httpx.AsyncClient | None = None, db=None) -> bytes:
     """Synthesize ``text`` into WAV bytes, or raise AppError.
+
+    ``voice_id`` is required: the operator picks the voice per session in the
+    debug page, so there is no server-wide default to fall back on. An empty
+    value surfaces as 400 ``missing_voice_id`` so the UI can prompt the user
+    rather than silently picking one.
 
     ``client`` is injectable so tests can drive the real parse path through an
     httpx.MockTransport instead of the network. ``db`` is the FastAPI request
     session; passed through so the effective MiniMax config (DB rows layered
     over env defaults) is read fresh on every call, not cached.
     """
+    if not voice_id or not voice_id.strip():
+        raise AppError(
+            "missing_voice_id",
+            "voice_id is required; pick one in the debug page",
+            400,
+        )
+
     # Read from the layered config helper rather than get_settings() so a
     # console edit via ``PUT /api/admin/tts/config`` takes effect on the
     # very next request without a server restart. Falls back to env
@@ -113,7 +125,7 @@ async def synthesize(text: str, voice_id: str | None = None, *, client: httpx.As
         # "hex" is the only output format streaming supports and the one the
         # non-streaming default returns, so the parse path never branches.
         "output_format": "hex",
-        "voice_setting": {"voice_id": voice_id or cfg["voice_id"], "speed": 1, "vol": 1, "pitch": 0},
+        "voice_setting": {"voice_id": voice_id, "speed": 1, "vol": 1, "pitch": 0},
         "audio_setting": {"format": "pcm", "sample_rate": cfg["sample_rate"], "channel": 1},
     }
     params = {"GroupId": cfg["group_id"]} if cfg["group_id"] else None
@@ -161,6 +173,5 @@ def _settings_defaults_as_public() -> dict:
         "group_id": getattr(s, "minimax_group_id", ""),
         "base_url": getattr(s, "minimax_base_url", "https://api.minimaxi.com"),
         "model": getattr(s, "minimax_model", "speech-02-hd"),
-        "voice_id": getattr(s, "minimax_voice_id", "male-qn-qingse"),
         "sample_rate": getattr(s, "minimax_sample_rate", 32000),
     }

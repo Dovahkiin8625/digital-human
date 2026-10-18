@@ -43,13 +43,15 @@ def test_read_config_returns_env_defaults_when_db_empty(_fresh_db):
     """No DB rows → the helper returns whatever ``Settings`` provided.
 
     ``apply_env`` pins ``DH_MINIMAX_API_KEY=""`` so the env default for
-    api_key is empty; voice / model / sample_rate carry real defaults.
+    api_key is empty; model / sample_rate carry real defaults. ``voice_id``
+    used to live here -- the operator now picks it per session in the debug
+    page, so the config dict no longer surfaces it.
     """
     from server.tts.config import read_config
 
     cfg = read_config(_fresh_db)
     assert cfg["api_key"] == ""
-    assert cfg["voice_id"] == "male-qn-qingse"
+    assert "voice_id" not in cfg
     assert cfg["sample_rate"] == 32000
 
 
@@ -62,13 +64,12 @@ def test_read_config_layers_db_rows_over_defaults(_fresh_db):
     from server.tts.config import read_config
     from server.db.models import Setting
 
-    _fresh_db.add(Setting(key="minimax_voice_id", value=json.dumps("female-shaonv")))
+    _fresh_db.add(Setting(key="minimax_model", value=json.dumps("speech-02-turbo")))
     _fresh_db.commit()
 
     cfg = read_config(_fresh_db)
-    assert cfg["voice_id"] == "female-shaonv"
+    assert cfg["model"] == "speech-02-turbo"
     # Other keys still come from env defaults.
-    assert cfg["model"] == "speech-02-hd"
     assert cfg["sample_rate"] == 32000
 
 
@@ -83,7 +84,6 @@ def test_write_config_persists_each_key(_fresh_db):
         _fresh_db,
         {
             "api_key": "test-key-1234",
-            "voice_id": "male-qn-jingying",
             "model": "speech-02-turbo",
             "sample_rate": 24000,
             "base_url": "https://api.example.com",
@@ -91,20 +91,21 @@ def test_write_config_persists_each_key(_fresh_db):
         },
     )
     assert cfg["api_key"] == "test-key-1234"
-    assert cfg["voice_id"] == "male-qn-jingying"
-    # All six rows landed in the settings table.
+    assert cfg["model"] == "speech-02-turbo"
+    # All five rows landed in the settings table.
     rows = _fresh_db.execute(select(Setting).where(Setting.key.startswith("minimax_"))).scalars().all()
     assert {r.key for r in rows} >= {
         "minimax_api_key",
-        "minimax_voice_id",
         "minimax_model",
         "minimax_sample_rate",
         "minimax_base_url",
         "minimax_group_id",
     }
+    # voice_id must NOT be one of the persisted keys anymore.
+    assert "minimax_voice_id" not in {r.key for r in rows}
     # And a fresh read sees them.
     cfg2 = read_config(_fresh_db)
-    assert cfg2["voice_id"] == "male-qn-jingying"
+    assert cfg2["model"] == "speech-02-turbo"
     assert cfg2["sample_rate"] == 24000
 
 
@@ -125,3 +126,16 @@ def test_write_config_rejects_invalid_sample_rate(_fresh_db):
     assert err.detail is not None
     assert "sample_rate" in err.detail
     assert "8000" in err.detail["sample_rate"] or "supported" in err.detail["sample_rate"].lower()
+
+
+def test_write_config_rejects_voice_id_field(_fresh_db):
+    """``voice_id`` used to be a configurable field -- it isn't anymore.
+    ``validate()`` rejects the unknown key with a per-field message so a
+    stale client (still sending voice_id) gets a clear 400 rather than a
+    silently dropped key.
+    """
+    from server.tts.config import validate
+
+    errors = validate({"voice_id": "female-shaonv"})
+    assert "voice_id" in errors
+    assert errors["voice_id"] == "unknown field"

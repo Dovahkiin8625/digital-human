@@ -215,8 +215,10 @@ export interface ModelsPayload {
 // form leaks to the UI). ``PUT`` accepts an optional ``api_key``; an
 // empty value means "clear the credential" (the synthesise endpoint
 // then returns 503 until a real key is saved).
+//
+// ``voice_id`` used to live here -- the operator now picks it per
+// session in the debug page, so it isn't a server-wide setting anymore.
 export interface TtsConfigInfo {
-  voice_id: string;
   model: string;
   sample_rate: number;
   group_id: string;
@@ -229,8 +231,26 @@ export interface TtsConfigUpdate {
   group_id?: string;
   base_url?: string;
   model?: string;
-  voice_id?: string;
   sample_rate?: number;
+}
+
+// LLM (OpenAI-compatible chat) configuration surfaced by
+// ``GET /api/admin/llm/config`` and edited via ``PUT /api/admin/llm/config``.
+// Same masking rules as TTS: raw ``api_key`` never leaks; only
+// ``api_key_masked`` rides in the response. ``configured`` is the
+// boolean the Models tab renders in the status badge -- True iff both
+// ``api_key`` and ``base_url`` are wired.
+export interface LlmConfigInfo {
+  base_url: string;
+  model: string;
+  api_key_masked: string;
+  configured: boolean;
+}
+
+export interface LlmConfigUpdate {
+  api_key?: string;
+  base_url?: string;
+  model?: string;
 }
 
 // One row per every OTHER model this server uses -- portrait animators
@@ -239,17 +259,17 @@ export interface TtsConfigUpdate {
 // to 形象活化 tab or paying mid-call cold-loads.
 export interface ServiceInfo {
   id: string;
-  // ``portrait_animator`` or ``tts_service``. Drives which columns +
-  // actions render; same id-shape lets the UI key by id.
-  kind: "portrait_animator" | "tts_service" | string;
+  // ``portrait_animator`` / ``tts_service`` / ``llm_service``. Drives
+  // which columns + actions render; same id-shape lets the UI key by id.
+  kind: "portrait_animator" | "tts_service" | "llm_service" | string;
   label_zh: string;
   group_zh?: string;
   description?: string;
   // True when the service is ready to be invoked (animators: weights
-  // + runtime deps; TTS: API key configured).
+  // + runtime deps; TTS: API key configured; LLM: api_key + base_url).
   configured: boolean;
   // True when the on-disk weights directory exists with content.
-  // Always false for TTS (remote service, no on-disk weights).
+  // Always false for TTS / LLM (remote services, no on-disk weights).
   weights_present: boolean;
   // Path to the weights directory on disk; null when N/A.
   weights_dir: string | null;
@@ -263,7 +283,7 @@ export interface ServiceInfo {
   // True / false / null -- null means unknown (no CUDA on this host).
   fits_current_gpu: boolean | null;
   // Whether the pipeline / engine is currently materialised in VRAM.
-  // Animators: a per-instance flag. TTS: always false (remote).
+  // Animators: a per-instance flag. TTS / LLM: always false (remote).
   loaded: boolean;
   // True iff the operator can drive a load from the Models tab.
   // False for backends with no in-process weights to mount (mock,
@@ -274,11 +294,17 @@ export interface ServiceInfo {
   can_unload: boolean;
   // Pre-baked label for the status cell: "可加载" / "已加载" / "无权重".
   status: string;
-  // TTS-specific extras; absent for animators.
+  // TTS-specific extras; absent for animators + LLM.
   voice_id?: string;
+  // Model id string. Shared by TTS (speech synthesis model) and LLM
+  // (chat completions model).
   model?: string;
+  // TTS-specific.
   sample_rate?: number;
   sample_rate_cap_hz?: number;
+  // LLM-specific: base_url of the OpenAI-compatible provider. Absent
+  // for animators + TTS.
+  base_url?: string;
 }
 
 // Live per-device counters returned by ``get_vram_snapshot``. All

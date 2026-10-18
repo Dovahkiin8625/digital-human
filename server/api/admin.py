@@ -106,7 +106,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 class TtsIn(BaseModel):
     text: str
-    voice_id: str | None = None
+    voice_id: str
 
 
 @router.get("/system")
@@ -134,7 +134,6 @@ def system_info() -> dict:
         "session_sweep_interval": settings.session_sweep_interval,
         "avatar_max_video_seconds": settings.avatar_max_video_seconds,
         "avatar_max_upload_bytes": settings.avatar_max_upload_bytes,
-        "minimax_voice_id": settings.minimax_voice_id,
         "minimax_sample_rate": settings.minimax_sample_rate,
     }
 
@@ -1164,10 +1163,13 @@ async def synthesize_speech(body: TtsIn, db=Depends(get_db)) -> Response:
 class TtsConfigIn(BaseModel):
     """Body shape for ``PUT /api/admin/tts/config``.
 
-    All six fields are optional individually (a partial update is fine).
+    All five fields are optional individually (a partial update is fine).
     ``extra='forbid'`` makes Pydantic reject unknown keys at the request
     boundary so a typo'd field name surfaces as a 400 rather than being
     silently dropped.
+
+    ``voice_id`` used to live here -- the operator now picks it per session
+    in the debug page, so it isn't a server-wide setting anymore.
     """
     model_config = {"extra": "forbid"}
 
@@ -1175,7 +1177,6 @@ class TtsConfigIn(BaseModel):
     group_id: str | None = None
     base_url: str | None = None
     model: str | None = None
-    voice_id: str | None = None
     sample_rate: int | None = None
 
 
@@ -1209,6 +1210,142 @@ def put_tts_config(body: TtsConfigIn, db=Depends(get_db)) -> dict:
     masked = mask_api_key(cfg)
     cfg.pop("api_key", None)
     return {**cfg, "api_key_masked": masked}
+
+
+# ----- LLM (OpenAI-compatible chat) configuration & endpoints ------------
+
+
+class LlmConfigIn(BaseModel):
+    """Body shape for ``PUT /api/admin/llm/config``.
+
+    All three fields are optional individually (a partial update is fine).
+    ``extra='forbid'`` makes Pydantic reject unknown keys at the request
+    boundary so a typo'd field name surfaces as a 400 rather than being
+    silently dropped.
+    """
+    model_config = {"extra": "forbid"}
+
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+
+
+@router.get("/llm/config")
+def get_llm_config(db=Depends(get_db)) -> dict:
+    """Return the effective LLM config; mask ``api_key`` as
+    ``****<last4>`` (or ``"(未设置)"`` when empty) so the UI never has
+    to display the raw bearer token.
+    """
+    from server.llm.config import is_configured, mask_api_key, read_config
+
+    cfg = read_config(db)
+    # Compute ``configured`` *before* popping api_key so the predicate
+    # sees the bearer token. Order matters: ``is_configured`` is True
+    # iff api_key AND base_url are wired, so we need both in cfg.
+    configured = is_configured(cfg)
+    cfg.pop("api_key", None)
+    return {
+        **cfg,
+        "api_key_masked": mask_api_key(cfg),
+        "configured": configured,
+    }
+
+
+@router.put("/llm/config")
+def put_llm_config(body: LlmConfigIn, db=Depends(get_db)) -> dict:
+    """Persist operator edits to the SQLite ``settings`` table.
+
+    The chat endpoint reads through :func:`read_config` on every call,
+    so a successful PUT takes effect on the very next chat request
+    without a server restart. ``api_key`` is masked in the response so
+    the round-trip never leaks the raw bearer token back to the UI.
+    """
+    from server.llm.config import is_configured, mask_api_key, write_config
+
+    payload = body.model_dump(exclude_none=True)
+    cfg = write_config(db, payload)
+    # ``configured`` must be computed *before* we drop the api_key, for
+    # the same reason as the GET path.
+    configured = is_configured(cfg)
+    masked = mask_api_key(cfg)
+    cfg.pop("api_key", None)
+    return {
+        **cfg,
+        "api_key_masked": masked,
+        "configured": configured,
+    }
+
+
+class LlmChatIn(BaseModel):
+    """Body shape for ``POST /api/admin/llm/chat`` and the streaming variant.
+
+    ``messages`` follows OpenAI's shape: ``[{role, content}, ...]`` with
+    roles constrained to ``system`` / ``user`` / ``assistant``. Pydantic's
+    ``extra='forbid'`` keeps typos out of the payload.
+    """
+    model_config = {"extra": "forbid"}
+
+    messages: list[dict[str, str]]
+
+
+@router.post("/llm/chat")
+async def admin_llm_chat(body: LlmChatIn, db=Depends(get_db)) -> dict:
+    """Non-streaming chat: one POST, full reply string back.
+
+    The console's chat panel uses the streaming endpoint instead; this
+    one is kept around as the synchronous fallback / for clients that
+    don't want SSE. Same request body, same effective config, same error
+    mapping.
+    """
+    from server.llm.openai import chat
+
+    content = await chat(body.messages, db=db)
+    return {"content": content}
+
+
+@router.post("/llm/chat/stream")
+async def admin_llm_chat_stream(body: LlmChatIn, db=Depends(get_db)):
+    """Streaming chat: SSE event stream of reply deltas.
+
+    Frames:
+
+    * ``data: {"delta": "..."}`` -- one token (or token chunk) from the model.
+    * ``data: {"done": true}``  -- end of stream; the client may close.
+    * ``data: {"error": {"code": "...", "message": "..."}}`` -- upstream
+      or configuration failure; client should surface the message and
+      stop consuming.
+
+    The response is ``Content-Type: text/event-stream`` with no cache
+    headers so browsers / ``fetch`` keep the connection open and parse
+    each frame as it arrives. ``X-Accel-Buffering: no`` disables nginx-
+    style buffering when the deployment is fronted by one.
+    """
+    from starlette.responses import StreamingResponse
+
+    from server.llm.openai import stream_chat
+
+    async def event_source():
+        try:
+            async for delta in stream_chat(body.messages, db=db):
+                # Each frame is one JSON object on its own ``data:`` line;
+                # ``\n\n`` is the SSE separator so the client can split on
+                # blank lines. ``ensure_ascii=False`` keeps Chinese text
+                # readable in curl-style debugging.
+                yield f"data: {json.dumps({'delta': delta}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'done': True}, ensure_ascii=False)}\n\n"
+        except AppError as exc:
+            # Upstream / configuration failure -- surface as one frame
+            # so the UI can show the message instead of a hung spinner.
+            yield f"data: {json.dumps({'error': {'code': exc.code, 'message': exc.message}}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/jobs")
@@ -1368,6 +1505,9 @@ def _resolve_animator_model_id(model_id: str):
 
 #: The display key for a TTS row in the services list.
 _TTS_ID = "tts:minimax"
+
+#: The display key for the LLM row in the services list.
+_LLM_ID = "llm:openai"
 
 
 def _animator_model_row(animator) -> dict | None:
@@ -1543,8 +1683,8 @@ def _tts_service_row() -> dict:
     TTS isn't a local model -- the audio comes from api.minimaxi.com --
     but the operator still wants to see "is it configured, what's the
     voice, can I synthesise at all" on the Models tab. Local weight
-    presence is replaced with ``configured`` + voice id + sample rate cap,
-    all read from settings.
+    presence is replaced with ``configured`` + sample rate cap, all
+    read from settings.
     """
     from server.config import get_settings
 
@@ -1566,10 +1706,60 @@ def _tts_service_row() -> dict:
         "vram_required_gb": 0,
         "vram_hint": "云端",
         "fits_current_gpu": None,
-        "voice_id": getattr(settings, "minimax_voice_id", ""),
         "model": getattr(settings, "minimax_model", "speech-02-hd"),
         "sample_rate_cap_hz": 44100,
         "sample_rate": getattr(settings, "minimax_sample_rate", 32000),
+        "status": "已配置" if configured else "未配置",
+    }
+
+
+def _llm_service_row(db=None) -> dict:
+    """LLM as a Models tab row.
+
+    Like TTS, the LLM is a remote service -- no on-disk weights, no in-
+    process lifecycle. The operator-facing surface is "is it configured,
+    which provider are we pointed at, which model". The LLM has no env
+    defaults: ``configured`` reads purely from the SQLite ``settings``
+    table (via :func:`server.llm.config.read_config`), so a successful
+    ``PUT /api/admin/llm/config`` flips the badge from red to green on
+    the very next Models tab poll.
+
+    ``missing_script`` stays ``None`` even when unconfigured: the LLM
+    has no fetch script to run -- the Models tab's ``[设置]`` button is
+    the operator's only entry point, and a non-null hint here would
+    short-circuit the action-column renderer to a hint text and hide
+    the button.
+    """
+    from server.llm.config import is_configured, read_config
+
+    cfg = read_config(db) if db is not None else {
+        "api_key": "",
+        "base_url": "",
+        "model": "gpt-3.5-turbo",
+    }
+    api_key = cfg.get("api_key", "")
+    base_url = cfg.get("base_url", "")
+    model = cfg.get("model", "gpt-3.5-turbo")
+    configured = is_configured(cfg)
+    return {
+        "id": _LLM_ID,
+        "kind": "llm_service",
+        "label_zh": "大模型 (OpenAI 兼容)",
+        "group_zh": "云端服务",
+        "description": (
+            "数字人对话页使用 OpenAI 兼容协议；"
+            "需要在服务行配置 base_url 与 api-key"
+        ),
+        "configured": configured,
+        "weights_present": False,
+        "weights_dir": None,
+        # No fetch script: the [设置] button is the entry point.
+        "missing_script": None,
+        "vram_required_gb": 0,
+        "vram_hint": "云端",
+        "fits_current_gpu": None,
+        "base_url": base_url,
+        "model": model,
         "status": "已配置" if configured else "未配置",
     }
 
@@ -1603,7 +1793,7 @@ def admin_list_models(db=Depends(get_db)) -> dict:
     engine_rows = described.get("models") or []
     return {
         "models": [*engine_rows, *_animator_model_rows()],
-        "services": [_tts_service_row()],
+        "services": [_tts_service_row(), _llm_service_row(db=db)],
         "gpu": get_vram_snapshot(),
         "active_sessions": _active_session_count(db),
     }

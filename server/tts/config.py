@@ -20,18 +20,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
-#: The six configurable keys. ``api_key`` is the bearer token;
+#: The five configurable keys. ``api_key`` is the bearer token;
 #: ``group_id`` is optional (newer MiniMax accounts skip it);
 #: ``base_url`` lets an operator point at a self-hosted or staging
-#: proxy; ``model`` is the speech synthesis model id; ``voice_id`` is
-#: the cloned/preset voice id; ``sample_rate`` is the output PCM rate
-#: (MiniMax caps at 44100 Hz).
+#: proxy; ``model`` is the speech synthesis model id; ``sample_rate``
+#: is the output PCM rate (MiniMax caps at 44100 Hz). ``voice_id``
+#: used to live here too -- the operator now picks it per session in
+#: the debug page, so it isn't a server-wide setting anymore.
 KEYS: tuple[str, ...] = (
     "minimax_api_key",
     "minimax_group_id",
     "minimax_base_url",
     "minimax_model",
-    "minimax_voice_id",
     "minimax_sample_rate",
 )
 
@@ -41,7 +41,6 @@ PUBLIC_KEYS: tuple[str, ...] = (
     "group_id",
     "base_url",
     "model",
-    "voice_id",
     "sample_rate",
 )
 
@@ -67,7 +66,6 @@ def _env_defaults() -> dict[str, Any]:
         "minimax_group_id": getattr(s, "minimax_group_id", ""),
         "minimax_base_url": getattr(s, "minimax_base_url", "https://api.minimaxi.com"),
         "minimax_model": getattr(s, "minimax_model", "speech-02-hd"),
-        "minimax_voice_id": getattr(s, "minimax_voice_id", "male-qn-qingse"),
         "minimax_sample_rate": getattr(s, "minimax_sample_rate", 32000),
     }
 

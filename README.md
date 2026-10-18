@@ -113,8 +113,12 @@ curl http://127.0.0.1:8000/healthz
 | `DH_MINIMAX_GROUP_ID` | 空 | 可选：老账号需要它作为 `GroupId` query 参数，新账号只认 bearer token |
 | `DH_MINIMAX_BASE_URL` | `https://api.minimaxi.com` | 国内平台；国际版改 `https://api.minimax.io` |
 | `DH_MINIMAX_MODEL` | `speech-02-hd` | 合成模型 |
-| `DH_MINIMAX_VOICE_ID` | `male-qn-qingse` | 默认音色（调试页未选择时使用） |
 | `DH_MINIMAX_SAMPLE_RATE` | `32000` | 合成采样率。MiniMax 上限 44100，故**不可能是** `DH_SAMPLE_RATE`，重采样在浏览器侧完成 |
+
+> **LLM 配置不走环境变量**。OpenAI 兼容大模型的 `api_key` / `base_url` / `model`
+> 在 Models 页面的「服务」列表中点击大模型行的 **[设置]** 写入 SQLite `settings`
+> 表；`.env` 里没有对应变量。这样能让一次部署的服务在 UI 上切换 provider，
+> 也避免泄漏的 `DH_LLM_*` 在没显式 opt-in 时打开 chat 端点。
 
 > 上表是**代码默认值**。`.env.example` 模板里两个引擎项都写成 `mock`，这样
 > `cp .env.example .env` 之后在 torch-free 的 `.venv` 里能直接跑通 —— 若模板发
@@ -194,7 +198,11 @@ curl http://127.0.0.1:8000/healthz
 | PATCH | `/api/admin/avatars/{avatar_id}/config` | 调优 `mouth_scale` / `expression_intensity` |
 | GET | `/api/admin/avatars/{avatar_id}/idle.mp4` | 空闲循环视频（视频形象；首次请求时生成，支持 Range） |
 | GET | `/api/admin/avatars/{avatar_id}/normalized.png` | 静态画面（照片形象与回退） |
-| POST | `/api/admin/tts` | JSON `{"text", "voice_id"?}` → `audio/wav`。调试页用；`text` 为空 400，未配 `DH_MINIMAX_API_KEY` 503，MiniMax 报错 502 |
+| POST | `/api/admin/tts` | JSON `{"text", "voice_id"}` → `audio/wav`。调试页用；`text` 为空 400，`voice_id` 缺失 400，未配 `DH_MINIMAX_API_KEY` 503，MiniMax 报错 502 |
+| GET | `/api/admin/llm/config` | 大模型（OpenAI 兼容）配置；返回 `api_key_masked` 与 `configured` 标志 |
+| PUT | `/api/admin/llm/config` | 同上，写入到 `settings` 表 |
+| POST | `/api/admin/llm/chat` | JSON `{messages}` → `{content}`。非流式；用作同步回退 |
+| POST | `/api/admin/llm/chat/stream` | JSON `{messages}` → `text/event-stream`。每帧 `{"delta": "..."}` / `{"done": true}` / `{"error": ...}`。调试页大模型对话的入口 |
 | GET | `/api/admin/jobs` | 制作任务（AvatarJob）列表 |
 | GET | `/api/admin/sessions` | 会话列表（含实时指标） |
 | POST | `/api/admin/sessions/sweep` | 手动触发空闲会话回收 |
@@ -294,7 +302,8 @@ python -m uvicorn --factory server.main:create_app  --host 0.0.0.0 --port 8000
 启动时后台任务会预热权重（4.4 GB），避免第一个 `POST /sessions` 付这笔代价；预热失败不致命，
 服务照常起来，只是真引擎不可用。
 
-## 目录结构
+ ## 目录结构
+
 
 ```
 digital-human/

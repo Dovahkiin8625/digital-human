@@ -6,6 +6,7 @@ import {
   Card,
   Form,
   Input,
+  Modal,
   Popconfirm,
   Progress,
   Select,
@@ -21,6 +22,8 @@ import {
   CloudDownloadOutlined,
   PoweroffOutlined,
   ReloadOutlined,
+  RobotOutlined,
+  SettingOutlined,
   SoundOutlined,
   ThunderboltFilled,
   UserOutlined,
@@ -28,6 +31,8 @@ import {
 import { api } from "../api";
 import type {
   GpuSnapshot,
+  LlmConfigInfo,
+  LlmConfigUpdate,
   ModelsPayload,
   ModelInfo,
   ServiceInfo,
@@ -191,12 +196,14 @@ function kindLabel(k: string): string {
   // a Tag next to a longer label_zh on the same row.
   if (k === "portrait_animator") return "形象动画器";
   if (k === "tts_service") return "TTS 服务";
+  if (k === "llm_service") return "大模型";
   return k;
 }
 
 function kindIcon(k: string) {
   if (k === "portrait_animator") return <UserOutlined />;
   if (k === "tts_service") return <SoundOutlined />;
+  if (k === "llm_service") return <RobotOutlined />;
   return <ApiOutlined />;
 }
 
@@ -216,6 +223,10 @@ export default function Models() {
   const [data, setData] = useState<ModelsPayload | null>(null);
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [actingServiceOn, setActingServiceOn] = useState<string | null>(null);
+  // Which service's settings dialog is open, if any. ``null`` means
+  // closed. TTS and LLM live in their own dialogs; the row's id picks
+  // which one opens.
+  const [openDialog, setOpenDialog] = useState<"tts" | "llm" | null>(null);
   const { message } = AntApp.useApp();
   // A second-since-epoch ticker so "loaded_at" ages smoothly between
   // polls without re-rendering every row.
@@ -479,10 +490,20 @@ export default function Models() {
           actingServiceOn={actingServiceOn}
           onLoad={loadService}
           onUnload={unloadService}
+          onOpenSettings={(kind) => setOpenDialog(kind)}
         />
       )}
 
-      <MiniMaxConfigCard onSaved={refresh} />
+      <MiniMaxConfigDialog
+        open={openDialog === "tts"}
+        onClose={() => setOpenDialog(null)}
+        onSaved={refresh}
+      />
+      <LlmConfigDialog
+        open={openDialog === "llm"}
+        onClose={() => setOpenDialog(null)}
+        onSaved={refresh}
+      />
     </Space>
   );
 }
@@ -492,11 +513,15 @@ function ServicesCard({
   actingServiceOn,
   onLoad,
   onUnload,
+  onOpenSettings,
 }: {
   services: ServiceInfo[];
   actingServiceOn: string | null;
   onLoad: (id: string) => void;
   onUnload: (id: string) => void;
+  // Open a settings dialog for the given service kind. Parent owns the
+  // dialog lifecycle so the click feels like a one-shot modal.
+  onOpenSettings: (kind: "tts" | "llm") => void;
 }) {
   // The wider net: every other model this server uses (portrait animators
   // + TTS). These can't be loaded / unloaded in-place like the drive
@@ -574,22 +599,34 @@ function ServicesCard({
       render: (_: unknown, row) => {
         if (row.kind === "tts_service") {
           // TTS rows show the operator what they've configured so they
-          // can verify the voice + model without dropping into a
-          // settings tab. Missing API key shows the env var name (the
-          // fix) alongside.
+          // can verify the model + sample rate without dropping into a
+          // settings tab. voice_id is per-session in the debug page now,
+          // so it doesn't live here.
           return (
             <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
-              {row.voice_id && (
-                <Typography.Text>
-                  <Typography.Text type="secondary">语音：</Typography.Text>
-                  <Typography.Text code style={{ marginLeft: 4 }}>
-                    {row.voice_id}
-                  </Typography.Text>
-                </Typography.Text>
-              )}
               <Typography.Text type="secondary">
                 模型：{row.model ?? "—"} · 采样率 {row.sample_rate ?? "—"}/{" "}
                 {row.sample_rate_cap_hz ?? "—"} Hz
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                语音：调试页选择
+              </Typography.Text>
+            </Space>
+          );
+        }
+        if (row.kind === "llm_service") {
+          // LLM rows: show base_url + model so the operator can verify
+          // the upstream provider without dropping into settings.
+          return (
+            <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
+              <Typography.Text>
+                <Typography.Text type="secondary">Base URL：</Typography.Text>
+                <Typography.Text code style={{ marginLeft: 4 }} ellipsis>
+                  {row.base_url || "—"}
+                </Typography.Text>
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                模型：{row.model ?? "—"}
               </Typography.Text>
             </Space>
           );
@@ -611,10 +648,12 @@ function ServicesCard({
       key: "actions",
       width: 220,
       render: (_: unknown, row) => {
-        // Three branches the operator cares about:
+        // Four branches the operator cares about:
         //   1. weights missing (with fetch script)  -> show the script
         //   2. animator fully ready                 -> 加载 / 卸载 button
-        //   3. TTS / remote service (no in-process weights) -> info text
+        //   3. remote service (TTS / LLM)            -> 设置 button (open
+        //      the corresponding settings dialog) once configured, or a
+        //      fetch hint if missing required env vars.
         //
         // Animator endpoints always 503 instead of auto-loading when
         // their backend isn't pre-allocated here, so the operator's
@@ -622,7 +661,7 @@ function ServicesCard({
         // now" sits in this tab.
         if (!row.configured && row.missing_script) {
           return (
-            <Tooltip title="在项目根目录执行以下命令以下载该模型的权重">
+            <Tooltip title="在项目根目录执行以下命令以下载该模型的权重 / 设置环境变量">
               <Typography.Text code style={{ fontSize: 12 }}>
                 {row.missing_script}
               </Typography.Text>
@@ -667,9 +706,38 @@ function ServicesCard({
         }
         if (row.kind === "tts_service" && row.configured) {
           return (
-            <Typography.Text type="secondary">
-              在调试页的 TTS 面板中可用
-            </Typography.Text>
+            <Button
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => onOpenSettings("tts")}
+            >
+              设置
+            </Button>
+          );
+        }
+        if (row.kind === "llm_service" && row.configured) {
+          return (
+            <Button
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => onOpenSettings("llm")}
+            >
+              设置
+            </Button>
+          );
+        }
+        if (row.kind === "llm_service" && !row.configured) {
+          // The LLM has no fetch script (``missing_script`` is always
+          // None server-side), so the [设置] button is the operator's
+          // only entry point -- even before the LLM is configured.
+          return (
+            <Button
+              size="small"
+              icon={<SettingOutlined />}
+              onClick={() => onOpenSettings("llm")}
+            >
+              设置
+            </Button>
           );
         }
         return (
@@ -732,10 +800,8 @@ function ServicesCard({
   );
 }
 
-// ----- MiniMax TTS configuration ---------------------------------------------
+// ----- MiniMax TTS configuration (now a dialog, not a card) -----------------
 
-// Voice IDs the form offers in the dropdown. A "custom" escape hatch
-// below lets the operator type any string the upstream accepts.
 const MINIMAX_MODEL_OPTIONS = [
   { value: "speech-02-hd", label: "speech-02-hd (默认)" },
   { value: "speech-02-turbo", label: "speech-02-turbo" },
@@ -749,38 +815,50 @@ const MINIMAX_SAMPLE_RATE_OPTIONS = [
   { value: 44100, label: "44100 Hz" },
 ];
 
-function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void }) {
-  // The Models tab's MiniMax config form. Reads via GET, writes via PUT,
-  // surfaces the masked api_key as a password-style field. The "测试"
-  // button POSTs to /api/admin/tts to confirm the round-trip end to end
-  // -- a save that leaves the synthesise endpoint broken is worse than
-  // no save at all.
+function MiniMaxConfigDialog({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  // The Models tab opens this from the MiniMax TTS row's "设置" action.
+  // It's a thinner form than the old inline card: ``voice_id`` is gone
+  // (the operator picks it per session in the debug page), and the
+  // remaining fields -- API key, base URL, group ID, model, sample rate
+  // -- are the same. "测试" still POSTs to /api/admin/tts to verify the
+  // round-trip end to end; it uses a hardcoded preset voice_id because
+  // the dialog is config-only and shouldn't require the operator to
+  // jump to the debug page to test their save.
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [savedMasked, setSavedMasked] = useState<string>("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const { message } = AntApp.useApp();
 
-  async function refresh() {
-    try {
-      const cfg = await api<TtsConfigInfo>("/api/admin/tts/config");
-      form.setFieldsValue({
-        voice_id: cfg.voice_id,
-        model: cfg.model,
-        sample_rate: cfg.sample_rate,
-        group_id: cfg.group_id,
-        base_url: cfg.base_url,
-      });
-      setSavedMasked(cfg.api_key_masked);
-    } catch {
-      // Don't surface the failure here -- the operator is already on the
-      // Models tab. The form's submit will surface a clear error.
-    }
-  }
-
+  // Refresh every time the dialog opens, not on mount only, so an
+  // operator who edits via /admin/settings then opens this dialog sees
+  // their change without a manual reload.
   useEffect(() => {
-    refresh();
-  }, []);
+    if (!open) return;
+    (async () => {
+      try {
+        const cfg = await api<TtsConfigInfo>("/api/admin/tts/config");
+        form.setFieldsValue({
+          model: cfg.model,
+          sample_rate: cfg.sample_rate,
+          group_id: cfg.group_id,
+          base_url: cfg.base_url,
+        });
+        setSavedMasked(cfg.api_key_masked);
+        setApiKeyInput("");
+      } catch {
+        /* form submit will surface a clear error */
+      }
+    })();
+  }, [open, form]);
 
   async function save() {
     setLoading(true);
@@ -808,15 +886,15 @@ function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void })
   }
 
   async function testSynth() {
-    // Round-trip: send a 4-char sample text through the synthesise
-    // endpoint with the current config. If it 200s, the operator sees a
-    // working state; if it 503s, the error message names the cause
-    // (likely "no api_key configured").
     try {
       const resp = await fetch("/api/admin/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: "测试", voice_id: form.getFieldValue("voice_id") }),
+        // The synthesise endpoint requires voice_id now; the dialog
+        // doesn't carry one (that's the debug page's job), so the test
+        // uses a known preset. Operators can swap to a different preset
+        // via the debug page once they confirm the round-trip works.
+        body: JSON.stringify({ text: "测试", voice_id: "male-qn-qingse" }),
       });
       if (!resp.ok) {
         const body = await resp.json().catch(() => null);
@@ -835,8 +913,15 @@ function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void })
   }
 
   return (
-    <Card title="MiniMax TTS 配置" size="small">
-      <Form form={form} layout="vertical" style={{ maxWidth: 720 }}>
+    <Modal
+      title="MiniMax TTS 配置"
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      destroyOnClose
+      width={560}
+    >
+      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
         <Form.Item
           label="API Key"
           extra={
@@ -865,13 +950,13 @@ function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void })
         <Form.Item name="model" label="模型">
           <Select options={MINIMAX_MODEL_OPTIONS} />
         </Form.Item>
-        <Form.Item name="voice_id" label="语音 ID" extra="在 MiniMax 控制台查看可用 ID">
-          <Input placeholder="male-qn-qingse" />
-        </Form.Item>
         <Form.Item name="sample_rate" label="采样率">
           <Select options={MINIMAX_SAMPLE_RATE_OPTIONS} />
         </Form.Item>
-        <Form.Item>
+        <Typography.Text type="secondary" style={{ display: "block", marginBottom: 16, fontSize: 12 }}>
+          语音 ID 不在这里配置 —— 在会话调试页选择音色。
+        </Typography.Text>
+        <Form.Item style={{ marginBottom: 0 }}>
           <Space>
             <Button type="primary" icon={<CloudDownloadOutlined />} loading={loading} onClick={save}>
               保存
@@ -882,6 +967,135 @@ function MiniMaxConfigCard({ onSaved }: { onSaved: () => Promise<void> | void })
           </Space>
         </Form.Item>
       </Form>
-    </Card>
+    </Modal>
+  );
+}
+
+// ----- LLM (OpenAI-compatible chat) configuration dialog --------------------
+
+
+function LlmConfigDialog({
+  open,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  // LLM configuration mirrors the TTS dialog: a Modal opened from the
+  // service row's "设置" action, three fields (api_key + base_url + model),
+  // save round-trips through ``PUT /api/admin/llm/config``. There's no
+  // "测试" button: the LLM only exposes streaming chat, which doesn't
+  // fit the same one-shot synthesise probe TTS gets. Operators confirm
+  // end-to-end via the chat panel in the debug page.
+  const [form] = Form.useForm();
+  const [loading, setLoading] = useState(false);
+  const [savedMasked, setSavedMasked] = useState<string>("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const { message } = AntApp.useApp();
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const cfg = await api<LlmConfigInfo>("/api/admin/llm/config");
+        form.setFieldsValue({
+          base_url: cfg.base_url,
+          model: cfg.model,
+        });
+        setSavedMasked(cfg.api_key_masked);
+        setApiKeyInput("");
+      } catch {
+        /* form submit will surface a clear error */
+      }
+    })();
+  }, [open, form]);
+
+  async function save() {
+    setLoading(true);
+    try {
+      const values = await form.validateFields();
+      const payload: LlmConfigUpdate = { ...values };
+      if (apiKeyInput.trim()) {
+        payload.api_key = apiKeyInput.trim();
+      }
+      const resp = await api<LlmConfigInfo & { api_key_masked: string; configured: boolean }>(
+        "/api/admin/llm/config",
+        { method: "PUT", body: payload }
+      );
+      setSavedMasked(resp.api_key_masked);
+      setApiKeyInput("");
+      message.success("大模型配置已保存");
+      await onSaved();
+    } catch (err) {
+      message.error(`保存失败：${(err as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="大模型 (OpenAI 兼容) 配置"
+      open={open}
+      onCancel={onClose}
+      footer={null}
+      destroyOnClose
+      width={560}
+    >
+      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+        <Form.Item
+          label="API Key"
+          extra={
+            savedMasked
+              ? `当前保存值：${savedMasked}（留空表示保留原值）`
+              : "Bearer token，留空表示保留当前值"
+          }
+        >
+          <Input.Password
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            placeholder="留空表示保留当前 API Key"
+          />
+        </Form.Item>
+        <Form.Item
+          name="base_url"
+          label="Base URL"
+          extra={
+            <span>
+              例：<code>https://api.openai.com/v1</code>、<code>http://localhost:11434/v1</code>（Ollama）。
+              会话调试页大模型对话的流式请求会拼接 <code>/chat/completions</code>。
+            </span>
+          }
+          rules={[
+            { required: true, message: "Base URL 必填" },
+            {
+              validator: (_, v: string) =>
+                !v || /^https?:\/\//.test(v)
+                  ? Promise.resolve()
+                  : Promise.reject(new Error("必须以 http:// 或 https:// 开头")),
+            },
+          ]}
+        >
+          <Input placeholder="https://api.openai.com/v1" />
+        </Form.Item>
+        <Form.Item
+          name="model"
+          label="模型"
+          extra="上游模型标识，例如 gpt-3.5-turbo、gpt-4o-mini、llama3 等"
+          rules={[{ required: true, message: "模型必填" }]}
+        >
+          <Input placeholder="gpt-3.5-turbo" />
+        </Form.Item>
+        <Form.Item style={{ marginBottom: 0 }}>
+          <Space>
+            <Button type="primary" icon={<CloudDownloadOutlined />} loading={loading} onClick={save}>
+              保存
+            </Button>
+          </Space>
+        </Form.Item>
+      </Form>
+    </Modal>
   );
 }
