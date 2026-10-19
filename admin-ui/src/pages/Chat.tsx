@@ -201,45 +201,86 @@ export default function Chat() {
       queue.length = 0;
       return;
     }
+    const voiceId = resolveVoice();
     ttsWorkerBusyRef.current = true;
     try {
-      while (queue.length > 0) {
-        const sentence = queue.shift()!;
-        const voiceId = resolveVoice();
-        if (!voiceId) {
-          // No voice selected: still flash the sentence as a caption
-          // briefly so the operator sees it appear, then move on.
-          setCaption(sentence);
+      if (!voiceId) {
+        // No voice selected: just flash each sentence as a caption in
+        // turn -- no audio, no TTS fetch to pipeline. Old behaviour
+        // for an edge case the UI already disables upstream.
+        while (queue.length > 0) {
+          const s = queue.shift()!;
+          setCaption(s);
           await new Promise((r) => setTimeout(r, 1500));
           setCaption("");
+        }
+        return;
+      }
+
+      // One TTS fetch wrapped as a promise that resolves to either a
+      // blob (success) or an error message. Keeps the loop below free
+      // of inline fetch plumbing.
+      const fetchOne = (
+        sentence: string,
+      ): Promise<{ sentence: string; blob: Blob } | { sentence: string; error: string }> =>
+        (async () => {
+          try {
+            const resp = await fetch("/api/admin/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ text: sentence, voice_id: voiceId }),
+            });
+            if (!resp.ok) {
+              const body = await resp.json().catch(() => null);
+              const msg = body?.error?.message ?? resp.statusText;
+              return { sentence, error: msg };
+            }
+            return { sentence, blob: await resp.blob() };
+          } catch (err) {
+            return { sentence, error: (err as Error).message };
+          }
+        })();
+
+      // Pipeline TTS: kick off the first fetch now, then before each
+      // ``sendAudioBlob`` start fetching the NEXT sentence. The fetch
+      // latency (~1 s on a cold MiniMax call) is hidden behind the
+      // current sentence's audio playback, so sentences flow back-to-
+      // back with no inter-sentence gap and the caption is in sync
+      // with the audio (the caption only appears once the blob is in
+      // hand, so it lands within one network round-trip of the audio).
+      let pendingNext: ReturnType<typeof fetchOne> | null = fetchOne(queue.shift()!);
+      while (pendingNext) {
+        const result = await pendingNext;
+        pendingNext = null;
+        // Pre-fetch the next sentence in parallel before we start
+        // pushing the current sentence's audio.
+        if (queue.length > 0) {
+          pendingNext = fetchOne(queue.shift()!);
+        }
+        if ("error" in result) {
+          toastMessage.warning(`TTS 失败：${result.error}（跳过此句）`);
+          // Brief pause so a failed sentence doesn't snap straight
+          // into the next one -- gives the operator a beat to notice
+          // the toast.
+          await new Promise((r) => setTimeout(r, 400));
           continue;
         }
-        setCaption(sentence);
+        // Caption appears here, in lock-step with the audio that's
+        // about to start. Replacing the previous caption (not clearing
+        // + setting) avoids the blank moment the old implementation
+        // had between sentences.
+        setCaption(result.sentence);
         try {
-          const resp = await fetch("/api/admin/tts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: sentence, voice_id: voiceId }),
-          });
-          if (!resp.ok) {
-            const body = await resp.json().catch(() => null);
-            const msg = body?.error?.message ?? resp.statusText;
-            toastMessage.warning(`TTS 失败：${msg}（跳过此句）`);
-            await new Promise((r) => setTimeout(r, 1500));
-            setCaption("");
-            continue;
-          }
-          const blob = await resp.blob();
-          await client.sendAudioBlob(blob);
+          await client.sendAudioBlob(result.blob);
         } catch (err) {
-          toastMessage.warning(`TTS 失败：${(err as Error).message}（跳过此句）`);
+          toastMessage.warning(`音频发送失败：${(err as Error).message}（跳过此句）`);
         }
-        // Hold the caption for ~1.5 s after driving finishes so the
-        // operator has time to read it; clear before pulling the next
-        // sentence so two captions never overlap on screen.
-        await new Promise((r) => setTimeout(r, 1500));
-        setCaption("");
       }
+      // Tail hold: WebRTC echoes the audio back with a small pipeline
+      // delay. Hold the last caption briefly so it doesn't disappear
+      // before the mouth stops moving, then clear.
+      await new Promise((r) => setTimeout(r, 800));
+      setCaption("");
     } finally {
       ttsWorkerBusyRef.current = false;
     }
@@ -407,31 +448,58 @@ export default function Chat() {
                 style={{
                   width: "100%",
                   aspectRatio: "9 / 16",
-                  maxHeight: 480,
+                  maxHeight: 640,
                   background: "#000",
                   borderRadius: 8,
                   display: "block",
                 }}
               />
               {caption && (
+                // ``key={caption}`` forces a remount on every new
+                // sentence so the entrance animation in ``styles.css``
+                // (``.dh-caption``) replays. Without it, React would
+                // reconcile by mutating the text node and skip the
+                // animation on the second sentence.
                 <div
+                  key={caption}
                   aria-live="polite"
+                  className="dh-caption"
                   style={{
                     position: "absolute",
-                    left: "10%",
-                    right: "10%",
-                    bottom: 12,
-                    padding: "8px 14px",
-                    background: "rgba(0, 0, 0, 0.65)",
+                    left: "12%",
+                    right: "12%",
+                    bottom: 18,
+                    padding: "10px 18px",
+                    // Frosted glass: backdrop-filter blurs whatever's
+                    // behind the caption, the rgba fallback covers
+                    // browsers without backdrop-filter. Subtle top-to-
+                    // bottom highlight lifts the bar off the video
+                    // frame so it doesn't look pasted on.
+                    backgroundColor: "rgba(20, 20, 28, 0.7)",
+                    backgroundImage:
+                      "linear-gradient(to bottom, rgba(255,255,255,0.06), rgba(0,0,0,0))",
+                    backdropFilter: "blur(12px) saturate(140%)",
+                    WebkitBackdropFilter: "blur(12px) saturate(140%)",
                     color: "#fff",
-                    fontSize: 16,
-                    lineHeight: 1.4,
+                    fontSize: 20,
+                    fontWeight: 500,
+                    lineHeight: 1.45,
+                    letterSpacing: 0.2,
                     textAlign: "center",
-                    borderRadius: 6,
+                    borderRadius: 10,
                     pointerEvents: "none",
-                    maxWidth: "80%",
+                    maxWidth: "76%",
                     margin: "0 auto",
-                    transition: "opacity 0.2s",
+                    // Drop shadow on the text itself -- keeps the
+                    // caption legible even if a frame lands a light
+                    // skin tone / white background under it.
+                    textShadow: "0 1px 4px rgba(0, 0, 0, 0.55)",
+                    // System Chinese first (PingFang on macOS, YaHei
+                    // on Windows) so the panel reads native instead of
+                    // falling back to the browser's default sans-serif.
+                    fontFamily:
+                      '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif',
+                    boxShadow: "0 4px 18px rgba(0, 0, 0, 0.25)",
                     wordBreak: "break-word",
                   }}
                 >

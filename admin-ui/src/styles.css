@@ -14,3 +14,23 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
+
+/* Caption entrance animation for the 数字人对话 page. ``key={caption}``
+   on the overlay div forces a remount per sentence, so this animation
+   replays every time the LLM produces a new flushed sentence. The
+   keyframe lives in the global stylesheet (rather than as inline
+   ``animation`` style) because inline ``@keyframes`` aren't supported. */
+@keyframes dhCaptionIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dh-caption {
+  animation: dhCaptionIn 220ms ease-out;
+}
