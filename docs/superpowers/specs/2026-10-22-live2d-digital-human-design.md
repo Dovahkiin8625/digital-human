@@ -41,6 +41,7 @@
 | LLM / TTS 只挂在 admin 面：`/api/admin/llm/chat/stream`、`/api/admin/tts` | 产品客户端用 `X-API-Key` 打不到，必须补业务面端点 |
 | 无 Live2D 模型注册与托管 | 需要新增 |
 | `admin-ui` 是 admin 鉴权的调试台 | 产品客户端鉴权与生命周期都不同，不宜混入 |
+| **`/api/v1/*` 目前完全无鉴权。** README 关于 `X-API-Key` 的描述已过时 —— 鉴权代码在 no-tenant 重构中被删除，`server/api/admin.py:100` 明写「no auth dependencies, all endpoints public」 | 桌面宠物是**第一个连远程服务的客户端**，且新建的 LLM/TTS 端点直接消耗上游额度，必须单独鉴权。见 §4.3 |
 
 **已有的有利条件**：
 
@@ -126,7 +127,16 @@ Live2D 专属字段（模型目录、`model3.json` 入口、默认表情、动�
 | `POST /api/v1/chat/stream` | `/api/admin/llm/chat/stream` | `text/event-stream`，每帧 `{"delta": ...}` / `{"done": true}` / `{"error": ...}` |
 | `POST /api/v1/tts` | `/api/admin/tts` | `{"text", "voice_id"}` → `audio/wav`。沿用「服务端只套 WAV 头、重采样放浏览器」的既有做法，服务端不引入音频编解码依赖 |
 
-鉴权沿用 `/api/v1` 其余端点的 `X-API-Key` 校验路径。
+#### 鉴权：这两个端点单独加 token
+
+现有 `/api/v1/*` **没有任何鉴权**（§2）。这两个新端点**不跟随该现状**，理由是它们与其它端点性质不同：
+
+- 它们是**第一批给远程客户端调用**的端点（桌面宠物指向远程部署）；
+- 它们**直接消耗上游额度**（LLM tokens、MiniMax 合成时长），暴露即等于送钱。
+
+做法：新增环境变量 `DH_V1_API_TOKEN`。留空 = 关闭鉴权（本地开发无需配置），非空时两个端点要求请求头 `X-V1-Token` 与之相等，否则 401。错误走既有 `AppError` 信封。
+
+**刻意不做**：不给现有 `/api/v1/avatars`、`/api/v1/sessions`、`/api/v1/ws/*` 补鉴权。那是既有的、独立的安全问题（README 已与其不符），把它混进来会改到现有调用方并让本设计的 diff 失焦。**应作为单独一件事处理**。
 
 **同时补** `GET /api/v1/avatars?kind=live2d` 的形态过滤（现有列表端点加一个可选查询参数）。
 
@@ -241,6 +251,7 @@ Electron 默认对**失焦或被遮挡**的窗口暂停 `requestAnimationFrame`�
 | 句子里出现未知情绪标记 | 落 `neutral`，不抛错 |
 | 模型缺 `ParamMouthOpenY` | 嘴不动，表情与生命感照常（§5.1 降级路径） |
 | 服务完全不可达 | Electron 显示「未连接」，**idle 层仍然运行** |
+| 收到 401 | 服务端已配 `DH_V1_API_TOKEN` 而客户端没带或带错。**提示配置错误并停止重试** —— 重试不会自愈，只是刷日志 |
 
 ## 8. 测试策略
 
