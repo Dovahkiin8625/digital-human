@@ -9,6 +9,8 @@ admin-ui/node_modules/
 admin-ui/dist/
 live2d-ui/node_modules/
 live2d-ui/dist/
+# Staged from the Live2D SDK by scripts/copy-cubism.mjs -- proprietary, never committed.
+live2d-ui/public/cubism/
 .pytest_cache/
 .env
 .playwright-mcp/*

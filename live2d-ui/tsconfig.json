@@ -6,6 +6,12 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    // Vite resolves this alias at bundle time; tsc needs it declared here or
+    // every @framework/* import is "cannot find module". Keep in sync with
+    // resolve.alias in vite.config.ts.
+    "paths": {
+      "@framework/*": ["../data/CubismSdkForWeb-5-r.5/Framework/src/*"]
+    },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

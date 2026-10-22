@@ -9,7 +9,10 @@ export default defineConfig({
   base: "/live2d/",
   plugins: [react()],
   resolve: {
-    extensions: [".ts", ".js"],
+    // The SDK Demo lists only .ts/.js because it has no JSX. This app is
+    // React, so the JSX extensions have to be resolvable or `import App from
+    // "./App"` cannot find App.tsx.
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
     // The Cubism Framework ships TypeScript source with no built bundle, so
     // Vite compiles it inline. This is the wiring the SDK's own Demo uses.
     // The SDK is proprietary and lives outside the repo tree -- see the

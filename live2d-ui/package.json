@@ -5,8 +5,9 @@
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "node scripts/copy-cubism.mjs && vite",
+    "build": "node scripts/copy-cubism.mjs && node scripts/typecheck.mjs && vite build",
+    "typecheck": "node scripts/typecheck.mjs",
     "preview": "vite preview",
     "test": "vitest run"
   },
