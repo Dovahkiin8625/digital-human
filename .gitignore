@@ -7,6 +7,8 @@ __pycache__/
 data/
 admin-ui/node_modules/
 admin-ui/dist/
+live2d-ui/node_modules/
+live2d-ui/dist/
 .pytest_cache/
 .env
 .playwright-mcp/*
