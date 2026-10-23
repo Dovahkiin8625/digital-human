@@ -279,6 +279,15 @@ describe("stripEmotionTags", () => {
     expect(stripEmotionTags("[smile]hi[note]").tags).toEqual(["smile", "note"]);
   });
 
+  // An empty list means the caller could not load the model's expression
+  // map. Taking it literally as "strip nothing" left the marker in the TTS
+  // text and the pet said it aloud, which is the worse of the two failures.
+  it("falls back to permissive stripping for an EMPTY allowed list", () => {
+    const r = stripEmotionTags("[smile]你好", []);
+    expect(r.text).toBe("你好");
+    expect(r.tags).toEqual(["smile"]);
+  });
+
   it("returns an empty text when the line is only tags", () => {
     const r = stripEmotionTags("[smile]");
     expect(r.text).toBe("");

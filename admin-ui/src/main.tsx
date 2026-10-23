@@ -5,12 +5,19 @@ import { App as AntApp, ConfigProvider, theme as antdTheme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import App from "./App";
 import { ThemeProvider, useTheme } from "./theme";
+import { configureRuntime } from "./live2d/cubism/core";
+import { getConsoleToken } from "./api";
 import "./styles.css";
 
 // Electron loads this bundle from file://, where BrowserRouter has no server
 // to resolve paths against. The preload publishes window.petConfig before any
 // page script runs, so its presence is a reliable "this is the pet" signal.
 const isPet = typeof window !== "undefined" && Boolean(window.petConfig);
+
+// Every Live2D request (core, shaders, model files) is routed through here so
+// it can carry the server root and the token. In the console those are
+// same-origin and optional; the pet sets both before mounting a stage.
+configureRuntime({ baseUrl: isPet ? undefined : "", token: getConsoleToken() });
 
 function Root() {
   const { mode } = useTheme();

@@ -191,6 +191,10 @@ def test_admin_get_avatar_detail_and_error(client):
         "avatar_id",
         "name",
         "status",
+        # The console's Debug / Chat / Avatars pages branch on this to pick a
+        # renderer; it was missing from the admin serialiser while /api/v1
+        # carried it, which made a Live2D avatar unselectable.
+        "kind",
         "config",
         "error",
         "created_at",

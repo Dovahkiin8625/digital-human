@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Popconfirm,
+  Input,
   Progress,
   Space,
   Table,
@@ -14,7 +15,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
-import { api, live2dHealth } from "../api";
+import { api, getConsoleToken, live2dHealth, setConsoleToken } from "../api";
 import LivePortraits from "./LivePortraits";
 import Models from "./Models";
 import StatusTag from "../components/StatusTag";
@@ -217,6 +218,20 @@ export default function System() {
                       </Space>
                       <Typography.Text type="secondary">
                         SDK 目录：<code>{l2d.sdk_dir}</code>
+                      </Typography.Text>
+                      <Input
+                        size="small"
+                        style={{ width: 320 }}
+                        placeholder="DH_V1_API_TOKEN（未配置时留空）"
+                        defaultValue={getConsoleToken()}
+                        onBlur={(e) => {
+                          setConsoleToken(e.target.value.trim());
+                          message.success("已保存，刷新页面后生效");
+                        }}
+                      />
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        管理台自身无鉴权。服务端配置了 <code>DH_V1_API_TOKEN</code> 时，模型托管端点会要求它，
+                        在此填入与桌面宠物相同的值即可。
                       </Typography.Text>
                       {l2d.enabled && !l2d.core_present && (
                         <Alert

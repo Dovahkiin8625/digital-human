@@ -49,8 +49,13 @@ def _serialize(a: Avatar, with_detail: bool = False) -> dict:
         "kind": a.kind,
         "created_at": a.created_at.isoformat(),
     }
+    # config ships on LIST rows too, not just detail. The pet builds its
+    # model URL from config.model.entry and its emotion allow-list from
+    # config.expressions; the admin list has always included it. Leaving it
+    # detail-only meant the one client outside the console had to make a
+    # second round trip per avatar before it could render anything.
+    data["config"] = a.config_json
     if with_detail:
-        data["config"] = a.config_json
         data["error"] = None
     return data
 

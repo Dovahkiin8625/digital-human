@@ -15,11 +15,15 @@ from server.core.errors import AppError
 from server.live2d.registry import validate_model_dir
 
 
-def _write_model(root: Path, *, with_moc: bool = True, expr_ids=("0", "1"),
+def _write_model(root: Path, *, with_moc: bool = True, expr_ids=("exp_01", "F01"),
                  with_motion: bool = True) -> Path:
     files = {
         "Moc": "model.moc3" if with_moc else "missing.moc3",
         "Textures": ["texture_00.png"],
+        # Realistic names on purpose. Shipped Cubism models name their
+        # expressions "exp_01", "F01", "Smile" -- never "0". A fixture with
+        # numeric names hid a bug where the registry validated the map's
+        # index against the names and so rejected every real model.
         "Expressions": [{"Name": e, "File": f"{e}.exp3.json"} for e in expr_ids],
         # Always declared. `with_motion=False` means the reference is
         # present but the file is not -- a model with no Motions key at all
@@ -76,7 +80,7 @@ def test_rejects_a_missing_texture(tmp_path):
 
 def test_rejects_a_missing_expression_file(tmp_path):
     root = _write_model(tmp_path)
-    (root / "1.exp3.json").unlink()
+    (root / "F01.exp3.json").unlink()
     with pytest.raises(AppError) as ei:
         validate_model_dir(root, dict(ENTRY))
     assert ei.value.code == "live2d_invalid_model"
@@ -98,25 +102,44 @@ def test_accepts_a_model_with_no_motions_key(tmp_path):
     assert validate_model_dir(root, dict(ENTRY))["model"]["entry"] == "model.model3.json"
 
 
-def test_rejects_an_expression_id_the_model_does_not_declare(tmp_path):
-    # The operator's emotion map indexes into the model's own expression
-    # list. An off-by-one here is invisible until the pet tries to make a
-    # face that does not exist.
+def test_rejects_an_expression_index_past_the_end_of_the_list(tmp_path):
+    # The map's value is a POSITION in the model's expression list -- what
+    # expressionIndex() consumes. An off-by-one here is invisible until the
+    # pet tries to make a face that does not exist.
     with pytest.raises(AppError) as ei:
         validate_model_dir(
-            _write_model(tmp_path, expr_ids=("0",)),
+            _write_model(tmp_path, expr_ids=("exp_01",)),
             {"model": {"entry": "model.model3.json"}, "expressions": {"smile": 7}},
         )
     assert ei.value.code == "live2d_invalid_model"
     assert "7" in ei.value.message
 
 
+def test_rejects_a_non_numeric_expression_index(tmp_path):
+    with pytest.raises(AppError) as ei:
+        validate_model_dir(
+            _write_model(tmp_path),
+            {"model": {"entry": "model.model3.json"}, "expressions": {"smile": "F01"}},
+        )
+    assert ei.value.code == "live2d_invalid_model"
+
+
 def test_accepts_an_expression_id_the_model_declares(tmp_path):
     cfg = validate_model_dir(
-        _write_model(tmp_path, expr_ids=("0", "1")),
+        _write_model(tmp_path, expr_ids=("exp_01", "F01")),
         {"model": {"entry": "model.model3.json"}, "expressions": {"smile": 1}},
     )
     assert cfg["expressions"]["smile"] == 1
+
+
+def test_accepts_a_realistic_model_with_named_expressions(tmp_path):
+    """The whole point: shipped models name expressions "exp_01"/"F01", and
+    an operator entering {"smile": 0} must be accepted."""
+    cfg = validate_model_dir(
+        _write_model(tmp_path),
+        {"model": {"entry": "model.model3.json"}, "expressions": {"smile": 0, "sad": 1}},
+    )
+    assert cfg["expressions"] == {"smile": 0, "sad": 1}
 
 
 @pytest.mark.parametrize(

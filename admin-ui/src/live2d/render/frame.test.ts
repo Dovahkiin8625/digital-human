@@ -80,4 +80,54 @@ describe("applyFrame", () => {
     expect(calls).not.toContain("set:ParamMouthOpenY")
     expect(calls).toContain("bake")
   })
+
+  // The idle layer emits signed normalized values; every one has to land
+  // inside the MODEL's range. Writing a raw +-2.5 into a -30..30 head
+  // parameter reaches ~8% of the travel and the pet reads as frozen.
+  it("maps every driven parameter into the model's own range", () => {
+    const written: Array<[string, number]> = []
+    const ranges: Record<string, [number, number]> = {
+      ParamMouthOpenY: [0, 1],
+      ParamMouthForm: [-2, 1],
+      ParamAngleX: [-30, 30],
+      ParamAngleY: [-30, 30],
+      ParamAngleZ: [-30, 30],
+      ParamEyeLOpen: [0, 1.2],
+      ParamEyeBallX: [-1, 1],
+      ParamEyeBallY: [-1, 1],
+    }
+    const names = Object.keys(ranges)
+    const r = {
+      calls: [] as string[],
+      model: {
+        setParameterValueByIndex: (i: number, v: number) => {
+          written.push([names[i], v])
+        },
+        getParameterIndex: (n: string) => names.indexOf(n),
+        getParameterMinimumValue: (i: number) => ranges[names[i]][0],
+        getParameterMaximumValue: (i: number) => ranges[names[i]][1],
+      },
+      expression: { setExpression: () => {}, update: () => {} },
+      motion: { update: () => {} },
+      physics: { update: () => {} },
+      model3: { update: () => {} },
+    }
+    applyFrame({
+      ...r,
+      expressionIndex: 0,
+      open: 0.5,
+      form: 1,
+      idle: { angleX: 1, angleY: -1, angleZ: 1, eyeOpen: 0.5, eyeBallX: 1, eyeBallY: -1 },
+      breathScale: 1,
+    })
+    expect(written.length).toBeGreaterThanOrEqual(8)
+    for (const [name, value] of written) {
+      const [lo, hi] = ranges[name]
+      expect(value, `${name} out of range`).toBeGreaterThanOrEqual(lo)
+      expect(value, `${name} out of range`).toBeLessThanOrEqual(hi)
+    }
+    // And it actually USES the range rather than clustering at the default.
+    const angleZ = written.find(([n]) => n === "ParamAngleZ")?.[1]
+    expect(angleZ).toBeGreaterThan(25)
+  })
 })

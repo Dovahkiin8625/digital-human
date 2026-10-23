@@ -76,9 +76,6 @@ function createWindow() {
   // behind it. `forward: true` keeps mousemove flowing so the window can
   // notice the cursor arriving and turn interaction back on.
   win.setIgnoreMouseEvents(true, { forward: true });
-  win.on("mousemove", () => {
-    if (win) win.setIgnoreMouseEvents(false);
-  });
   win.on("mouseleave", () => {
     if (win) win.setIgnoreMouseEvents(true, { forward: true });
   });
@@ -137,6 +134,12 @@ ipcMain.on("pet:config:get", (e) => {
   e.returnValue = readConfig();
 });
 ipcMain.handle("pet:config:set", (_e, patch) => writeConfig(patch ?? {}));
+
+// The renderer reports cursor movement (forwarded events reach it even while
+// the window ignores input) and the main process lifts click-through.
+ipcMain.on("pet:cursor", () => {
+  if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(false);
+});
 
 app.whenReady().then(() => {
   createWindow();

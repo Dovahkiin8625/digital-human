@@ -1,4 +1,4 @@
-import { mapToRange, resolveMouthRange } from "./params"
+import { mapSigned, mapToRange, resolveRange } from "./params"
 import type { IdlePose } from "./idle"
 
 /**
@@ -31,9 +31,6 @@ export interface FrameInputs {
   breathScale: number
 }
 
-/** Fallback range for the form parameter, which is conventionally signed. */
-const MOUTH_FORM_FALLBACK = { min: -1, max: 1 }
-
 export function applyFrame(f: FrameInputs): void {
   // 1-2. Cubism lays down expression and motion first.
   f.expression.setExpression(f.expressionIndex)
@@ -45,27 +42,31 @@ export function applyFrame(f: FrameInputs): void {
   //    cause of mouth-versus-expression flicker.
   const mouthIdx = f.model.getParameterIndex("ParamMouthOpenY")
   if (mouthIdx >= 0) {
-    const range = resolveMouthRange(f.model)
+    const range = resolveRange(f.model, "ParamMouthOpenY")
     if (range) {
       f.model.setParameterValueByIndex(mouthIdx, mapToRange(f.open, range))
     }
   }
 
-  const formIdx = f.model.getParameterIndex("ParamMouthForm")
-  if (formIdx >= 0) {
-    f.model.setParameterValueByIndex(formIdx, mapToRange(f.form, MOUTH_FORM_FALLBACK))
-  }
-
-  const set = (name: string, v: number) => {
+  // Every remaining parameter goes through the model's OWN range too. The
+  // same rig ships ParamAngleX in -30..30 and ParamMouthOpenY in 0..1, so
+  // an absolute constant that looks right for one is wrong for the others:
+  // writing a head angle of ±2.5 into a -30..30 parameter reaches only ~8%
+  // of the model's travel and the pet reads as frozen.
+  const put = (name: string, value: number, signed: boolean) => {
     const i = f.model.getParameterIndex(name)
-    if (i >= 0) f.model.setParameterValueByIndex(i, v)
+    if (i < 0) return
+    const range = resolveRange(f.model, name)
+    if (!range) return
+    f.model.setParameterValueByIndex(i, signed ? mapSigned(value, range) : mapToRange(value, range))
   }
-  set("ParamAngleX", f.idle.angleX * f.breathScale)
-  set("ParamAngleY", f.idle.angleY * f.breathScale)
-  set("ParamAngleZ", f.idle.angleZ * f.breathScale)
-  set("ParamEyeLOpen", f.idle.eyeOpen)
-  set("ParamEyeBallX", f.idle.eyeBallX)
-  set("ParamEyeBallY", f.idle.eyeBallY)
+  put("ParamMouthForm", f.form, false)
+  put("ParamAngleX", f.idle.angleX * f.breathScale, true)
+  put("ParamAngleY", f.idle.angleY * f.breathScale, true)
+  put("ParamAngleZ", f.idle.angleZ * f.breathScale, true)
+  put("ParamEyeLOpen", f.idle.eyeOpen, false)
+  put("ParamEyeBallX", f.idle.eyeBallX, true)
+  put("ParamEyeBallY", f.idle.eyeBallY, true)
 
   // 4-5. Physics derives hair and cloth from the head params we just wrote,
   //      then the pose is baked into vertices.

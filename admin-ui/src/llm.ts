@@ -429,7 +429,15 @@ export function stripEmotionTags(
   allowed?: string[],
 ): { text: string; tags: string[] } {
   const tags: string[] = [];
-  const allowedSet = allowed ? new Set(allowed.map((t) => t.toLowerCase())) : null;
+  // An EMPTY list means "the caller could not determine the allowed set",
+  // which is the same as not passing one -- not "strip nothing".
+  //
+  // The two failure modes are not symmetric: stripping too little leaves a
+  // marker in the TTS text and the pet says "smile" out loud, while
+  // stripping too much drops at most a bracketed word. The empty list
+  // arrived from a model whose expression map had not loaded, and taking it
+  // literally meant neither the marker nor anything else was ever removed.
+  const allowedSet = allowed?.length ? new Set(allowed.map((t) => t.toLowerCase())) : null;
   const stripped = text.replace(/\[([a-z]+)\]/gi, (match, name: string) => {
     const tag = name.toLowerCase();
     if (allowedSet && !allowedSet.has(tag)) return match;

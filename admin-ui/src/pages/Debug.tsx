@@ -196,6 +196,8 @@ export default function Debug() {
       await api(`/api/v1/sessions/${sessionId}`, { method: "DELETE" })
     }
     setSessionId("")
+    setLive2d(false)
+    setLive2dAudio(null)
     setStatus("closed")
   }
 
@@ -515,7 +517,9 @@ export default function Debug() {
               icon={<SoundOutlined />}
               onClick={speak}
               loading={ttsBusy}
-              disabled={!sessionId || !text.trim() || !voice || (voice === CUSTOM_VOICE && !customVoice.trim())}
+              // A live2d avatar has no session, so gating this on sessionId alone left
+              // the only way to make the pet talk permanently disabled in that mode.
+              disabled={(sessionId || live2d) === false || !text.trim() || !voice || (voice === CUSTOM_VOICE && !customVoice.trim())}
             >
               合成并驱动
             </Button>

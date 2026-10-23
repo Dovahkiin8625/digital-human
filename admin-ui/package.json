@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/typecheck.mjs && vite build",
+    "build:pet": "node scripts/typecheck.mjs && vite build --mode pet",
     "preview": "vite preview",
-    "pet": "npm run build && electron .",
+    "pet": "npm run build:pet && electron .",
     "test": "vitest run",
     "typecheck": "node scripts/typecheck.mjs"
   },

@@ -3,6 +3,7 @@ import { Alert, Button, Input, Space, Typography } from "antd";
 import { SendOutlined } from "@ant-design/icons";
 import { live2dHealth, live2dModelUrl } from "../api";
 import Live2DStage from "../live2d/Live2DStage";
+import { configureRuntime } from "../live2d/cubism/core";
 import { stripEmotionTags, streamChat } from "../llm";
 import type { AvatarInfo, Live2DHealth, Live2DModelConfig } from "../types";
 
@@ -26,6 +27,7 @@ declare global {
     petConfig?: {
       initial?: PetConfig;
       set: (patch: Partial<PetConfig>) => Promise<PetConfig>;
+      reportCursor?: () => void;
     };
   }
 }
@@ -47,6 +49,16 @@ export default function Pet() {
   useEffect(() => {
     const initial = window.petConfig?.initial;
     if (initial) setCfg({ ...FALLBACK, ...initial });
+  }, []);
+
+  // While the window ignores mouse input, Electron still forwards move
+  // events to the renderer. Reporting them is what lets the main process
+  // lift click-through when the cursor arrives -- without this the input
+  // box can never be focused.
+  useEffect(() => {
+    const report = () => window.petConfig?.reportCursor?.();
+    window.addEventListener("mousemove", report);
+    return () => window.removeEventListener("mousemove", report);
   }, []);
 
   const reload = useCallback(async () => {
@@ -87,6 +99,13 @@ export default function Pet() {
     () => ((avatar?.config as Live2DModelConfig)?.expressions ?? {}),
     [avatar],
   );
+  // The document is a file:// page under Electron, so every Live2D URL has
+  // to be absolute AND carry the token -- a bare "/api/v1/..." resolves to
+  // file:///api/v1/... and 401s on every request.
+  useEffect(() => {
+    configureRuntime({ baseUrl: cfg.serverUrl, token: cfg.token });
+  }, [cfg.serverUrl, cfg.token]);
+
   const modelUrl = avatar
     ? live2dModelUrl(
         avatar.avatar_id,

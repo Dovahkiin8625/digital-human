@@ -906,8 +906,11 @@ def admin_list_backends() -> dict:
 
 
 @router.get("/avatars")
-def admin_list_avatars(db=Depends(get_db)) -> list[dict]:
-    rows = db.execute(select(Avatar).order_by(Avatar.created_at.desc())).scalars().all()
+def admin_list_avatars(kind: str | None = None, db=Depends(get_db)) -> list[dict]:
+    stmt = select(Avatar)
+    if kind:
+        stmt = stmt.where(Avatar.kind == kind)
+    rows = db.execute(stmt.order_by(Avatar.created_at.desc())).scalars().all()
     return [_admin_avatar_row(db, a) for a in rows]
 
 
@@ -926,6 +929,11 @@ def _admin_avatar_row(db, a: Avatar) -> dict:
         "avatar_id": a.id,
         "name": a.name,
         "status": a.status,
+        # The console's Debug / Chat / Avatars pages all branch on this to
+        # decide between a WebRTC session and a Live2D canvas. It was
+        # missing here while /api/v1 carried it, which made a registered
+        # Live2D avatar invisible to every page that could select one.
+        "kind": a.kind,
         "config": a.config_json,
         "error": job.error if a.status == "failed" and job else None,
         "created_at": a.created_at.isoformat(),

@@ -69,24 +69,31 @@ def validate_model_dir(path: Path, config: dict) -> dict:
     for texture in refs.get("Textures") or []:
         _require_file(root, texture, "texture")
 
-    model_expr_ids: set[str] = set()
+    expression_names: list[str] = []
     for expr in refs.get("Expressions") or []:
         name = str(expr.get("Name"))
-        model_expr_ids.add(name)
+        expression_names.append(name)
         _require_file(root, expr.get("File", ""), f"expression {name}")
 
     for group in (refs.get("Motions") or {}).values():
         for motion in group or []:
             _require_file(root, motion.get("File", ""), "motion")
 
-    # The operator's emotion map indexes into the model's own expression
-    # list. An off-by-one here is invisible until the pet tries to make a
-    # face that does not exist.
+    # The operator's emotion map is {emotion tag: POSITION in the model's
+    # expression list} -- that is what expressionIndex() consumes on the
+    # client, and what the console's form tooltip tells them to enter.
+    #
+    # Validating the number against the expression NAMES would reject every
+    # real model: shipped Cubism models name their expressions "exp_01",
+    # "F01", "Smile" and so on, never "0". Only synthetic fixtures with
+    # numeric names would have passed that check.
     for tag, idx in (config.get("expressions") or {}).items():
-        if str(idx) not in model_expr_ids:
+        if not isinstance(idx, int) or isinstance(idx, bool) or not 0 <= idx < len(expression_names):
             raise _fail(
-                f"expressions[{tag!r}] = {idx} but the model declares "
-                f"{sorted(model_expr_ids)}"
+                f"expressions[{tag!r}] = {idx!r} but the model declares "
+                f"{len(expression_names)} expression(s) "
+                f"({', '.join(expression_names) or 'none'}), so the value must be an "
+                f"index in 0..{max(len(expression_names) - 1, 0)}"
             )
 
     return config

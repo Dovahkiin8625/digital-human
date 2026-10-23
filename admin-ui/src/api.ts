@@ -1,4 +1,5 @@
 import type { AvatarInfo, Live2DHealth, Live2DModelConfig } from "./types";
+import { modelFileUrl } from "./live2d/cubism/core";
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const headers: Record<string, string> = {};
@@ -98,8 +99,35 @@ export function live2dHealth(): Promise<Live2DHealth> {
  * else needs to be configured.
  */
 export function live2dModelUrl(avatarId: string, entry: string): string {
-  return `/api/v1/live2d/avatars/${avatarId}/model/${entry}`;
+  return modelFileUrl(avatarId, entry);
 }
 
-/** Base URL of the SDK's Core and Shaders, served by the same token rule. */
+/** Base URL of the SDK's Core and Shaders. Not token-gated -- see core.ts. */
 export const LIVE2D_RUNTIME_BASE = "/api/v1/live2d/runtime";
+/**
+ * The business-plane token, as held by the CONSOLE.
+ *
+ * The admin plane has had no auth since the multi-tenant refactor, so the
+ * console has no credential of its own to present. The one exception is the
+ * Live2D model host, which is token-gated for the Electron pet's sake -- and
+ * which therefore 401s the console too on a deployment that sets one. This
+ * is how an operator hands the console the same token the pet uses.
+ */
+const CONSOLE_TOKEN_KEY = "dhV1Token";
+
+export function getConsoleToken(): string {
+  try {
+    return window.localStorage.getItem(CONSOLE_TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function setConsoleToken(token: string): void {
+  try {
+    if (token) window.localStorage.setItem(CONSOLE_TOKEN_KEY, token);
+    else window.localStorage.removeItem(CONSOLE_TOKEN_KEY);
+  } catch {
+    /* private mode / storage disabled -- the console still works without it */
+  }
+}

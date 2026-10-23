@@ -346,7 +346,9 @@ export default function Chat() {
 
   async function sendChat() {
     const client = clientRef.current;
-    if (!client) {
+    // Live2D has no WebRTC client at all -- the clip plays locally. Only
+    // require one when we are actually driving a video session.
+    if (!client && !live2d) {
       toastMessage.warning("请先点击「开始」启动会话");
       return;
     }
@@ -597,7 +599,7 @@ export default function Chat() {
         </Col>
         <Col xs={24} lg={14}>
           <LlmChatCard
-            sessionActive={!!sessionId}
+            sessionActive={!!sessionId || live2d}
             avatarName={resolvedAvatarName}
             messages={messages}
             busy={busy}

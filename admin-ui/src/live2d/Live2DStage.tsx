@@ -41,8 +41,6 @@ export default function Live2DStage({
 }: Live2DStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<CubismStage | null>(null);
-  const exprRef = useRef(expressionIndex);
-  exprRef.current = expressionIndex;
   // Kept in refs so a caller passing inline arrow functions does not tear the
   // stage down and rebuild the model on every render.
   const onReadyRef = useRef(onReady);

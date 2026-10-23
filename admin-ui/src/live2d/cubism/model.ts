@@ -8,7 +8,7 @@ import type { ICubismModelSetting } from "@framework/icubismmodelsetting";
 
 import { idlePose } from "../render/idle";
 import { applyFrame, type FrameInputs } from "../render/frame";
-import { SHADER_PATH } from "./core";
+import { authFetch, SHADER_PATH } from "./core";
 import type { FrameState, ParameterReport } from "./types";
 
 /**
@@ -61,28 +61,40 @@ export class StageModel extends CubismUserModel {
     CubismFramework.initialize();
 
     const home = dir.endsWith("/") ? dir : `${dir}/`;
-    const settingBuffer = await fetch(`${home}${fileName}`).then((r) => r.arrayBuffer());
+    const settingBuffer = await authFetch(`${home}${fileName}`).then((r) => {
+      if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
+      return r.arrayBuffer()
+    });
     const setting: ICubismModelSetting = new CubismModelSettingJson(
       settingBuffer,
       settingBuffer.byteLength,
     );
 
-    const moc = await fetch(`${home}${setting.getModelFileName()}`).then((r) => r.arrayBuffer());
+    const moc = await authFetch(`${home}${setting.getModelFileName()}`).then((r) => {
+      if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
+      return r.arrayBuffer()
+    });
     this.loadModel(moc, false);
 
     // createRenderer initializes against the just-loaded CubismModel, so it
     // must come after loadModel. getRenderer() is null until it runs.
     this.createRenderer(width, height);
     this.getRenderer().startUp(gl);
-    this.getRenderer().loadShaders(SHADER_PATH);
+    this.getRenderer().loadShaders(SHADER_PATH());
 
     if (setting.getPhysicsFileName() !== "") {
-      const p = await fetch(`${home}${setting.getPhysicsFileName()}`).then((r) => r.arrayBuffer());
+      const p = await authFetch(`${home}${setting.getPhysicsFileName()}`).then((r) => {
+      if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
+      return r.arrayBuffer()
+    });
       this.loadPhysics(p, p.byteLength);
       this.physics = new CubismPhysicsUpdater(this._physics);
     }
     if (setting.getPoseFileName() !== "") {
-      const p = await fetch(`${home}${setting.getPoseFileName()}`).then((r) => r.arrayBuffer());
+      const p = await authFetch(`${home}${setting.getPoseFileName()}`).then((r) => {
+      if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
+      return r.arrayBuffer()
+    });
       this.loadPose(p, p.byteLength);
       this.pose = new CubismPoseUpdater(this._pose);
     }
@@ -90,7 +102,7 @@ export class StageModel extends CubismUserModel {
     for (let i = 0; i < setting.getTextureCount(); i++) {
       const name = setting.getTextureFileName(i);
       if (name === "") continue;
-      const blob = await fetch(`${home}${name}`).then((r) => r.blob());
+      const blob = await authFetch(`${home}${name}`).then((r) => r.blob());
       this.getRenderer().bindTexture(i, createTexture(gl, await createImageBitmap(blob)));
     }
   }
@@ -141,7 +153,7 @@ export class StageModel extends CubismUserModel {
     applyFrame(inputs);
     this.pose?.onLateUpdate(this._model, dt);
 
-    this.getRenderer().drawModel(SHADER_PATH);
+    this.getRenderer().drawModel(SHADER_PATH());
     gl.flush();
   }
 }
