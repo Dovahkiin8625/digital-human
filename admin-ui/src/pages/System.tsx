@@ -233,7 +233,7 @@ export default function System() {
                         管理台自身无鉴权。服务端配置了 <code>DH_V1_API_TOKEN</code> 时，模型托管端点会要求它，
                         在此填入与桌面宠物相同的值即可。
                       </Typography.Text>
-                      {l2d.enabled && !l2d.core_present && (
+                      {l2d.enabled && (!l2d.core_present || !l2d.shaders_present) && (
                         <Alert
                           type="warning"
                           showIcon

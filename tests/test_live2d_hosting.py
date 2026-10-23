@@ -220,11 +220,23 @@ def test_health_reports_a_missing_sdk(client, monkeypatch, tmp_path):
     assert body["core_present"] is False
 
 
-def test_health_reports_a_present_sdk(client, monkeypatch, tmp_path):
-    sdk = tmp_path / "sdk"
+def _write_sdk(sdk, shaders_at="Framework"):
+    """A Cubism SDK laid out the way CubismSdkForWeb-5-r.5 actually ships.
+
+    The core is at the root, but the GLSL is NOT beside it: it sits under
+    Framework/, next to the framework source. Every shader 404'd until the
+    runtime endpoint learned that.
+    """
     (sdk / "Core").mkdir(parents=True)
     (sdk / "Core" / "live2dcubismcore.js").write_text("core", encoding="utf-8")
-    (sdk / "Shaders" / "WebGL").mkdir(parents=True)
+    shaders = sdk / shaders_at / "Shaders" / "WebGL"
+    shaders.mkdir(parents=True)
+    (shaders / "a.vert").write_text("vert", encoding="utf-8")
+    return sdk
+
+
+def test_health_reports_a_present_sdk(client, monkeypatch, tmp_path):
+    sdk = _write_sdk(tmp_path / "sdk")
     monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
     get_settings.cache_clear()
     body = client.get("/api/admin/live2d/health").json()
@@ -234,14 +246,19 @@ def test_health_reports_a_present_sdk(client, monkeypatch, tmp_path):
 
 
 def test_runtime_serves_core_and_shaders(client, monkeypatch, tmp_path):
-    sdk = tmp_path / "sdk"
-    (sdk / "Core").mkdir(parents=True)
-    (sdk / "Core" / "live2dcubismcore.js").write_text("core", encoding="utf-8")
-    (sdk / "Shaders" / "WebGL").mkdir(parents=True)
-    (sdk / "Shaders" / "WebGL" / "a.vert").write_text("vert", encoding="utf-8")
+    sdk = _write_sdk(tmp_path / "sdk")
     monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
     get_settings.cache_clear()
     assert client.get("/api/v1/live2d/runtime/Core/live2dcubismcore.js").text == "core"
+    assert client.get("/api/v1/live2d/runtime/Shaders/WebGL/a.vert").text == "vert"
+
+
+def test_runtime_serves_shaders_from_a_root_level_shaders_dir(client, monkeypatch, tmp_path):
+    """The URL namespace is Core/ and Shaders/ regardless of how the SDK is
+    unpacked, so a SDK with its shaders at the root still works."""
+    sdk = _write_sdk(tmp_path / "sdk", shaders_at="")
+    monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
+    get_settings.cache_clear()
     assert client.get("/api/v1/live2d/runtime/Shaders/WebGL/a.vert").text == "vert"
 
 
@@ -281,6 +298,33 @@ def test_runtime_refuses_anything_outside_core_and_shaders(client, monkeypatch, 
     (sdk / "Framework").mkdir()
     (sdk / "Framework" / "src").mkdir()
     (sdk / "Framework" / "src" / "x.ts").write_text("secret", encoding="utf-8")
+    monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
+    get_settings.cache_clear()
+    _assert_refused(client.get(f"/api/v1/live2d/runtime/{path}"))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # The allowlist is a boundary, not a string prefix: a path that
+        # starts with an allowed name but resolves outside its tree must
+        # still be refused. These reach the handler percent-encoded, which
+        # is the form a client actually sends -- a literal "../" is
+        # normalised away before it leaves the client.
+        "Core/%2e%2e/LICENSE.md",
+        "Core/%2e%2e/Framework/src/live2dcubismframework.ts",
+        "Core/%2e%2e/Samples/Resources/Hiyori/Hiyori.model3.json",
+        "Shaders/%2e%2e/Core/live2dcubismcore.js",
+    ],
+)
+def test_runtime_refuses_to_escape_its_trees(client, monkeypatch, tmp_path, path):
+    sdk = _write_sdk(tmp_path / "sdk")
+    (sdk / "LICENSE.md").write_text("secret license", encoding="utf-8")
+    (sdk / "Framework" / "src").mkdir(parents=True)
+    (sdk / "Framework" / "src" / "live2dcubismframework.ts").write_text("secret", encoding="utf-8")
+    hiyori = sdk / "Samples" / "Resources" / "Hiyori"
+    hiyori.mkdir(parents=True)
+    (hiyori / "Hiyori.model3.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
     get_settings.cache_clear()
     _assert_refused(client.get(f"/api/v1/live2d/runtime/{path}"))

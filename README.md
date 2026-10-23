@@ -124,7 +124,7 @@ curl http://127.0.0.1:8000/healthz
 | `DH_ADMIN_TOKEN` | `dev-admin-token` | **已失效** —— 同上，无任何端点校验它 |
 | `DH_V1_API_TOKEN` | 空 | Live2D 模型托管端点的可选令牌（请求头 `X-V1-Token`）。留空 = 不校验，供桌面宠物连远程部署 |
 | `DH_LIVE2D_ENABLED` | `true` | 关掉后管理台不再提供 Live2D 相关入口 |
-| `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/` 与 `Shaders/` 用于下发给浏览器，不渲染任何 Live2D |
+| `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/`（core）与 `Framework/Shaders/`（GLSL）下发给浏览器，不渲染任何 Live2D |
 | `DH_SESSION_IDLE_TIMEOUT` | `60` | 会话无音频自动回收秒数 |
 | `DH_SESSION_SWEEP_INTERVAL` | `10` | 空闲回收扫描周期（秒） |
 | `DH_FRAME_WIDTH` | `720` | 输出视频宽 |
@@ -158,7 +158,7 @@ curl http://127.0.0.1:8000/healthz
 | POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动；空闲时循环播放源视频画面，录制时请保持闭嘴、不说话 |
 | GET | `/api/v1/avatars` | 形象列表。可选 `?kind=live2d` 只列 Live2D 形象 |
 | GET | `/api/v1/live2d/avatars/{id}/model/{path}` | 模型目录内的单个文件。`DH_V1_API_TOKEN` 非空时需 `X-V1-Token` |
-| GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。**不鉴权**：core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两个子树内 |
+| GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。URL 命名空间固定，服务端负责把 `Shaders/` 映射到 SDK 里的 `Framework/Shaders/`（5-r.5 的 GLSL 不与 `Core/` 并列）。**不鉴权**：core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两棵子树内，`..` 无法越界 |
 | GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
 | DELETE | `/api/v1/avatars/{avatar_id}` | 删除形象及资产（204） |
 | POST | `/api/v1/sessions` | JSON `{"avatar_id"}` 创建会话，返回 `{session_id, status, signal_url, audio_url}`（形象须为 `ready`） |
