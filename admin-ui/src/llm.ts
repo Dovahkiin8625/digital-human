@@ -59,21 +59,39 @@ export interface StreamCallbacks {
   onError: (code: string, message: string) => void;
 }
 
+/** Where to reach the chat-stream endpoint, and with what credential. */
+export interface StreamOptions {
+  /** Absolute server root, e.g. ``http://127.0.0.1:8000``. Omitted for the
+   *  console, which is same-origin with the API it is served from. */
+  baseUrl?: string;
+  /** Sent as ``X-V1-Token``. */
+  token?: string;
+}
+
 /**
  * Open an SSE stream against ``/api/admin/llm/chat/stream`` and pump
  * frames into the caller. Returns a controller with ``abort()`` so the
  * caller can cancel mid-flight.
+ *
+ * Note the endpoint is the ADMIN one, and the Electron pet calls it too.
+ * There is no business-plane chat endpoint yet; building one is the fix
+ * when the pet ever points at a deployment where the admin plane should
+ * not be reachable from outside.
  */
 export function streamChat(
   messages: ChatMessage[],
   cb: StreamCallbacks,
+  opts: StreamOptions = {},
 ): { abort: () => void } {
   const controller = new AbortController();
+  const root = opts.baseUrl ? opts.baseUrl.replace(/\/$/, "") : "";
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.token) headers["X-V1-Token"] = opts.token;
   void (async () => {
     try {
-      const resp = await fetch("/api/admin/llm/chat/stream", {
+      const resp = await fetch(`${root}/api/admin/llm/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ messages: toLlmMessages(messages) }),
         signal: controller.signal,
       });

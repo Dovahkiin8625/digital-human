@@ -10,6 +10,7 @@ import Avatars from "./pages/Avatars";
 import AvatarDetail from "./pages/AvatarDetail";
 import Chat from "./pages/Chat";
 import Debug from "./pages/Debug";
+import Pet from "./pages/Pet";
 import System from "./pages/System";
 import type { SystemInfo } from "./types";
 
@@ -135,6 +136,10 @@ function Shell() {
 export default function App() {
   return (
     <Routes>
+      {/* The desktop pet's route. Deliberately outside Shell: it renders no
+          nav, no header and no console chrome, only the canvas and an input
+          box, because it lives in a transparent always-on-top window. */}
+      <Route path="/pet" element={<Pet />} />
       <Route element={<Shell />}>
         <Route path="/activate-portrait" element={<ActivatePortrait />} />
         <Route path="/avatars" element={<Avatars />} />
