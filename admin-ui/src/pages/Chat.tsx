@@ -32,14 +32,17 @@ import {
   RobotOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import { api } from "../api";
+import { api, live2dModelUrl } from "../api";
 import StatusTag from "../components/StatusTag";
-import type { AvatarInfo, SessionInfo } from "../types";
+import Live2DStage from "../live2d/Live2DStage";
+import { expressionIndex } from "../live2d/render/expressions";
+import type { AvatarInfo, Live2DModelConfig, SessionInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
 import {
   drainSentences,
   makeThinkStripper,
   streamChat,
+  stripEmotionTags,
   type ChatMessage,
 } from "../llm";
 
@@ -103,6 +106,12 @@ export default function Chat() {
   // Avatar picker + session lifecycle.
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [avatarId, setAvatarId] = useState("");
+  // Live2D mode. The server never creates a session for a live2d avatar,
+  // so start() branches before the POST rather than after it.
+  const [live2d, setLive2d] = useState(false);
+  const [live2dAudio, setLive2dAudio] = useState<AudioBuffer | null>(null);
+  const [exprIndex, setExprIndex] = useState(0);
+  const actxRef = useRef<AudioContext | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [status, setStatus] = useState("idle");
   const [starting, setStarting] = useState(false);
@@ -132,6 +141,16 @@ export default function Chat() {
   }, [sessionId]);
 
   async function start() {
+    // A live2d avatar has no pack and therefore no session. Branch HERE,
+    // before the POST: branching after it would 409 and leave an empty
+    // video box where the canvas should be.
+    if (selectedAvatar?.kind === "live2d") {
+      setLive2d(true);
+      setStatus("active");
+      setError("");
+      return;
+    }
+    setLive2d(false);
     setStarting(true);
     try {
       setError("");
@@ -195,7 +214,7 @@ export default function Chat() {
     const queue = sentenceQueueRef.current;
     if (queue.length === 0) return;
     const client = clientRef.current;
-    if (!client) {
+    if (!client && !live2d) {
       // Session stopped mid-conversation; drop the queue so the next
       // start() doesn't surprise the operator with leftover speech.
       queue.length = 0;
@@ -222,22 +241,30 @@ export default function Chat() {
       // of inline fetch plumbing.
       const fetchOne = (
         sentence: string,
-      ): Promise<{ sentence: string; blob: Blob } | { sentence: string; error: string }> =>
+      ): Promise<
+        { sentence: string; blob: Blob; tags: string[] } | { sentence: string; error: string }
+      > =>
         (async () => {
+          // Strip the emotion markers HERE, before the request: this string
+          // is the TTS input, and a marker left in is not a cosmetic bug --
+          // the pet says "smile" out loud. Restricted to the tags this
+          // avatar actually declares, so a bracketed word the user typed
+          // survives.
+          const { text: spoken, tags } = stripEmotionTags(sentence, expressionTags);
           try {
             const resp = await fetch("/api/admin/tts", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: sentence, voice_id: voiceId }),
+              body: JSON.stringify({ text: spoken, voice_id: voiceId }),
             });
             if (!resp.ok) {
               const body = await resp.json().catch(() => null);
               const msg = body?.error?.message ?? resp.statusText;
-              return { sentence, error: msg };
+              return { sentence: spoken, error: msg };
             }
-            return { sentence, blob: await resp.blob() };
+            return { sentence: spoken, blob: await resp.blob(), tags };
           } catch (err) {
-            return { sentence, error: (err as Error).message };
+            return { sentence: spoken, error: (err as Error).message };
           }
         })();
 
@@ -271,7 +298,26 @@ export default function Chat() {
         // had between sentences.
         setCaption(result.sentence);
         try {
-          await client.sendAudioBlob(result.blob);
+          if (live2d) {
+            if (result.tags.length > 0) {
+              setExprIndex(expressionIndex(result.tags, expressionMap, 0));
+            }
+            // Play locally and hand the SAME buffer to the stage. There is
+            // no WS audio channel in this mode, and reading the envelope
+            // from the buffer actually reaching the speakers is what makes
+            // mouth/voice drift impossible.
+            const actx = actxRef.current ?? new AudioContext();
+            actxRef.current = actx;
+            const decoded = await actx.decodeAudioData(await result.blob.arrayBuffer());
+            const src = actx.createBufferSource();
+            src.buffer = decoded;
+            src.connect(actx.destination);
+            setLive2dAudio(decoded);
+            src.start();
+            await new Promise((r) => setTimeout(r, (decoded.duration - 0.05) * 1000));
+          } else {
+            await client!.sendAudioBlob(result.blob);
+          }
         } catch (err) {
           toastMessage.warning(`音频发送失败：${(err as Error).message}（跳过此句）`);
         }
@@ -388,6 +434,25 @@ export default function Chat() {
     () => nameFor(avatars, avatarId),
     [avatars, avatarId]
   );
+  const selectedAvatar = useMemo(
+    () => avatars.find((a) => a.avatar_id === avatarId) ?? null,
+    [avatars, avatarId],
+  );
+  // The emotion tags this avatar accepts. Read from its expression map,
+  // which registration already validated against the model, so stripping
+  // can be restricted to these and leave a bracketed word the user typed.
+  const expressionMap = useMemo<Record<string, number>>(() => {
+    if (selectedAvatar?.kind !== "live2d") return {};
+    return (selectedAvatar.config as Live2DModelConfig)?.expressions ?? {};
+  }, [selectedAvatar]);
+  const expressionTags = useMemo(() => Object.keys(expressionMap), [expressionMap]);
+  const l2dUrl =
+    selectedAvatar?.kind === "live2d"
+      ? live2dModelUrl(
+          selectedAvatar.avatar_id,
+          (selectedAvatar.config as Live2DModelConfig)?.model?.entry ?? "model.model3.json",
+        )
+      : "";
   const resolvedVoice = resolveVoice();
 
   return (
@@ -403,7 +468,17 @@ export default function Chat() {
             value={avatarId || undefined}
             placeholder="选择形象…"
             onChange={setAvatarId}
-            options={avatars.map((a) => ({ value: a.avatar_id, label: a.name }))}
+            options={[
+              { label: "真人视频", isL2d: false },
+              { label: "Live2D", isL2d: true },
+            ]
+              .map((g) => ({
+                label: g.label,
+                options: avatars
+                  .filter((a) => (g.isL2d ? a.kind === "live2d" : a.kind !== "live2d"))
+                  .map((a) => ({ value: a.avatar_id, label: a.name })),
+              }))
+              .filter((g) => g.options.length > 0)}
             notFoundContent="没有已就绪的形象"
             disabled={!!sessionId}
           />
@@ -440,20 +515,31 @@ export default function Chat() {
                 clicks meant for the underlying controls. Fades out
                 automatically when ``caption`` clears. */}
             <div style={{ position: "relative" }}>
-              <video
-                ref={videoRef}
-                controls
-                autoPlay
-                playsInline
-                style={{
-                  width: "100%",
-                  aspectRatio: "9 / 16",
-                  maxHeight: 640,
-                  background: "#000",
-                  borderRadius: 8,
-                  display: "block",
-                }}
-              />
+              {live2d && l2dUrl ? (
+                <Live2DStage
+                  modelUrl={l2dUrl}
+                  audio={live2dAudio}
+                  expressionIndex={exprIndex}
+                  width={320}
+                  height={560}
+                  onError={(e) => setError(String(e))}
+                />
+              ) : (
+                <video
+                  ref={videoRef}
+                  controls
+                  autoPlay
+                  playsInline
+                  style={{
+                    width: "100%",
+                    aspectRatio: "9 / 16",
+                    maxHeight: 640,
+                    background: "#000",
+                    borderRadius: 8,
+                    display: "block",
+                  }}
+                />
+              )}
               {caption && (
                 // ``key={caption}`` forces a remount on every new
                 // sentence so the entrance animation in ``styles.css``

@@ -388,3 +388,35 @@ export function makeThinkStripper(): {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Emotion tags
+
+/**
+ * Strip the inline emotion markers the model emits, e.g. ``[smile]好的呀``.
+ *
+ * The text this returns is what goes to TTS, so the stripping has to be
+ * real rather than cosmetic: a tag left in is not a visual glitch, the pet
+ * says "smile" out loud.
+ *
+ * ``allowed`` is the tag set to strip -- in practice the avatar's own
+ * expression map keys, which are validated against the model at
+ * registration. Passing it is what keeps ``[note]`` intact: by shape alone
+ * it is indistinguishable from ``[smile]``, and silently eating a bracket
+ * the user typed corrupts the spoken line. Omitting it strips any word
+ * tag, which is the sensible default before a model has been chosen.
+ */
+export function stripEmotionTags(
+  text: string,
+  allowed?: string[],
+): { text: string; tags: string[] } {
+  const tags: string[] = [];
+  const allowedSet = allowed ? new Set(allowed.map((t) => t.toLowerCase())) : null;
+  const stripped = text.replace(/\[([a-z]+)\]/gi, (match, name: string) => {
+    const tag = name.toLowerCase();
+    if (allowedSet && !allowedSet.has(tag)) return match;
+    tags.push(tag);
+    return "";
+  });
+  return { text: stripped, tags };
+}

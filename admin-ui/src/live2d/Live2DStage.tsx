@@ -11,6 +11,11 @@ export interface Live2DStageProps {
    *  -- the mouth reads the audio that is actually reaching the speakers,
    *  which is what makes drift impossible. */
   audio: AudioBuffer | null
+  /** Index into the model's own expression list, driven by the emotion tags
+   *  in the reply. Wired through but currently inert: Cubism 5 replaced
+   *  index-based expressions with a motion queue, so the adapter inside
+   *  the stage is a no-op until that is designed. */
+  expressionIndex?: number
   width?: number
   height?: number
   onReady?: (params: ParameterReport[]) => void
@@ -28,6 +33,7 @@ export interface Live2DStageProps {
 export default function Live2DStage({
   modelUrl,
   audio,
+  expressionIndex = 0,
   width = 480,
   height = 720,
   onReady,
@@ -35,6 +41,8 @@ export default function Live2DStage({
 }: Live2DStageProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<CubismStage | null>(null);
+  const exprRef = useRef(expressionIndex);
+  exprRef.current = expressionIndex;
   // Kept in refs so a caller passing inline arrow functions does not tear the
   // stage down and rebuild the model on every render.
   const onReadyRef = useRef(onReady);
@@ -65,6 +73,10 @@ export default function Live2DStage({
   useEffect(() => {
     if (audio) stageRef.current?.speak(audio);
   }, [audio]);
+
+  useEffect(() => {
+    stageRef.current?.setExpression(expressionIndex);
+  }, [expressionIndex]);
 
   return <canvas ref={canvasRef} style={{ width, height, display: "block" }} />;
 }

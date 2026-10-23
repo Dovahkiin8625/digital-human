@@ -21,10 +21,11 @@ import {
   SoundOutlined,
   UploadOutlined,
 } from "@ant-design/icons";
-import { api } from "../api";
+import { api, live2dModelUrl } from "../api";
 import StatusTag from "../components/StatusTag";
 import LatencyHistogram from "../components/LatencyHistogram";
-import type { AvatarInfo, SessionInfo, SystemInfo } from "../types";
+import Live2DStage from "../live2d/Live2DStage";
+import type { AvatarInfo, Live2DModelConfig, SessionInfo, SystemInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
 
 // MiniMax's Chinese system voices, plus an escape hatch for a cloned one.
@@ -60,6 +61,12 @@ export default function Debug() {
   const recordedChunksRef = useRef<Blob[]>([])
   const [avatars, setAvatars] = useState<AvatarInfo[]>([])
   const [avatarId, setAvatarId] = useState("")
+  // Live2D mode. The server never creates a session for a live2d avatar
+  // (it has no pack to render), so this page must not try: the branch in
+  // start() fires BEFORE the session POST, not after it.
+  const [live2d, setLive2d] = useState(false)
+  const [live2dAudio, setLive2dAudio] = useState<AudioBuffer | null>(null)
+  const actxRef = useRef<AudioContext | null>(null)
   const [sessionId, setSessionId] = useState("")
   const [metrics, setMetrics] = useState<SessionInfo["metrics"]>({})
   const [status, setStatus] = useState("idle")
@@ -142,6 +149,17 @@ export default function Debug() {
   }, [avatars, avatarId, sessionAvatarId])
 
   async function start() {
+    // A live2d avatar has no pack and no session. Branch HERE, before the
+    // POST: branching after it would 409 on the server and show an empty
+    // video box instead of a canvas.
+    const picked = avatars.find((a) => a.avatar_id === avatarId)
+    if (picked?.kind === "live2d") {
+      setLive2d(true)
+      setStatus("active")
+      setError("")
+      return
+    }
+    setLive2d(false)
     setStarting(true)
     try {
       setError("")
@@ -183,7 +201,11 @@ export default function Debug() {
 
   async function speak() {
     const client = clientRef.current
-    if (!client || !text.trim()) return
+    // Live2D mode has no WebRTC client at all -- the clip plays locally and
+    // the same buffer feeds the mouth. Only require a client when we are
+    // actually driving a video session.
+    if (!text.trim()) return
+    if (!live2d && !client) return
     const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice
     // voice_id is now required by the synthesise endpoint (no server-
     // wide default). The button is also disabled while voice is empty,
@@ -209,11 +231,18 @@ export default function Debug() {
         }
         throw new Error(msg)
       }
-      // The clip is sent as driving PCM; the server returns it as audio on the
-      // WebRTC MediaStream, in sync with the generated mouth movement.
       const blob = await resp.blob()
-      await client.sendAudioBlob(blob)
-      message.success("已合成并发送")
+      if (live2d) {
+        // No WS audio channel in this mode: the clip plays locally and the
+        // same buffer feeds the mouth envelope.
+        await playLive2dAudio(blob)
+        message.success("已合成并播放")
+      } else {
+        // The clip is sent as driving PCM; the server returns it as audio on
+        // the WebRTC MediaStream, in sync with the generated mouth movement.
+        await client?.sendAudioBlob(blob)
+        message.success("已合成并发送")
+      }
     } catch (err) {
       message.error((err as Error).message)
     } finally {
@@ -268,6 +297,35 @@ export default function Debug() {
   // empties are chosen so a partial response does not NaN the descriptions.
   const frameW = sys?.frame_width ?? "—"
   const frameH = sys?.frame_height ?? "—"
+
+  // Live2D renders on the client, so the "drive" inputs (TTS, mic, file) go
+  // to the speakers and the mouth reads the same buffer -- no WS audio
+  // channel exists for this mode.
+  async function playLive2dAudio(file: Blob) {
+    const actx = actxRef.current ?? new AudioContext()
+    actxRef.current = actx
+    const buf = await actx.decodeAudioData(await file.arrayBuffer())
+    const src = actx.createBufferSource()
+    src.buffer = buf
+    src.connect(actx.destination)
+    // Hand the stage the SAME buffer we are playing. Reading the envelope
+    // from the buffer that is actually reaching the speakers is what makes
+    // mouth/voice drift impossible.
+    setLive2dAudio(buf)
+    src.start()
+  }
+
+  const selectedAvatar = useMemo(
+    () => avatars.find((a) => a.avatar_id === avatarId) ?? null,
+    [avatars, avatarId],
+  )
+  const l2dUrl =
+    selectedAvatar?.kind === "live2d"
+      ? live2dModelUrl(
+          selectedAvatar.avatar_id,
+          (selectedAvatar.config as Live2DModelConfig)?.model?.entry ?? "model.model3.json",
+        )
+      : ""
   const fps = sys?.fps ?? "—"
   const sr = sys?.sample_rate ?? "—"
   const br = sys?.video_bitrate
@@ -308,7 +366,19 @@ export default function Debug() {
             value={avatarId || undefined}
             placeholder="选择形象…"
             onChange={setAvatarId}
-            options={avatars.map((a) => ({ value: a.avatar_id, label: a.name }))}
+            options={[
+              { label: "真人视频", kind: "photoreal" },
+              { label: "Live2D", kind: "live2d" },
+            ]
+              .map((g) => ({
+                label: g.label,
+                options: avatars
+                  .filter((a) => (g.kind === "live2d" ? a.kind === "live2d" : a.kind !== "live2d"))
+                  .map((a) => ({ value: a.avatar_id, label: a.name })),
+              }))
+              // Drop a group that has no avatars rather than rendering an
+              // empty heading above the list.
+              .filter((g) => g.options.length > 0)}
             notFoundContent="没有已就绪的形象"
           />
           <Button
@@ -320,7 +390,7 @@ export default function Debug() {
           >
             开始调试
           </Button>
-          <Button icon={<PauseOutlined />} onClick={stop} disabled={!sessionId}>
+          <Button icon={<PauseOutlined />} onClick={stop} disabled={!sessionId && !live2d}>
             停止
           </Button>
           <span>
@@ -337,21 +407,33 @@ export default function Debug() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={10}>
-          <Card title="画面">
-            <video
-              ref={videoRef}
-              controls
-              autoPlay
-              playsInline
-              style={{
-                width: "100%",
-                aspectRatio: "9 / 16",
-                maxHeight: 480,
-                background: "#000",
-                borderRadius: 8,
-                display: "block",
-              }}
-            />
+          <Card title={live2d ? "画面（Live2D，客户端渲染）" : "画面"}>
+            {live2d ? (
+              l2dUrl && (
+                <Live2DStage
+                  modelUrl={l2dUrl}
+                  audio={live2dAudio}
+                  width={270}
+                  height={480}
+                  onError={(e) => setError(String(e))}
+                />
+              )
+            ) : (
+              <video
+                ref={videoRef}
+                controls
+                autoPlay
+                playsInline
+                style={{
+                  width: "100%",
+                  aspectRatio: "9 / 16",
+                  maxHeight: 480,
+                  background: "#000",
+                  borderRadius: 8,
+                  display: "block",
+                }}
+              />
+            )}
           </Card>
         </Col>
         <Col xs={24} lg={14}>
@@ -460,17 +542,23 @@ export default function Debug() {
             {recording ? "停止录制并发送" : "麦克风录制"}
           </Button>
           <label>
-            <Button icon={<UploadOutlined />} disabled={!sessionId} style={{ pointerEvents: "none" }}>
+            <Button icon={<UploadOutlined />} disabled={!sessionId && !live2d} style={{ pointerEvents: "none" }}>
               上传音频
             </Button>
             <input
               type="file"
               accept="audio/*"
-              disabled={!sessionId}
+              disabled={!sessionId && !live2d}
               style={{ display: "none" }}
               onChange={(e) => {
                 const f = e.target.files?.[0]
-                if (f) clientRef.current?.sendAudioFile(f)
+                if (f) {
+                  if (live2d) {
+                    playLive2dAudio(f).catch((err) => setError((err as Error).message))
+                  } else {
+                    clientRef.current?.sendAudioFile(f)
+                  }
+                }
                 e.target.value = ""
               }}
             />

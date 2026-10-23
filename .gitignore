@@ -7,8 +7,6 @@ __pycache__/
 data/
 admin-ui/node_modules/
 admin-ui/dist/
-# Staged from the Live2D SDK by admin-ui/scripts/copy-cubism.mjs -- proprietary, never committed.
-admin-ui/public/cubism/
 .pytest_cache/
 .env
 .playwright-mcp/*

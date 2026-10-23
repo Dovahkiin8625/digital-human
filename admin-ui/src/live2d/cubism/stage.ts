@@ -1,5 +1,5 @@
 import { analyzeSpeech, type MouthAnalysis } from "../audio/analyze";
-import { loadCore, SAMPLE_MODEL } from "./core";
+import { loadCore } from "./core";
 import type { ParameterReport } from "./types";
 import type { StageModel } from "./model";
 
@@ -23,7 +23,7 @@ export class CubismStage {
 
   constructor(private canvas: HTMLCanvasElement) {}
 
-  async init(modelUrl = SAMPLE_MODEL): Promise<ParameterReport[]> {
+  async init(modelUrl: string): Promise<ParameterReport[]> {
     await loadCore();
     const { StageModel: Model } = await import("./model");
     const gl = this.canvas.getContext("webgl2") ?? this.canvas.getContext("webgl");
@@ -48,6 +48,14 @@ export class CubismStage {
   speak(buffer: AudioBuffer): void {
     this.analysis = analyzeSpeech(buffer, { pointsPerSecond: POINTS_PER_SECOND });
     this.speakStart = performance.now();
+  }
+
+  /** Set the expression for subsequent frames. Inert for now: Cubism 5
+   *  drives expressions through a motion queue rather than an index, so the
+   *  adapter in model.ts ignores it. Wired end to end so the plumbing is
+   *  in place when that lands. */
+  setExpression(index: number): void {
+    if (this.model) this.model.expressionIndex = index;
   }
 
   start(onError: (e: unknown) => void): void {
@@ -91,5 +99,5 @@ export class CubismStage {
   }
 }
 
-export { SAMPLE_MODEL, SHADER_PATH } from "./core";
+export { SHADER_PATH } from "./core";
 export type { FrameState, ParameterReport } from "./types";

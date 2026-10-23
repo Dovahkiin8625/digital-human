@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  Alert,
   App as AntApp,
   Button,
   Card,
@@ -13,11 +14,11 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DeleteOutlined, ReloadOutlined, SyncOutlined } from "@ant-design/icons";
-import { api } from "../api";
+import { api, live2dHealth } from "../api";
 import LivePortraits from "./LivePortraits";
 import Models from "./Models";
 import StatusTag from "../components/StatusTag";
-import type { SessionInfo } from "../types";
+import type { Live2DHealth, SessionInfo } from "../types";
 
 interface EngineInfo {
   name: string;
@@ -55,6 +56,10 @@ export default function System() {
   const [jobs, setJobs] = useState<JobInfo[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [sweeping, setSweeping] = useState(false);
+  // Null until loaded, and it STAYS null if the call fails -- the SDK may
+  // simply not be staged on this box, which is something to display on this
+  // tab rather than an error to propagate.
+  const [l2d, setL2d] = useState<Live2DHealth | null>(null);
   const { message } = AntApp.useApp();
 
   async function refresh() {
@@ -66,6 +71,11 @@ export default function System() {
     setSys(s);
     setJobs(j);
     setSessions(sess);
+    // Deliberately not awaited with the rest: a machine without the SDK
+    // staged should still render every other card on this tab.
+    live2dHealth()
+      .then(setL2d)
+      .catch(() => setL2d(null));
   }
 
   useEffect(() => {
@@ -183,6 +193,50 @@ export default function System() {
                     </Space>
                   </Card>
                 )}
+
+                <Card title="Live2D">
+                  {!l2d ? (
+                    <Typography.Text type="secondary">
+                      无法获取 Live2D 状态（服务未启动，或该端点不可用）。
+                    </Typography.Text>
+                  ) : (
+                    <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                      <Space wrap size={24}>
+                        <span>
+                          启用：{boolTag(l2d.enabled, "是", "否")}
+                        </span>
+                        <span>
+                          SDK：{boolTag(l2d.sdk_present, "已就绪", "未找到")}
+                        </span>
+                        <span>
+                          Core：{boolTag(l2d.core_present, "就绪", "缺失")}
+                        </span>
+                        <span>
+                          Shaders：{boolTag(l2d.shaders_present, "就绪", "缺失")}
+                        </span>
+                      </Space>
+                      <Typography.Text type="secondary">
+                        SDK 目录：<code>{l2d.sdk_dir}</code>
+                      </Typography.Text>
+                      {l2d.enabled && !l2d.core_present && (
+                        <Alert
+                          type="warning"
+                          showIcon
+                          message="Live2D 已启用但 SDK 不完整"
+                          description={
+                            <>
+                              服务端只从该目录伺服 Core 与 Shaders。把 Cubism SDK 解压到
+                              <code> {l2d.sdk_dir} </code>
+                              （可用环境变量 <code>DH_LIVE2D_SDK_DIR</code> 指向别处），或把{" "}
+                              <code>DH_LIVE2D_ENABLED</code> 设为 <code>false</code>{" "}
+                              关掉该功能。
+                            </>
+                          }
+                        />
+                      )}
+                    </Space>
+                  )}
+                </Card>
 
                 <Card
                   title="任务"

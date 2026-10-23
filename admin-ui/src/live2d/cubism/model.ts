@@ -31,6 +31,10 @@ import type { FrameState, ParameterReport } from "./types";
 export class StageModel extends CubismUserModel {
   physics: CubismPhysicsUpdater | null = null;
   pose: CubismPoseUpdater | null = null;
+  /** Expression index for the current frame. Set by the stage each frame;
+   *  the expression adapter below is still a no-op under Cubism 5, which
+   *  drives expressions as a motion queue rather than by index. */
+  expressionIndex = 0;
 
   /** CubismModel adapter for applyFrame: parameter names in, index out. */
   private readonly paramModel = {
@@ -123,7 +127,7 @@ export class StageModel extends CubismUserModel {
       motion: { update: () => this._motionManager.updateMotion(this._model, dt) },
       physics: { update: () => this.physics?.onLateUpdate(this._model, dt) },
       model3: { update: () => this._model.update() },
-      expressionIndex: 0,
+      expressionIndex: this.expressionIndex,
       open: f.open,
       form: f.form,
       idle: idlePose(performance.now(), { breathScale: f.speaking ? 0.35 : 1 }),

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { defineConfig } from "vite";
+import { defineConfig, configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
@@ -25,5 +25,13 @@ export default defineConfig({
     // WebSocket sits in CONNECTING forever -- no error, no console message, and
     // the Debug page spins on 开始调试 with the 合成并驱动 button stuck disabled.
     proxy: { "/api": { target: "http://127.0.0.1:8000", ws: true } },
+  },
+  test: {
+    // reentryGuard.test.ts is deliberately node:test, not vitest: Node
+    // strips its TS types directly, and tests/test_admin_ui.py shells out to
+    // `node --test` on this exact file to prove the guard's behaviour rather
+    // than grep its source. Vitest collecting it would report "No test suite
+    // found" and fail.
+    exclude: [...configDefaults.exclude, "src/pages/reentryGuard.test.ts"],
   },
 });

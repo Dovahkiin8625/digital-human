@@ -1,11 +1,12 @@
-import { expect, it } from "vitest";
-import { createReentryGuard } from "./reentryGuard";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createReentryGuard } from "./reentryGuard.ts";
 
 function delayed<T>(value: T, ms: number): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
-it("a second call while the first task awaits never runs its task", async () => {
+test("a second call while the first task awaits never runs its task", async () => {
   const guard = createReentryGuard();
   let posts = 0;
   const probe = Promise.withResolvers<void>();
@@ -18,33 +19,33 @@ it("a second call while the first task awaits never runs its task", async () => 
   const second = guard.run(async () => {
     posts += 1;
   });
-  expect(guard.isHeld()).toBe(true);
+  assert.equal(guard.isHeld(), true);
   probe.resolve();
   const [a, b] = await Promise.all([first, second]);
-  expect(a.ran).toBe(true);
-  expect(b.ran).toBe(false);
-  expect(posts).toBe(1);
+  assert.equal(a.ran, true);
+  assert.equal(b.ran, false);
+  assert.equal(posts, 1);
 });
 
-it("the lock is released after the task settles and reusable afterwards", async () => {
+test("the lock is released after the task settles and reusable afterwards", async () => {
   const guard = createReentryGuard();
-  expect(guard.isHeld()).toBe(false);
+  assert.equal(guard.isHeld(), false);
   const first = await guard.run(() => delayed(undefined, 5));
-  expect(first.ran).toBe(true);
-  expect(guard.isHeld()).toBe(false);
+  assert.equal(first.ran, true);
+  assert.equal(guard.isHeld(), false);
   const second = await guard.run(async () => 7);
-  expect(second.ran).toBe(true);
-  expect(second.value).toBe(7);
+  assert.equal(second.ran, true);
+  assert.equal(second.value, 7);
 });
 
-it("an early return or a failing-then-caught probe still releases the lock", async () => {
+test("an early return or a failing-then-caught probe still releases the lock", async () => {
   const guard = createReentryGuard();
   // Models the over-15s early return: task resolves, lock released.
   await guard.run(async () => {
     await delayed(undefined, 1);
     return;
   });
-  expect(guard.isHeld()).toBe(false);
+  assert.equal(guard.isHeld(), false);
   // Models the catch { proceed to POST } path: a rejected probe swallowed
   // inside the task must not strand the lock.
   let posts = 0;
@@ -59,7 +60,7 @@ it("an early return or a failing-then-caught probe still releases the lock", asy
   });
   probe.reject(new Error("cannot read video"));
   const result = await run;
-  expect(result.ran).toBe(true);
-  expect(posts).toBe(1);
-  expect(guard.isHeld()).toBe(false);
+  assert.equal(result.ran, true);
+  assert.equal(posts, 1);
+  assert.equal(guard.isHeld(), false);
 });

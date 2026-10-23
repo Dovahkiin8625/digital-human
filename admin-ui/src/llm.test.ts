@@ -14,6 +14,7 @@ import {
   drainSentences,
   makeThinkStripper,
   splitSentences,
+  stripEmotionTags,
   toLlmMessages,
 } from "./llm";
 
@@ -242,5 +243,49 @@ describe("toLlmMessages", () => {
       { role: "system", content: "be terse" },
       { role: "user", content: "hi" },
     ]);
+  });
+});
+
+describe("stripEmotionTags", () => {
+  // Review Focus: a tag left in the TTS text is spoken aloud. The pet says
+  // "smile". So the contract is that the *text* handed to TTS is clean, not
+  // merely that the UI hides the tag.
+  it("removes the tag from the text sent to TTS", () => {
+    const r = stripEmotionTags("[smile]你好呀");
+    expect(r.text).toBe("你好呀");
+    expect(r.tags).toEqual(["smile"]);
+  });
+
+  it("collects several tags in order", () => {
+    expect(stripEmotionTags("[smile]a[think]b").tags).toEqual(["smile", "think"]);
+  });
+
+  it("leaves digits inside brackets alone", () => {
+    expect(stripEmotionTags("see [1]").text).toBe("see [1]");
+    expect(stripEmotionTags("see [1]").tags).toEqual([]);
+  });
+
+  // [note] and [smile] are the same shape, so shape alone cannot tell a
+  // marker from content. Passing the avatar's own expression map keys is
+  // what keeps a bracketed word the user typed from being eaten out of the
+  // spoken line.
+  it("strips only the tags the model declares", () => {
+    const r = stripEmotionTags("[smile]你好 [note]", ["smile"]);
+    expect(r.text).toBe("你好 [note]");
+    expect(r.tags).toEqual(["smile"]);
+  });
+
+  it("strips any word tag when no set is given", () => {
+    expect(stripEmotionTags("[smile]hi[note]").tags).toEqual(["smile", "note"]);
+  });
+
+  it("returns an empty text when the line is only tags", () => {
+    const r = stripEmotionTags("[smile]");
+    expect(r.text).toBe("");
+    expect(r.tags).toEqual(["smile"]);
+  });
+
+  it("lowercases tags so a model's map keyed lowercase still matches", () => {
+    expect(stripEmotionTags("[Smile]hi").tags).toEqual(["smile"]);
   });
 });

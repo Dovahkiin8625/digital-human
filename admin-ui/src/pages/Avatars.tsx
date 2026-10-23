@@ -23,9 +23,9 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import type { RcFile, UploadFile } from "antd/es/upload/interface";
 import { InboxOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { api } from "../api";
+import { api, deleteLive2dAvatar, registerLive2dAvatar } from "../api";
 import StatusTag from "../components/StatusTag";
-import type { AvatarInfo, TunableParams } from "../types";
+import type { AvatarInfo, Live2DModelConfig, TunableParams } from "../types";
 import { createReentryGuard } from "./reentryGuard";
 
 const ACTIVE = new Set(["pending", "processing"]);
@@ -145,6 +145,17 @@ export default function Avatars() {
     idle_preset?: string;
   }>();
   const [nameQuery, setNameQuery] = useState("");
+  // Live2D registration. The two kinds share one table and one list
+  // endpoint but nothing else: a Live2D row has no frame count, no
+  // source-quality warnings and no idle video, so it gets its own section
+  // rather than a table full of em-dashes.
+  const [l2dCreating, setL2dCreating] = useState(false);
+  const [l2dForm] = Form.useForm<{
+    name: string;
+    model_dir: string;
+    entry: string;
+    expressions?: string;
+  }>();
   // Live-effective values for the idle knobs -- used to default the form so
   // an operator who doesn't touch the Advanced section still gets the
   // currently-tuned x264 settings.
@@ -206,6 +217,73 @@ export default function Avatars() {
     if (!q) return items;
     return items.filter((a) => a.name.toLowerCase().includes(q));
   }, [items, nameQuery]);
+
+  // The photo/video table's columns are all photoreal-specific, so each
+  // section shows only its own kind.
+  const photoItems = useMemo(
+    () => visibleItems.filter((a) => a.kind !== "live2d"),
+    [visibleItems],
+  );
+  const live2dItems = useMemo(
+    () => visibleItems.filter((a) => a.kind === "live2d"),
+    [visibleItems],
+  );
+
+  async function onRegisterLive2d(values: {
+    name: string;
+    model_dir: string;
+    entry: string;
+    expressions?: string;
+  }) {
+    const config: Live2DModelConfig = { model: { entry: values.entry.trim() } };
+    const raw = values.expressions?.trim();
+    if (raw) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        // Caught here rather than server-side: a JSON syntax error is the
+        // operator's typo, and the server's 422 would say only that the
+        // expression map is wrong, not that the braces are unbalanced.
+        message.error("表情映射不是合法 JSON");
+        return;
+      }
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        message.error("表情映射必须是形如 {\"smile\": 0} 的对象");
+        return;
+      }
+      config.expressions = parsed as Record<string, number>;
+    }
+
+    setL2dCreating(true);
+    try {
+      await registerLive2dAvatar({
+        name: values.name,
+        model_dir: values.model_dir.trim(),
+        config,
+      });
+      message.success("已注册");
+      l2dForm.resetFields();
+      await refresh();
+    } catch (err) {
+      // Shown verbatim: the server's message names the specific missing
+      // file ("missing moc: model.moc3"), which is exactly what tells the
+      // operator what to fix. A generic "注册失败" would not.
+      message.error((err as Error).message);
+    } finally {
+      setL2dCreating(false);
+    }
+  }
+
+  async function onDeleteLive2d(id: string) {
+    try {
+      await deleteLive2dAvatar(id);
+      message.success("已删除");
+      await refresh();
+    } catch (err) {
+      message.error((err as Error).message);
+    }
+  }
 
   async function onCreate(values: {
     name: string;
@@ -493,7 +571,7 @@ export default function Avatars() {
         <Table
           rowKey="avatar_id"
           columns={columns}
-          dataSource={visibleItems}
+          dataSource={photoItems}
           loading={loading}
           scroll={{ x: 1000 }}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
@@ -502,6 +580,132 @@ export default function Avatars() {
             onClick: () => navigate(`/avatars/${a.avatar_id}`),
             style: { cursor: "pointer" },
           })}
+        />
+      </Card>
+
+      <Card title="注册 Live2D 模型">
+        <Typography.Paragraph type="secondary" style={{ maxWidth: 720 }}>
+          填写服务端上 Cubism 工程的目录。注册时服务端会把工程复制进形象自己的存储并逐项校验
+          （moc3、纹理、动作、表情），任何一项缺失都会在注册这一步报错并指出具体文件。
+        </Typography.Paragraph>
+        <Form
+          form={l2dForm}
+          layout="vertical"
+          onFinish={onRegisterLive2d}
+          style={{ maxWidth: 560 }}
+          initialValues={{ entry: "model.model3.json" }}
+        >
+          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
+            <Input placeholder="例如：Hiyori" />
+          </Form.Item>
+          <Form.Item
+            name="model_dir"
+            label="模型目录（服务端路径）"
+            rules={[{ required: true, message: "请填写模型目录" }]}
+          >
+            <Input placeholder="例如：data/live2d-models/hiyori" />
+          </Form.Item>
+          <Form.Item
+            name="entry"
+            label="入口文件"
+            tooltip="模型目录下的 model3.json 文件名。其余文件（moc3、纹理、动作）由它引用，无需单独填写。"
+            rules={[{ required: true, message: "请填写入口文件名" }]}
+          >
+            <Input placeholder="model.model3.json" />
+          </Form.Item>
+          <Form.Item
+            name="expressions"
+            label="表情映射（可选，JSON）"
+            tooltip='形如 {"smile": 0, "think": 1}，数值是模型自身表情列表的下标。注册时会校验下标是否存在。'
+          >
+            <Input.TextArea rows={2} placeholder='{"smile": 0}' />
+          </Form.Item>
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={l2dCreating}
+            icon={<PlusOutlined />}
+          >
+            注册模型
+          </Button>
+        </Form>
+      </Card>
+
+      <Card title="Live2D 模型">
+        <Table
+          rowKey="avatar_id"
+          dataSource={live2dItems}
+          columns={[
+            {
+              title: "形象 ID",
+              dataIndex: "avatar_id",
+              width: 110,
+              render: (v: string) => <CopyableId id={v} />,
+            },
+            { title: "名称", dataIndex: "name" },
+            {
+              title: "入口文件",
+              render: (_, a) => {
+                const cfg = a.config as Live2DModelConfig;
+                return cfg?.model?.entry ?? "—";
+              },
+            },
+            {
+              title: "表情",
+              render: (_, a) => {
+                const cfg = a.config as Live2DModelConfig;
+                const map = cfg?.expressions;
+                if (!map || Object.keys(map).length === 0) {
+                  return <Typography.Text type="secondary">无</Typography.Text>;
+                }
+                return (
+                  <Space size={4} wrap>
+                    {Object.entries(map).map(([tag, idx]) => (
+                      <Tag key={tag}>
+                        {tag} → {idx}
+                      </Tag>
+                    ))}
+                  </Space>
+                );
+              },
+            },
+            {
+              title: "状态",
+              dataIndex: "status",
+              width: 110,
+              render: (status: string) => <StatusTag status={status} />,
+            },
+            {
+              title: "创建时间",
+              dataIndex: "created_at",
+              width: 200,
+              render: (v: string) => new Date(v).toLocaleString(),
+            },
+            {
+              title: "操作",
+              width: 100,
+              align: "right",
+              render: (_, a) => (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Popconfirm
+                    title="删除该模型？"
+                    description="删除后不可恢复，模型文件也会一并移除。"
+                    okText="删除"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => onDeleteLive2d(a.avatar_id)}
+                  >
+                    <Button danger size="small">
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </div>
+              ),
+            },
+          ]}
+          scroll={{ x: 900 }}
+          pagination={{ pageSize: 10, hideOnSinglePage: true }}
+          locale={{ emptyText: <Empty description="暂无 Live2D 模型" /> }}
         />
       </Card>
     </Space>

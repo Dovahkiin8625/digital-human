@@ -1,3 +1,5 @@
+import type { AvatarInfo, Live2DHealth, Live2DModelConfig } from "./types";
+
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const headers: Record<string, string> = {};
   let body: BodyInit | undefined;
@@ -68,3 +70,36 @@ export async function downloadWithToken(path: string): Promise<void> {
   // Give the browser a tick to start the download before reclaiming the URL.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// ----- Live2D -------------------------------------------------------------
+
+export interface Live2DRegisterIn {
+  name: string;
+  /** Server-side path to a Cubism project directory. */
+  model_dir: string;
+  config: Live2DModelConfig;
+}
+
+export function registerLive2dAvatar(body: Live2DRegisterIn): Promise<AvatarInfo> {
+  return api<AvatarInfo>("/api/admin/live2d/avatars", { method: "POST", body });
+}
+
+export function deleteLive2dAvatar(avatarId: string): Promise<void> {
+  return api<void>(`/api/admin/live2d/avatars/${avatarId}`, { method: "DELETE" });
+}
+
+export function live2dHealth(): Promise<Live2DHealth> {
+  return api<Live2DHealth>("/api/admin/live2d/health");
+}
+
+/**
+ * URL of a model's model3.json, which is what <Live2DStage> loads: it
+ * resolves the moc3, textures and motions relative to this, so nothing
+ * else needs to be configured.
+ */
+export function live2dModelUrl(avatarId: string, entry: string): string {
+  return `/api/v1/live2d/avatars/${avatarId}/model/${entry}`;
+}
+
+/** Base URL of the SDK's Core and Shaders, served by the same token rule. */
+export const LIVE2D_RUNTIME_BASE = "/api/v1/live2d/runtime";

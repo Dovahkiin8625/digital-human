@@ -1,7 +1,14 @@
+// Which renderer an avatar uses. ``photoreal`` goes through the
+// MuseTalk / LivePortrait / Wan pack pipeline and is driven over WebRTC;
+// ``live2d`` is a Cubism project the browser renders itself. The two share
+// one table and one list endpoint -- they differ only in ``kind``.
+export type AvatarKind = "photoreal" | "live2d";
+
 export interface AvatarInfo {
   avatar_id: string;
   name: string;
   status: "pending" | "processing" | "ready" | "failed";
+  kind: AvatarKind;
   // The pipeline's pack.json: the MuseTalk block plus, for new packs, a
   // top-level `warnings` list of non-blocking source-quality findings.
   config: {
@@ -305,6 +312,36 @@ export interface ServiceInfo {
   // LLM-specific: base_url of the OpenAI-compatible provider. Absent
   // for animators + TTS.
   base_url?: string;
+}
+
+// Live2D model config, stored in the avatar's ``config_json``.
+//
+// ``model.entry`` is the model3.json filename inside the model directory;
+// the client resolves every sibling file (moc3, textures, motions)
+// relative to it, so this is the only path the operator has to supply.
+// ``scale`` / ``y`` compose the model on the canvas -- per-model, because
+// rigs differ wildly in their original framing.
+export interface Live2DModelConfig {
+  model: {
+    entry: string;
+    scale?: number;
+    y?: number;
+  };
+  // Emotion tag -> index into the model's OWN expression list. Validated at
+  // registration: an index the model does not declare is rejected there
+  // rather than becoming a blank face at runtime.
+  expressions?: Record<string, number>;
+  [key: string]: unknown;
+}
+
+// GET /api/admin/live2d/health -- what the System tab renders. Never
+// errors: a missing SDK is something to display, not to throw on.
+export interface Live2DHealth {
+  enabled: boolean;
+  sdk_dir: string;
+  sdk_present: boolean;
+  core_present: boolean;
+  shaders_present: boolean;
 }
 
 // Live per-device counters returned by ``get_vram_snapshot``. All

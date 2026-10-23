@@ -57,6 +57,20 @@ class Settings(BaseSettings):
     # also keeps a leaked ``DH_LLM_API_KEY`` from silently turning the chat
     # endpoint on in environments where the operator hasn't opted in.
 
+    # Static credential for the business-plane endpoints a *remote* client
+    # reaches -- today that is the Electron pet, which renders locally and
+    # calls back for models and the Cubism runtime. Empty disables the
+    # check, which is what a single-operator box behind the admin console
+    # wants. The admin plane itself has no auth since the no-tenant refactor
+    # and is a separate problem.
+    v1_api_token: str = ""
+
+    # Live2D. `live2d_sdk_dir` is read by the server only to serve the SDK's
+    # Core and Shaders to the browser -- the server never renders a Cubism
+    # model. `live2d_enabled` hides the whole feature from the console.
+    live2d_enabled: bool = True
+    live2d_sdk_dir: Path = Path("data/CubismSdkForWeb-5-r.5")
+
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env")
 
 
