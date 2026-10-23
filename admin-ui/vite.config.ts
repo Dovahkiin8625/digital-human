@@ -1,3 +1,4 @@
+import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -6,6 +7,17 @@ export default defineConfig({
   // emitted under that prefix (/admin/assets/...) or the browser 404s them.
   base: "/admin/",
   plugins: [react()],
+  resolve: {
+    // Vite's default list already covers .tsx. Naming it explicitly is a
+    // guard: the Cubism SDK's own Demo lists only .ts/.js because it has no
+    // JSX, and copying that verbatim silently breaks every React import.
+    extensions: [".ts", ".tsx", ".js", ".jsx", ".json"],
+    // The Cubism Framework ships TypeScript source with no built bundle, so
+    // Vite compiles it inline. Keep in sync with tsconfig's `paths`.
+    alias: {
+      "@framework": path.resolve(__dirname, "../data/CubismSdkForWeb-5-r.5/Framework/src"),
+    },
+  },
   server: {
     // `ws: true` is required: the debug console opens WebSocket upgrades under
     // /api (/api/v1/ws/signal/... and .../audio/...). Without it the dev proxy

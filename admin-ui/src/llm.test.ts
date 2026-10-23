@@ -57,8 +57,8 @@ describe("splitSentences", () => {
   });
 
   it("does not flush early when under the length cap", () => {
-    // 40 chars exactly -- still under the cap, no boundary.
-    const len40 = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十";
+    // Exactly MAX_BUFFER_CHARS (40) with no boundary: still under the cap.
+    const len40 = "一二三四五六七八九十".repeat(4);
     expect(len40.length).toBe(40);
     const out = splitSentences("", len40);
     expect(out.complete).toEqual([]);
@@ -192,7 +192,9 @@ describe("drainSentences", () => {
   });
 
   it("flushes via the length fallback when no boundary arrives", () => {
-    const long = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一";
+    // Over MAX_BUFFER_CHARS (40) with no boundary: flush as one chunk.
+    const long = "一二三四五六七八九十".repeat(5);
+    expect(long.length).toBeGreaterThan(40);
     const step = drainSentences({ tail: "" }, long);
     expect(step.flushed).toEqual([long]);
     expect(step.newTail).toBe("");
