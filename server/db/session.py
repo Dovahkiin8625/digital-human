@@ -37,6 +37,11 @@ _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "tunable_overrides",
         "ALTER TABLE avatars ADD COLUMN tunable_overrides JSON NOT NULL DEFAULT '{}'",
     ),
+    (
+        "avatars",
+        "kind",
+        "ALTER TABLE avatars ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'photoreal'",
+    ),
 )
 
 
@@ -124,7 +129,7 @@ def _drop_abandoned_tenant_schema(engine) -> None:
         # table matches what ``Base.metadata.create_all`` would produce.
         keep = {name: avatars_cols[name] for name in (
             "id", "name", "status", "source_image_path", "pack_path",
-            "config_json", "tunable_overrides", "created_at",
+            "config_json", "tunable_overrides", "kind", "created_at",
         )}
         _rebuild_table_without_columns(engine, "avatars", {"tenant_id"}, keep)
         inspector = inspect(engine)

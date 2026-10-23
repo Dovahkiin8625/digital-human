@@ -23,6 +23,11 @@ class Avatar(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(16), default="pending")
+    #: Which renderer this avatar is for. ``photoreal`` rows go through the
+    #: MuseTalk / LivePortrait / Wan pack pipeline; ``live2d`` rows are a
+    #: Cubism project the client renders itself. A third renderer means a
+    #: third value here, not a second table.
+    kind: Mapped[str] = mapped_column(String(16), default="photoreal", nullable=False)
     source_image_path: Mapped[str] = mapped_column(String(512))
     pack_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)

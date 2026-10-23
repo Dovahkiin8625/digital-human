@@ -46,6 +46,7 @@ def _serialize(a: Avatar, with_detail: bool = False) -> dict:
         "avatar_id": a.id,
         "name": a.name,
         "status": a.status,
+        "kind": a.kind,
         "created_at": a.created_at.isoformat(),
     }
     if with_detail:
@@ -115,9 +116,12 @@ def create_avatar(
 
 
 @router.get("")
-def list_avatars(db=Depends(get_db)) -> list[dict]:
+def list_avatars(kind: str | None = None, db=Depends(get_db)) -> list[dict]:
+    stmt = select(Avatar)
+    if kind:
+        stmt = stmt.where(Avatar.kind == kind)
     rows = (
-        db.execute(select(Avatar).order_by(Avatar.created_at.desc()))
+        db.execute(stmt.order_by(Avatar.created_at.desc()))
         .scalars()
         .all()
     )
