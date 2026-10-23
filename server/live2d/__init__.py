@@ -1,0 +1,1 @@
+"""Live2D model registration and hosting."""
