@@ -20,6 +20,7 @@ export class CubismStage {
   private last = 0;
   private analysis: MouthAnalysis | null = null;
   private speakStart = 0;
+  private running = false;
 
   constructor(private canvas: HTMLCanvasElement) {}
 
@@ -47,7 +48,13 @@ export class CubismStage {
    *  and the mouth cannot drift from the voice. */
   speak(buffer: AudioBuffer): void {
     this.analysis = analyzeSpeech(buffer, { pointsPerSecond: POINTS_PER_SECOND });
-    this.speakStart = performance.now();
+    // Loading the core, the moc3 and every texture takes from hundreds of
+    // ms to seconds, and the loop does not run until it finishes. An
+    // utterance begun before then would be indexed from a start time the loop
+    // never observed -- the mouth would open mid-utterance, or not at all if
+    // the load outlasted the clip. Hold the envelope and anchor it to the
+    // first frame there is something to draw it on.
+    this.speakStart = this.running ? performance.now() : 0;
   }
 
   /** Set the expression for subsequent frames. Inert for now: Cubism 5
@@ -60,6 +67,7 @@ export class CubismStage {
 
   start(onError: (e: unknown) => void): void {
     if (!this.model) throw new Error("init() must resolve before start()");
+    this.running = true;
     this.last = performance.now();
     const loop = () => {
       const now = performance.now();
@@ -90,6 +98,8 @@ export class CubismStage {
 
   private sample(now: number): { open: number; form: number } {
     if (!this.analysis) return { open: 0, form: 0 };
+    // Held by speak() while the model was still loading.
+    if (this.speakStart === 0) this.speakStart = now;
     const i = Math.floor(((now - this.speakStart) / 1000) * POINTS_PER_SECOND);
     if (i >= this.analysis.open.length) {
       this.analysis = null;
