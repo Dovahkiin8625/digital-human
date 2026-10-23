@@ -1,18 +1,37 @@
 # 数字人服务 (Digital Human Service)
 
 商用实时交互数字人服务：接收**音频 + 形象 ID**，输出**实时数字人视频流**（WebRTC）。
-服务边界只做「音频驱动 + 渲染 + 视频流输出」，LLM/ASR 由调用方自建；引擎层可插拔。
-附带 React 后台调试台（形象制作 / 会话调试 / 系统监控）。
+附带 React 后台管理台（形象管理 / 会话调试 / 数字人对话 / 系统监控）。
+
+支持**两种并存**的数字人形态，由 `avatars.kind` 区分：
+
+| 形态 | 渲染位置 | 驱动方式 |
+|---|---|---|
+| `photoreal` | 服务端（GPU） | MuseTalk / LivePortrait / Wan 2.2，WebRTC 视频流 |
+| `live2d` | 客户端（WebGL） | Cubism SDK；服务端只托管模型文件，**不产出任何像素** |
+
+Live2D 的口型在客户端由**正在播放的那个 AudioBuffer** 离线预算出的包络驱动，因此嘴与声音
+天然零漂移。管理台的三个页面都能选择 Live2D 形象；另有 Electron 桌面宠物（透明置顶窗口）。
 
 生产路径是**真实 MuseTalk 1.5**：上传一张照片，服务端跑人脸检测 → 对齐裁剪 → 解析遮罩 →
 VAE 编码，产出一份形象包；会话中每个 100ms 音频块驱动一次 UNet，解出下半脸再融合回原图。
 这是 MuseTalk 的固有形态 —— 它是「视频配音」模型，单张照片时头部静止、只有嘴与下颌区域动。
 若日后要头部摆动，那是 LivePortrait 一类模型的活，不在当前范围内。
 
-`mock` 引擎与 `mock` 制作流水线**保留为测试替身**：无 GPU 的机器与 CI 用它跑通全链路，
-默认的 `pytest` 因此完全不依赖 torch。生产部署请按下面的「MuseTalk 环境准备」启用真实路径。
+`mock` 引擎与 `mock` 制作流水线**保留为测试替身**：无 GPU 的机器与 CI 用它跑通全链路。
+生产部署请按下面的「MuseTalk 环境准备」启用真实路径。
 
-技术栈：Python 3.11+ / FastAPI / aiortc / SQLAlchemy + SQLite；React + Vite + TS。
+技术栈：Python 3.11+ / FastAPI / aiortc / SQLAlchemy + SQLite；React + Vite + TS + vitest。
+
+## 关于鉴权（重要）
+
+多租户与 API Key 鉴权已在一次重构中删除，**当前所有端点均无鉴权**：
+`/api/v1/*` 与 `/api/admin/*` 全部公开，假设部署在单机操作者控制的机器上。
+本 README 早期版本描述的 `X-API-Key` / `X-Admin-Token` 已不存在，相关代码已删除。
+
+新增的 Live2D 模型托管端点例外：它们接受可选的 `X-V1-Token`（见 `DH_V1_API_TOKEN`）。
+该令牌默认留空（不校验），供桌面宠物连接远程部署时使用。**给整个管理面补鉴权是另一件
+独立的事**，本项目未处理。
 
 ## 架构
 
@@ -55,7 +74,7 @@ npm run build
 cd ..
 
 # 3. 配置环境变量
-cp .env.example .env                    # 按需修改 DH_ADMIN_PASSWORD / DH_ADMIN_TOKEN
+cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR / DH_V1_API_TOKEN
 
 # 4. 启动服务（mock：无 GPU 也能跑通全链路）
 python -m uvicorn --factory server.main:create_app --host 0.0.0.0 --port 8000
@@ -70,7 +89,7 @@ DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \
   --host 0.0.0.0 --port 8000
 ```
 
-打开 <http://127.0.0.1:8000/admin>，用 `.env` 中的 `DH_ADMIN_PASSWORD` 登录调试台。
+打开 <http://127.0.0.1:8000/admin> 进入管理台（无登录步骤，见「关于鉴权」）。
 
 > **必须使用 `--factory` 形式**：`server/main.py` 只暴露 `create_app()` 工厂，没有模块级 `app`，
 > 因此 `uvicorn server.main:app` 会失败。`uvicorn --factory server.main:create_app` 等价可用。
@@ -101,8 +120,11 @@ curl http://127.0.0.1:8000/healthz
 | `DH_AVATAR_MAX_UPLOAD_BYTES` | `300000000` | 上传字节上限，超出返回 413 |
 | `DH_DATA_DIR` | `data` | 运行时数据目录（SQLite、形象资产、模型权重） |
 | `DH_DATABASE_URL` | `sqlite:///data/digital-human.db` | SQLAlchemy 数据库 URL |
-| `DH_ADMIN_PASSWORD` | `admin123` | 后台调试台登录密码 |
-| `DH_ADMIN_TOKEN` | `dev-admin-token` | 管理面 `X-Admin-Token` 校验令牌 |
+| `DH_ADMIN_PASSWORD` | `admin123` | **已失效** —— 登录鉴权随多租户重构一并删除，保留仅为不打断旧 `.env` |
+| `DH_ADMIN_TOKEN` | `dev-admin-token` | **已失效** —— 同上，无任何端点校验它 |
+| `DH_V1_API_TOKEN` | 空 | Live2D 模型托管端点的可选令牌（请求头 `X-V1-Token`）。留空 = 不校验，供桌面宠物连远程部署 |
+| `DH_LIVE2D_ENABLED` | `true` | 关掉后管理台不再提供 Live2D 相关入口 |
+| `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/` 与 `Shaders/` 用于下发给浏览器，不渲染任何 Live2D |
 | `DH_SESSION_IDLE_TIMEOUT` | `60` | 会话无音频自动回收秒数 |
 | `DH_SESSION_SWEEP_INTERVAL` | `10` | 空闲回收扫描周期（秒） |
 | `DH_FRAME_WIDTH` | `720` | 输出视频宽 |
@@ -129,12 +151,14 @@ curl http://127.0.0.1:8000/healthz
 
 媒体参数：音频 48kHz / 16bit / 单声道 PCM；视频 25fps，720×1280，H.264（WebRTC video track）。
 
-### 业务面 `/api/v1`（鉴权：`X-API-Key` 请求头）
+### 业务面 `/api/v1`（**无鉴权**）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动；空闲时循环播放源视频画面，录制时请保持闭嘴、不说话 |
-| GET | `/api/v1/avatars` | 形象列表 |
+| GET | `/api/v1/avatars` | 形象列表。可选 `?kind=live2d` 只列 Live2D 形象 |
+| GET | `/api/v1/live2d/avatars/{id}/model/{path}` | 模型目录内的单个文件。`DH_V1_API_TOKEN` 非空时需 `X-V1-Token` |
+| GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。**不鉴权**：core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两个子树内 |
 | GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
 | DELETE | `/api/v1/avatars/{avatar_id}` | 删除形象及资产（204） |
 | POST | `/api/v1/sessions` | JSON `{"avatar_id"}` 创建会话，返回 `{session_id, status, signal_url, audio_url}`（形象须为 `ready`） |
@@ -181,11 +205,14 @@ curl http://127.0.0.1:8000/healthz
 
 需要 `DH_MINIMAX_API_KEY`；未配置时按钮会报出服务端那句 503 的说明。
 
-### 管理面 `/api/admin`（除 `login` 外鉴权：`X-Admin-Token` 请求头）
+### 管理面 `/api/admin`（**无鉴权**）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/admin/login` | JSON `{"password"}` → `{"token"}`（登录入口，不在鉴权之后） |
+| POST | `/api/admin/login` | JSON `{"password"}` → `{"token"}`。**已失效**，登录鉴权随多租户重构删除，保留仅为不打断旧调用 |
+| POST | `/api/admin/live2d/avatars` | JSON `{name, model_dir, config}` → 复制并校验 Cubism 工程后建 `kind=live2d` 行。校验失败 422，消息指出具体缺失文件 |
+| DELETE | `/api/admin/live2d/avatars/{id}` | 删除 Live2D 形象及其模型文件（204）。对 `photoreal` 形象返回 404 |
+| GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
 | GET | `/api/admin/system` | 引擎描述 / 制作流水线名 / GPU / 版本 / 数据目录 |
 | GET | `/api/admin/tenants` | 租户列表 |
 | POST | `/api/admin/tenants` | JSON `{"name"}` → `{tenant_id, name, api_key}`（`api_key` 仅此一次返回） |
