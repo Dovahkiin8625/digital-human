@@ -30,6 +30,8 @@ import {
 } from "@ant-design/icons";
 import { api, downloadWithToken } from "../api";
 import StatusTag from "../components/StatusTag";
+import KindTag from "../avatars/KindTag";
+import Live2dAvatarDetail from "./Live2dAvatarDetail";
 import type { ArtifactInfo, AvatarInfo, JobInfo, PipelineTimeline } from "../types";
 
 type PreviewKind = "video" | "image";
@@ -76,7 +78,7 @@ function classifyWarning(text: string): keyof typeof THRESHOLD_HINTS {
   return "width";
 }
 
-function formatBytes(b: number): string {
+export function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1024 / 1024).toFixed(1)} MB`;
@@ -110,9 +112,10 @@ export default function AvatarDetail() {
   const { message } = AntApp.useApp();
 
   async function refresh() {
-    if (!id) return;
+    if (!id) return null;
     const data = await api<AvatarInfo>(`/api/admin/avatars/${id}`);
     setInfo(data);
+    return data;
   }
 
   async function loadArtifacts() {
@@ -148,12 +151,27 @@ export default function AvatarDetail() {
   }
 
   useEffect(() => {
+    const signal = { ignored: false };
     refresh()
-      .catch((err) => setError((err as Error).message))
-      .finally(() => setLoading(false));
+      .then((data) => {
+        if (signal.ignored) return;
+        // A Live2D avatar has no build pipeline, so there is no timeline to
+        // read and no job to poll -- both requests would only 404. The
+        // artifact listing IS shared and is fetched for both kinds.
+        if (data?.kind === "live2d") return;
+        void loadTimeline();
+        void loadJob();
+      })
+      .catch((err) => {
+        if (!signal.ignored) setError((err as Error).message);
+      })
+      .finally(() => {
+        if (!signal.ignored) setLoading(false);
+      });
     void loadArtifacts();
-    void loadTimeline();
-    void loadJob();
+    return () => {
+      signal.ignored = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -199,6 +217,10 @@ export default function AvatarDetail() {
   }
 
   useEffect(() => {
+    // Waits for `info` so the kind is known. A Live2D avatar has no
+    // idle.mp4 and no normalized.png -- Live2dAvatarDetail mounts its own
+    // canvas instead -- and fetching those two would just 404 twice.
+    if (!info || info.kind === "live2d") return;
     const signal = { ignored: false };
     void loadPreview(signal);
     return () => {
@@ -206,7 +228,7 @@ export default function AvatarDetail() {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, info?.kind]);
 
   async function retry() {
     if (!id) return;
@@ -264,6 +286,11 @@ export default function AvatarDetail() {
       </Space>
     );
   }
+
+  // The two avatar kinds share this page: the header, the artifact list,
+  // the error handling. What differs is the body -- a photoreal avatar
+  // has a build pipeline and an idle clip, a Live2D one has a canvas.
+  const isLive2d = info.kind === "live2d";
 
   const artifactColumns: ColumnsType<ArtifactInfo> = [
     {
@@ -334,9 +361,14 @@ export default function AvatarDetail() {
           {info.name}
         </Typography.Title>
         <StatusTag status={info.status} />
-        <Button icon={<ReloadOutlined />} onClick={() => void retry()} type="primary" ghost>
-          按当前设置重建
-        </Button>
+        <KindTag kind={info.kind} />
+        {/* A Live2D avatar has no build job to re-run: the model is served
+            as-is and there is no pipeline to repeat. */}
+        {!isLive2d && (
+          <Button icon={<ReloadOutlined />} onClick={() => void retry()} type="primary" ghost>
+            按当前设置重建
+          </Button>
+        )}
       </Space>
 
       <Descriptions
@@ -345,6 +377,7 @@ export default function AvatarDetail() {
         size="small"
         items={[
           { key: "id", label: "形象 ID", children: info.avatar_id },
+          { key: "kind", label: "类型", children: <KindTag kind={info.kind} /> },
           {
             key: "created",
             label: "创建时间",
@@ -368,150 +401,156 @@ export default function AvatarDetail() {
       )}
       {error && <Alert type="error" showIcon message={error} />}
 
-      {warningList.length > 0 && (
-        <Alert
-          type="warning"
-          showIcon
-          message="素材质量评估（形象已生成，更换更合适的素材可进一步提升效果）"
-          description={
-            <Space direction="vertical" size={6} style={{ width: "100%" }}>
-              {warningList.map((w, i) => {
-                const kind = classifyWarning(w);
-                const hint = THRESHOLD_HINTS[kind] ?? "";
-                return (
-                  <Tooltip key={i} title={hint}>
-                    <span style={{ cursor: "help" }}>· {w}</span>
-                  </Tooltip>
-                );
-              })}
-            </Space>
-          }
-        />
+      {isLive2d ? (
+        <Live2dAvatarDetail info={info} artifacts={artifacts} />
+      ) : (
+        <>
+          {warningList.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="素材质量评估（形象已生成，更换更合适的素材可进一步提升效果）"
+              description={
+                <Space direction="vertical" size={6} style={{ width: "100%" }}>
+                  {warningList.map((w, i) => {
+                    const kind = classifyWarning(w);
+                    const hint = THRESHOLD_HINTS[kind] ?? "";
+                    return (
+                      <Tooltip key={i} title={hint}>
+                        <span style={{ cursor: "help" }}>· {w}</span>
+                      </Tooltip>
+                    );
+                  })}
+                </Space>
+              }
+            />
+          )}
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={12}>
+              <Card title="预览">
+                {previewError ? (
+                  <Empty description={`预览不可用（${previewError}）`}>
+                    <Button
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        void loadPreview();
+                      }}
+                    >
+                      重试
+                    </Button>
+                  </Empty>
+                ) : (
+                  <Spin spinning={previewLoading}>
+                    <div style={{ minHeight: 120 }}>
+                      {preview && previewKind === "video" ? (
+                        <video
+                          src={preview}
+                          controls
+                          muted
+                          autoPlay
+                          playsInline
+                          loop
+                          style={{ width: 240 }}
+                          onError={() =>
+                            // A successful fetch only proves the bytes arrived: an
+                            // unsupported codec still leaves a black player. Show
+                            // the retry UI instead of a silent black box.
+                            setPreviewError("视频无法解码播放")
+                          }
+                        />
+                      ) : preview ? (
+                        <img
+                          src={preview}
+                          alt="preview"
+                          width={240}
+                          onError={() => setPreviewError("图片无法解码显示")}
+                        />
+                      ) : null}
+                    </div>
+                  </Spin>
+                )}
+              </Card>
+            </Col>
+
+            <Col xs={24} md={12}>
+              <Card title="构建过程">
+                <Steps
+                  size="small"
+                  current={Math.max(0, stageCurrent)}
+                  status={info.status === "failed" ? "error" : undefined}
+                  items={STAGES.map((s, i) => ({
+                    title: <StatusTag status={s} />,
+                    status: stepStatus(i),
+                  }))}
+                />
+                <Descriptions
+                  size="small"
+                  column={2}
+                  style={{ marginTop: 12 }}
+                  items={[
+                    {
+                      key: "mode",
+                      label: "模式",
+                      children: timeline?.mode === "video" ? "视频驱动" : timeline?.mode === "image" ? "图片驱动" : "—",
+                    },
+                    {
+                      key: "frames",
+                      label: "帧数",
+                      children: timeline?.frame_count ?? "—",
+                    },
+                    {
+                      key: "kept",
+                      label: "保留帧",
+                      children: timeline?.kept_count ?? "—",
+                    },
+                    {
+                      key: "fps",
+                      label: "输出 FPS",
+                      children: timeline?.fps ?? "—",
+                    },
+                    {
+                      key: "srcfps",
+                      label: "源 FPS",
+                      children: timeline?.source_fps ?? "—",
+                    },
+                    {
+                      key: "detector",
+                      label: "检测器",
+                      children: timeline?.detector ?? "—",
+                    },
+                    {
+                      key: "version",
+                      label: "版本",
+                      children: timeline?.version ?? "—",
+                    },
+                  ]}
+                />
+                {latestJob && ACTIVE_JOB_STAGES.has(latestJob.stage) && (
+                  <div style={{ marginTop: 12 }}>
+                    <Typography.Text type="secondary">当前会话进度</Typography.Text>
+                    <div style={{ marginTop: 4 }}>
+                      <Space>
+                        <StatusTag status={latestJob.stage} />
+                        <Progress
+                          percent={latestJob.progress}
+                          size="small"
+                          style={{ width: 200 }}
+                          status={latestJob.progress >= 100 ? "success" : "active"}
+                        />
+                      </Space>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </Col>
+          </Row>
+        </>
       )}
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <Card title="预览">
-            {previewError ? (
-              <Empty description={`预览不可用（${previewError}）`}>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => {
-                    void loadPreview();
-                  }}
-                >
-                  重试
-                </Button>
-              </Empty>
-            ) : (
-              <Spin spinning={previewLoading}>
-                <div style={{ minHeight: 120 }}>
-                  {preview && previewKind === "video" ? (
-                    <video
-                      src={preview}
-                      controls
-                      muted
-                      autoPlay
-                      playsInline
-                      loop
-                      style={{ width: 240 }}
-                      onError={() =>
-                        // A successful fetch only proves the bytes arrived: an
-                        // unsupported codec still leaves a black player. Show
-                        // the retry UI instead of a silent black box.
-                        setPreviewError("视频无法解码播放")
-                      }
-                    />
-                  ) : preview ? (
-                    <img
-                      src={preview}
-                      alt="preview"
-                      width={240}
-                      onError={() => setPreviewError("图片无法解码显示")}
-                    />
-                  ) : null}
-                </div>
-              </Spin>
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} md={12}>
-          <Card title="构建过程">
-            <Steps
-              size="small"
-              current={Math.max(0, stageCurrent)}
-              status={info.status === "failed" ? "error" : undefined}
-              items={STAGES.map((s, i) => ({
-                title: <StatusTag status={s} />,
-                status: stepStatus(i),
-              }))}
-            />
-            <Descriptions
-              size="small"
-              column={2}
-              style={{ marginTop: 12 }}
-              items={[
-                {
-                  key: "mode",
-                  label: "模式",
-                  children: timeline?.mode === "video" ? "视频驱动" : timeline?.mode === "image" ? "图片驱动" : "—",
-                },
-                {
-                  key: "frames",
-                  label: "帧数",
-                  children: timeline?.frame_count ?? "—",
-                },
-                {
-                  key: "kept",
-                  label: "保留帧",
-                  children: timeline?.kept_count ?? "—",
-                },
-                {
-                  key: "fps",
-                  label: "输出 FPS",
-                  children: timeline?.fps ?? "—",
-                },
-                {
-                  key: "srcfps",
-                  label: "源 FPS",
-                  children: timeline?.source_fps ?? "—",
-                },
-                {
-                  key: "detector",
-                  label: "检测器",
-                  children: timeline?.detector ?? "—",
-                },
-                {
-                  key: "version",
-                  label: "版本",
-                  children: timeline?.version ?? "—",
-                },
-              ]}
-            />
-            {latestJob && ACTIVE_JOB_STAGES.has(latestJob.stage) && (
-              <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary">当前会话进度</Typography.Text>
-                <div style={{ marginTop: 4 }}>
-                  <Space>
-                    <StatusTag status={latestJob.stage} />
-                    <Progress
-                      percent={latestJob.progress}
-                      size="small"
-                      style={{ width: 200 }}
-                      status={latestJob.progress >= 100 ? "success" : "active"}
-                    />
-                  </Space>
-                </div>
-              </div>
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Card title="素材与产物">
+      <Card title={isLive2d ? "模型文件" : "素材与产物"}>
         {artifacts.length === 0 ? (
-          <Empty description="暂无产物；可在构建完成后下载" />
+          <Empty description={isLive2d ? "暂无模型文件" : "暂无产物；可在构建完成后下载"} />
         ) : (
           <Table
             rowKey="path"
@@ -524,52 +563,54 @@ export default function AvatarDetail() {
         )}
       </Card>
 
-      <Card title="底层配置">
-        <Descriptions
-          size="small"
-          column={2}
-          bordered
-          items={[
-            { key: "bbox", label: "bbox", children: JSON.stringify(musetalk.bbox ?? "—") },
-            { key: "crop", label: "crop", children: JSON.stringify(musetalk.crop ?? "—") },
-            { key: "detector", label: "detector", children: String(musetalk.detector ?? "—") },
-            { key: "version", label: "version", children: String(musetalk.version ?? timeline?.version ?? "—") },
-            { key: "frames", label: "frame_count", children: String(musetalk.frame_count ?? timeline?.frame_count ?? "—") },
-            { key: "fps", label: "fps", children: String(musetalk.fps ?? timeline?.fps ?? "—") },
-            { key: "srcfps", label: "source_fps", children: String(musetalk.source_fps ?? timeline?.source_fps ?? "—") },
-            { key: "mode", label: "mode", children: String(musetalk.mode ?? timeline?.mode ?? "—") },
-            { key: "base", label: "base_image", children: baseImage ?? "—" },
-          ]}
-        />
-        <Collapse
-          ghost
-          style={{ marginTop: 12 }}
-          items={[
-            {
-              key: "eff",
-              label: "实际生效参数（_effective_params）",
-              children:
-                effectiveParams && Object.keys(effectiveParams).length > 0 ? (
-                  <Descriptions
-                    size="small"
-                    column={2}
-                    bordered
-                    items={Object.entries(effectiveParams).map(([k, v]) => ({
-                      key: k,
-                      label: k,
-                      children: JSON.stringify(v),
-                    }))}
-                  />
-                ) : (
-                  <Empty description="此形象尚未记录生效参数" />
-                ),
-            },
-          ]}
-        />
-        <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-          调整「参数设置」中的全局值后，下次重建即生效。
-        </Typography.Text>
-      </Card>
+      {!isLive2d && (
+        <Card title="底层配置">
+          <Descriptions
+            size="small"
+            column={2}
+            bordered
+            items={[
+              { key: "bbox", label: "bbox", children: JSON.stringify(musetalk.bbox ?? "—") },
+              { key: "crop", label: "crop", children: JSON.stringify(musetalk.crop ?? "—") },
+              { key: "detector", label: "detector", children: String(musetalk.detector ?? "—") },
+              { key: "version", label: "version", children: String(musetalk.version ?? timeline?.version ?? "—") },
+              { key: "frames", label: "frame_count", children: String(musetalk.frame_count ?? timeline?.frame_count ?? "—") },
+              { key: "fps", label: "fps", children: String(musetalk.fps ?? timeline?.fps ?? "—") },
+              { key: "srcfps", label: "source_fps", children: String(musetalk.source_fps ?? timeline?.source_fps ?? "—") },
+              { key: "mode", label: "mode", children: String(musetalk.mode ?? timeline?.mode ?? "—") },
+              { key: "base", label: "base_image", children: baseImage ?? "—" },
+            ]}
+          />
+          <Collapse
+            ghost
+            style={{ marginTop: 12 }}
+            items={[
+              {
+                key: "eff",
+                label: "实际生效参数（_effective_params）",
+                children:
+                  effectiveParams && Object.keys(effectiveParams).length > 0 ? (
+                    <Descriptions
+                      size="small"
+                      column={2}
+                      bordered
+                      items={Object.entries(effectiveParams).map(([k, v]) => ({
+                        key: k,
+                        label: k,
+                        children: JSON.stringify(v),
+                      }))}
+                    />
+                  ) : (
+                    <Empty description="此形象尚未记录生效参数" />
+                  ),
+              },
+            ]}
+          />
+          <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
+            调整「参数设置」中的全局值后，下次重建即生效。
+          </Typography.Text>
+        </Card>
+      )}
     </Space>
   );
 }
