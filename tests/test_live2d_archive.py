@@ -176,6 +176,17 @@ def test_finds_an_entry_inside_the_folder_a_zip_keeps(tmp_path):
     assert find_entries(root) == ["Hiyori/model.model3.json"]
 
 
+def test_finds_a_bare_model3_json(tmp_path):
+    """Cubism exports ``<Name>.model3.json``, but a hand-built project can
+    be called plain ``model3.json``. The pattern needs a dot before
+    "model3", so without this the file is there and the error says it is
+    not."""
+    root = tmp_path / "m"
+    root.mkdir()
+    (root / "model3.json").write_text("{}")
+    assert find_entries(root) == ["model3.json"]
+
+
 def test_ignores_macos_resource_forks(tmp_path):
     """Finder adds an __MACOSX/ tree of AppleDouble files named ``._<original>``.
     Those still end in .json, so unfiltered they double the candidate count

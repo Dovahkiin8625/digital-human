@@ -3,7 +3,7 @@ import { Button, Card, Col, Descriptions, Empty, Row, Space, Tag, Typography } f
 import { ReloadOutlined } from "@ant-design/icons";
 import Live2DStage from "../live2d/Live2DStage";
 import { live2dModelUrl } from "../api";
-import { formatBytes } from "./AvatarDetail";
+import { formatBytes } from "../format";
 import type { ArtifactInfo, AvatarInfo, Live2DModelConfig } from "../types";
 
 /**

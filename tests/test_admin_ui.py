@@ -90,6 +90,21 @@ def _avatars_source():
     ).read_text(encoding="utf-8")
 
 
+def _function_body(source: str, name: str) -> str:
+    """The text of one ``async function <name>(`` in ``source``.
+
+    Ends at the next top-level ``async function``/``function`` declaration,
+    so an assertion about one function cannot be satisfied -- or broken --
+    by another one elsewhere in the file.
+    """
+    marker = f"async function {name}("
+    start = source.index(marker)
+    rest = source[start + len(marker):]
+    ends = [rest.find(m) for m in ("\n  async function ", "\n  function ", "\n}\n")]
+    ends = [e for e in ends if e != -1]
+    return rest[: min(ends)] if ends else rest
+
+
 def test_avatar_upload_accepts_video():
     # The upload control must offer videos as well as images; the server enforces
     # the real limits, but the widget has to let a video be chosen at all.
@@ -110,16 +125,20 @@ def test_avatar_create_has_synchronous_reentry_guard():
         in source
     ), "the guard must wrap both submits, not just one of them"
     # Each submit takes the button down and puts it back in a finally, so a
-    # failed upload cannot leave the button spinning forever.
-    assert source.count("setCreating(true);") == 2, (
-        "both submits must take the button down"
-    )
-    assert source.count("setCreating(false);") == 2, (
-        "both submits must put the button back"
-    )
-    assert source.count("finally {") == 2, (
-        "the button must be restored in a finally, not on the success path"
-    )
+    # failed upload cannot leave the button spinning forever. Scoped to the
+    # two submit functions so an unrelated `finally {` elsewhere in the
+    # page cannot break this.
+    for name in ("submitPhotoreal", "submitLive2d"):
+        body = _function_body(source, name)
+        assert body.count("setCreating(true);") == 1, (
+            f"{name} must take the button down"
+        )
+        assert body.count("setCreating(false);") == 1, (
+            f"{name} must put the button back"
+        )
+        assert body.count("finally {") == 1, (
+            f"{name} must restore the button in a finally, not on the success path"
+        )
 
 
 def test_reentry_guard_blocks_double_submit_behaviorally():
@@ -139,6 +158,22 @@ def test_reentry_guard_blocks_double_submit_behaviorally():
         encoding="utf-8",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_avatar_live2d_entry_is_left_blank_for_auto_detection():
+    # The server auto-detects the entry when it is not given, and that is
+    # what makes a zip of the exported FOLDER work -- the shape an operator
+    # produces by right-clicking it, and the shape the server's own
+    # subfolder test covers. If the form pre-fills a filename, the browser
+    # always sends one, the detection never runs, and that upload fails
+    # with "missing entry file".
+    source = _avatars_source()
+    assert 'entry: "model.model3.json"' not in source, (
+        "the entry must not be pre-filled -- an empty entry is what lets the "
+        "server detect it"
+    )
+    # The conventional name is still offered, as a hint rather than a value.
+    assert 'placeholder="model.model3.json"' in source
 
 
 def test_avatar_upload_hint_asks_for_closed_mouth():

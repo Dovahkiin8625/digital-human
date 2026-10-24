@@ -18,15 +18,12 @@ from server.config import get_settings
 LIVE2D_ID = "a" * 32
 
 
-def _project_zip(prefix: str = "") -> bytes:
-    """A Cubism project as a browser would send it.
+def _project_members(prefix: str = "") -> dict:
+    """The files of a Cubism project.
 
     ``prefix`` puts every file inside a folder, which is what right-click
     compress produces and what the server has to cope with.
     """
-    import io
-    import zipfile
-
     entries = {
         "model.model3.json": json.dumps({
             "Version": 3,
@@ -42,10 +39,35 @@ def _project_zip(prefix: str = "") -> bytes:
     }
     if prefix:
         entries = {f"{prefix}/{k}": v for k, v in entries.items()}
+    return entries
+
+
+def _project_zip(prefix: str = "") -> bytes:
+    """A Cubism project as a browser would send it."""
+    import io
+    import zipfile
+
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, data in entries.items():
+        for name, data in _project_members(prefix).items():
             zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _zip_with_extra(extra_name: str, extra: bytes) -> bytes:
+    """A valid project zip plus one extra member of any kind.
+
+    An archive is operator input: it can carry anything beside the model
+    files, and the server has to decide what to serve.
+    """
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in _project_members().items():
+            zf.writestr(name, data)
+        zf.writestr(extra_name, extra)
     return buf.getvalue()
 
 
@@ -191,6 +213,17 @@ def test_upload_rejects_malformed_expressions(client):
     assert resp.json()["error"]["code"] == "live2d_invalid_config"
 
 
+def test_upload_rejects_an_empty_name(client):
+    """A nameless upload must not become a row nobody can tell apart."""
+    resp = _upload(client, name="")
+    assert resp.status_code == 422, resp.text
+
+
+def test_upload_rejects_an_overlong_name(client):
+    resp = _upload(client, name="x" * 129)
+    assert resp.status_code == 422
+
+
 def test_a_rejected_upload_leaves_nothing_behind(client):
     store = client.app.state.session_manager.store
     avatars_dir = store.data_dir / "avatars"
@@ -249,6 +282,29 @@ def test_delete_refuses_a_photoreal_avatar(client, tmp_path):
 
 
 # ----- model hosting ------------------------------------------------------
+
+def test_model_host_refuses_a_non_model_file(client):
+    """An archive is operator input and can carry anything beside the model
+    files. The console is served from the SAME origin as the model host, so
+    a member that comes back as application/javascript is a script-planting
+    primitive on an admin plane that has no auth by design.
+    """
+    resp = _upload(client, raw=_zip_with_extra("evil.js", b"alert(document.cookie)"))
+    assert resp.status_code == 201, resp.text
+    avatar_id = resp.json()["avatar_id"]
+    _assert_refused(
+        client.get(f"/api/v1/live2d/avatars/{avatar_id}/model/evil.js")
+    )
+
+
+def test_model_file_is_served_with_nosniff(client):
+    """Belt to the extension allowlist: even a model file must not be
+    re-interpreted by the browser as something it is not."""
+    _seed_live2d(client)
+    resp = client.get(f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/model.model3.json")
+    assert resp.status_code == 200
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+
 
 def test_model_file_is_open_when_no_token_configured(client):
     _seed_live2d(client)

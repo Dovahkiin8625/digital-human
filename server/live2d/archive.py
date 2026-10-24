@@ -139,7 +139,10 @@ def extract_archive(
 
 
 def find_entries(root: Path) -> list[str]:
-    """Every ``*.model3.json`` in an extracted project, as sorted POSIX paths.
+    """Every model entry file in an extracted project, as sorted POSIX paths.
+
+    Cubism exports ``<Name>.model3.json``; a hand-built project can be
+    called plain ``model3.json``, so both spellings count.
 
     macOS archives add an ``__MACOSX/`` sibling tree of AppleDouble files
     named ``._<original>``. Those names still end in ``.json``, so
@@ -147,11 +150,12 @@ def find_entries(root: Path) -> list[str]:
     ambiguous.
     """
     root = Path(root)
+    candidates = {p for p in root.rglob("*.model3.json") if p.is_file()}
+    candidates |= {p for p in root.rglob("model3.json") if p.is_file()}
     return sorted(
         p.relative_to(root).as_posix()
-        for p in root.rglob("*.model3.json")
-        if p.is_file()
-        and not p.name.startswith("._")
+        for p in candidates
+        if not p.name.startswith("._")
         and "__MACOSX" not in p.relative_to(root).parts
     )
 

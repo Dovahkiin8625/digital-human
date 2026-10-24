@@ -449,13 +449,14 @@ export default function Avatars() {
           style={{ maxWidth: 560 }}
           // Idle knobs default to the server's live values so an operator
           // who never opens the Advanced section still gets what the box is
-          // set to. `entry` defaults to the conventional filename; leaving
-          // it blank makes the server detect it, which is what the
-          // folder-in-zip shape needs.
+          // set to. `entry` is deliberately NOT given a value: an empty
+          // entry is what lets the server detect the model3.json, and a
+          // zipped folder (the shape right-click compress produces) keeps
+          // it one directory down. The conventional name is offered as a
+          // placeholder instead.
           initialValues={{
             idle_crf: idleDefaults?.idle_crf ?? IDLE_CRF_DEFAULT,
             idle_preset: idleDefaults?.idle_preset ?? IDLE_PRESET_DEFAULT,
-            entry: "model.model3.json",
           }}
         >
           <Form.Item

@@ -1143,7 +1143,16 @@ def avatar_artifact_file(avatar_id: str, path: str, db=Depends(get_db)):
         media = "video/mp4"
     elif name.endswith(".json"):
         media = "application/json"
-    return FileResponse(candidate, media_type=media)
+    return FileResponse(
+        candidate,
+        media_type=media,
+        # The avatar directory can hold anything an operator uploaded --
+        # a Live2D archive may carry a .js beside the model files. The
+        # media type is already application/octet-stream for the unknown
+        # ones, but a browser will sniff a script out of that without
+        # this header, and the console is served from the same origin.
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.post("/tts")

@@ -125,6 +125,9 @@ curl http://127.0.0.1:8000/healthz
 | `DH_V1_API_TOKEN` | 空 | Live2D 模型托管端点的可选令牌（请求头 `X-V1-Token`）。留空 = 不校验，供桌面宠物连远程部署 |
 | `DH_LIVE2D_ENABLED` | `true` | 关掉后管理台不再提供 Live2D 相关入口 |
 | `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/`（core）与 `Framework/Shaders/`（GLSL）下发给浏览器，不渲染任何 Live2D |
+| `DH_LIVE2D_MAX_ARCHIVE_ENTRIES` | `512` | 上传的 Live2D 压缩包条目数上限。zip 是外部输入，一个几百 KB 的包可以声明上百万个条目 |
+| `DH_LIVE2D_MAX_UNPACKED_BYTES` | `512000000` | 同一个压缩包**解压后**的累计字节上限。压缩包体积上限挡不住高压缩比炸弹（几 KB 展开成几百 MB 全零） |
+| `DH_LIVE2D_MAX_ENTRY_BYTES` | `64000000` | 单个文件解压后的字节上限 |
 | `DH_SESSION_IDLE_TIMEOUT` | `60` | 会话无音频自动回收秒数 |
 | `DH_SESSION_SWEEP_INTERVAL` | `10` | 空闲回收扫描周期（秒） |
 | `DH_FRAME_WIDTH` | `720` | 输出视频宽 |

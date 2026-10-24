@@ -42,6 +42,20 @@ _MEDIA = {
     ".frag": "text/plain",
 }
 
+#: The extensions the model host may serve.
+#:
+#: An uploaded archive is operator input and can carry anything beside the
+#: model files. The console is mounted on the SAME origin as this route, so
+#: a member served as ``application/javascript`` -- ``_MEDIA`` maps ``.js``
+#: to it for the SDK runtime -- would be a script-planting primitive on an
+#: admin plane that has no auth by design. A Cubism project needs none of
+#: the executable types, so the host serves the model formats and nothing
+#: else; anything else the operator uploaded is still downloadable through
+#: the artifact route, which always sends ``application/octet-stream``.
+_MODEL_SUFFIXES = frozenset(
+    {".json", ".moc3", ".moc", ".png", ".jpg", ".jpeg", ".webp"}
+)
+
 
 def _media_type(path: Path) -> str:
     return _MEDIA.get(path.suffix.lower(), "application/octet-stream")
@@ -119,7 +133,7 @@ def _parse_expressions(raw: str) -> dict:
 
 @router.post("/admin/live2d/avatars", status_code=201)
 def upload_live2d_avatar(
-    name: str = Form(...),
+    name: str = Form(..., min_length=1, max_length=128),
     file: UploadFile = ...,
     entry: str = Form(""),
     expressions: str = Form(""),
@@ -138,9 +152,20 @@ def upload_live2d_avatar(
     ``Hiyori/model.model3.json``, so auto-detection is what makes the common
     upload work without the operator retyping a path they never knew.
     """
+    settings = get_settings()
+    # Cheap early refusal when the client declared an oversized body. The
+    # counted copy below is authoritative (a declared length can lie), but
+    # refusing here saves spooling the whole thing to disk first.
+    size = getattr(file, "size", None)
+    if size is not None and int(size) > settings.avatar_max_upload_bytes:
+        raise AppError(
+            "file_too_large",
+            f"upload is larger than {settings.avatar_max_upload_bytes} bytes",
+            413,
+        )
+
     config: dict = {"expressions": _parse_expressions(expressions)}
 
-    settings = get_settings()
     avatar_id = uuid4().hex
     store = _store()
     target = store.avatar_dir(avatar_id)
@@ -232,7 +257,17 @@ def get_model_file(
     if row is None or row.kind != "live2d":
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     target = _safe_join(_store().avatar_dir(avatar_id), path)
-    return FileResponse(target, media_type=_media_type(target))
+    # Only the model formats are served. Everything else an archive
+    # carried is still on disk and still downloadable through the artifact
+    # route; what it must not be is served from the console's own origin
+    # as something the browser will execute.
+    if target.suffix.lower() not in _MODEL_SUFFIXES:
+        raise AppError("not_found", "file not found", 404)
+    return FileResponse(
+        target,
+        media_type=_media_type(target),
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 #: The SDK directory holds the Core, the Shaders, the licence, the samples

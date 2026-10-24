@@ -31,6 +31,7 @@ import {
 import { api, downloadWithToken } from "../api";
 import StatusTag from "../components/StatusTag";
 import KindTag from "../avatars/KindTag";
+import { formatBytes } from "../format";
 import Live2dAvatarDetail from "./Live2dAvatarDetail";
 import type { ArtifactInfo, AvatarInfo, JobInfo, PipelineTimeline } from "../types";
 
@@ -76,12 +77,6 @@ function classifyWarning(text: string): keyof typeof THRESHOLD_HINTS {
   if (text.includes("构图") || text.includes("黑边") || text.includes("占比")) return "occupancy";
   // Default to width's hint; it's the most common source-quality concern.
   return "width";
-}
-
-export function formatBytes(b: number): string {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / 1024 / 1024).toFixed(1)} MB`;
 }
 
 const STAGES = ["detect_face", "align", "normalize", "build_pack"] as const;
