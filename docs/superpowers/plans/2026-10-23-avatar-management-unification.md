@@ -21,6 +21,7 @@
 - **不合并后端端点**：`POST /api/admin/avatars` 与 `POST /api/admin/live2d/avatars` 并存；`DELETE /api/admin/avatars/{id}` 与 `DELETE /api/admin/live2d/avatars/{id}` 并存，合并后的前端表格按行的 `kind` 选端点。
 - **不引入 `@testing-library/react` / jsdom**。`vite.config.ts` 的 `test` 段没有 `environment`，前端测试只能是纯逻辑。
 - photoreal 的行为不得改变：创建流程、删除流程、详情页内容与现有截图级一致。
+- **模型托管端点只服务模型格式**（`.json` / `.moc3` / `.png` / `.jpg` …），且每个响应都带 `X-Content-Type-Options: nosniff`。上传的压缩包是外部输入，而管理台与模型托管同源——一个以 `application/javascript` 回来的 `.js` 就是一次脚本植入。产物下载端点一律 `application/octet-stream` + `nosniff`。（终审补上，原计划未含。）
 
 ## Review Focus
 
@@ -1482,13 +1483,20 @@ type FormValues = {
           style={{ maxWidth: 560 }}
           // Idle knobs default to the server's live values so an operator
           // who never opens the Advanced section still gets what the box is
-          // set to. `entry` defaults to the conventional filename; leaving
-          // it blank makes the server detect it, which is what the folder-in-
-          // zip shape needs.
+          // set to. `entry` is deliberately NOT given a value: an empty
+          // entry is what lets the server detect the model3.json, and a
+          // zipped folder (the shape right-click compress produces) keeps
+          // it one directory down. The conventional name is offered as a
+          // placeholder instead.
+          //
+          // (The plan originally pre-filled `entry: "model.model3.json"`
+          // here. The whole-branch review caught that this defeats the
+          // auto-detection spec §3.2 is built on -- the browser always
+          // sends a non-blank entry, so the folder-in-zip upload fails
+          // with "missing entry file". Fixed in 95ee6f5.)
           initialValues={{
             idle_crf: idleDefaults?.idle_crf ?? IDLE_CRF_DEFAULT,
             idle_preset: idleDefaults?.idle_preset ?? IDLE_PRESET_DEFAULT,
-            entry: "model.model3.json",
           }}
         >
           <Form.Item
