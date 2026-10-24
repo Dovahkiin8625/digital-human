@@ -12,20 +12,23 @@ import {
   Input,
   InputNumber,
   Popconfirm,
+  Segmented,
   Select,
   Space,
   Table,
   Tag,
   Tooltip,
   Typography,
-  Upload,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import type { RcFile, UploadFile } from "antd/es/upload/interface";
-import { InboxOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { api, deleteLive2dAvatar, registerLive2dAvatar } from "../api";
+import { PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
+import { api, deleteLive2dAvatar, uploadLive2dAvatar } from "../api";
 import StatusTag from "../components/StatusTag";
-import type { AvatarInfo, Live2DModelConfig, TunableParams } from "../types";
+import KindTag from "../avatars/KindTag";
+import UploadField from "../avatars/UploadField";
+import { driveLabel, parseExpressions } from "../avatars/describe";
+import type { AvatarInfo, AvatarKind, TunableParams } from "../types";
 import { createReentryGuard } from "./reentryGuard";
 
 const ACTIVE = new Set(["pending", "processing"]);
@@ -47,6 +50,22 @@ const X264_PRESETS = [
   "slower",
   "veryslow",
 ] as const;
+
+// Per-knob ranges mirror server/avatar/tunables.py ParamSpec entries. The
+// server is the source of truth (it validates the PATCH range), but matching
+// it here keeps the form honest and lets the live validate-on-type prevent
+// obvious typos.
+const IDLE_CRF_MIN = 0;
+const IDLE_CRF_MAX = 51;
+
+/** The one create form's fields, for whichever kind is selected. */
+type FormValues = {
+  name: string;
+  idle_crf?: number;
+  idle_preset?: string;
+  entry?: string;
+  expressions?: string;
+};
 
 function videoSeconds(file: File): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -80,13 +99,6 @@ function CopyableId({ id }: { id: string }) {
   );
 }
 
-// Per-knob ranges mirror server/avatar/tunables.py ParamSpec entries. The
-// server is the source of truth (it validates the PATCH range), but matching
-// it here keeps the form honest and lets the live validate-on-type prevent
-// obvious typos.
-const IDLE_CRF_MIN = 0;
-const IDLE_CRF_MAX = 51;
-
 export default function Avatars() {
   // ``useLocation`` is read once on mount: the 图生视频 tab pushes a
   // ``prefilledFile`` (the mp4 it just generated) via router state, and
@@ -106,7 +118,7 @@ export default function Avatars() {
   // A stable guard instance for the component's lifetime; `run` acquires
   // synchronously before its task's first await.
   const creatingGuard = useRef(createReentryGuard()).current;
-  const [fileList, setFileList] = useState<UploadFile[]>(() => {
+  const [photoFiles, setPhotoFiles] = useState<UploadFile[]>(() => {
     // Seed the upload list from a prefilled file passed via router state
     // (the 图生视频 tab hands the operator the mp4 it just generated so
     // they don't have to re-download + drag it onto the form). We wrap the
@@ -139,23 +151,16 @@ export default function Avatars() {
     ];
   });
   const [error, setError] = useState("");
-  const [form] = Form.useForm<{
-    name: string;
-    idle_crf?: number;
-    idle_preset?: string;
-  }>();
+  const [form] = Form.useForm<FormValues>();
   const [nameQuery, setNameQuery] = useState("");
-  // Live2D registration. The two kinds share one table and one list
-  // endpoint but nothing else: a Live2D row has no frame count, no
-  // source-quality warnings and no idle video, so it gets its own section
-  // rather than a table full of em-dashes.
-  const [l2dCreating, setL2dCreating] = useState(false);
-  const [l2dForm] = Form.useForm<{
-    name: string;
-    model_dir: string;
-    entry: string;
-    expressions?: string;
-  }>();
+  // Both avatar kinds are the same feature with different inputs, so the
+  // page has ONE create form and ONE list. `kind` is the only thing that
+  // selects the endpoint, the drop zone, and the extra fields.
+  const [kind, setKind] = useState<AvatarKind>("photoreal");
+  // Two independent selections, not one: switching the Segmented control
+  // must not carry a selected zip into the photo branch (or the reverse),
+  // where it would be submitted to the wrong endpoint as a wrong file.
+  const [zipFiles, setZipFiles] = useState<UploadFile[]>([]);
   // Live-effective values for the idle knobs -- used to default the form so
   // an operator who doesn't touch the Advanced section still gets the
   // currently-tuned x264 settings.
@@ -218,52 +223,74 @@ export default function Avatars() {
     return items.filter((a) => a.name.toLowerCase().includes(q));
   }, [items, nameQuery]);
 
-  // The photo/video table's columns are all photoreal-specific, so each
-  // section shows only its own kind.
-  const photoItems = useMemo(
-    () => visibleItems.filter((a) => a.kind !== "live2d"),
-    [visibleItems],
-  );
-  const live2dItems = useMemo(
-    () => visibleItems.filter((a) => a.kind === "live2d"),
-    [visibleItems],
-  );
-
-  async function onRegisterLive2d(values: {
-    name: string;
-    model_dir: string;
-    entry: string;
-    expressions?: string;
-  }) {
-    const config: Live2DModelConfig = { model: { entry: values.entry.trim() } };
-    const raw = values.expressions?.trim();
-    if (raw) {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        // Caught here rather than server-side: a JSON syntax error is the
-        // operator's typo, and the server's 422 would say only that the
-        // expression map is wrong, not that the braces are unbalanced.
-        message.error("表情映射不是合法 JSON");
-        return;
-      }
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        message.error("表情映射必须是形如 {\"smile\": 0} 的对象");
-        return;
-      }
-      config.expressions = parsed as Record<string, number>;
+  async function submitPhotoreal(values: FormValues) {
+    const file = photoFiles[0]?.originFileObj;
+    if (!file) {
+      message.warning("请先选择图片或视频");
+      return;
     }
-
-    setL2dCreating(true);
+    setCreating(true);
     try {
-      await registerLive2dAvatar({
-        name: values.name,
-        model_dir: values.model_dir.trim(),
-        config,
+      if (file.type.startsWith("video/")) {
+        try {
+          const seconds = await videoSeconds(file);
+          if (seconds > 15) {
+            message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
+            return;
+          }
+        } catch {
+          // Duration is only a convenience; the server is authoritative.
+        }
+      }
+      const body = new FormData();
+      body.append("name", values.name.trim());
+      body.append("file", file);
+      // Per-avatar idle-video overrides. Empty fields fall through to the
+      // server-side defaults (the column is JSON NOT NULL DEFAULT '{}');
+      // the server validates against tunables.ParamSpec bounds.
+      if (typeof values.idle_crf === "number") body.append("idle_crf", String(values.idle_crf));
+      if (typeof values.idle_preset === "string" && values.idle_preset !== "") {
+        body.append("idle_preset", values.idle_preset);
+      }
+      // No per-knob override / animate flag here: image-to-video generation
+      // now lives on its own tab ("/video-gen") instead of being inlined in
+      // this upload form. The endpoint accepts only name + file + (server
+      // side) animate; the latter defaults to false and the operator opts
+      // in by visiting the new tab.
+      await api("/api/admin/avatars", { method: "POST", form: body });
+      message.success("已提交，正在生成");
+      form.resetFields();
+      setPhotoFiles([]);
+      await refresh();
+    } catch (err) {
+      message.error((err as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function submitLive2d(values: FormValues) {
+    const file = zipFiles[0]?.originFileObj;
+    if (!file) {
+      message.warning("请先选择 Live2D 模型压缩包");
+      return;
+    }
+    const parsed = parseExpressions(values.expressions ?? "");
+    if (!parsed.ok) {
+      message.error(parsed.error);
+      return;
+    }
+    setCreating(true);
+    try {
+      await uploadLive2dAvatar({
+        name: values.name.trim(),
+        file,
+        entry: (values.entry ?? "").trim(),
+        expressions: parsed.value,
       });
       message.success("已注册");
-      l2dForm.resetFields();
+      form.resetFields();
+      setZipFiles([]);
       await refresh();
     } catch (err) {
       // Shown verbatim: the server's message names the specific missing
@@ -271,85 +298,33 @@ export default function Avatars() {
       // operator what to fix. A generic "注册失败" would not.
       message.error((err as Error).message);
     } finally {
-      setL2dCreating(false);
+      setCreating(false);
     }
   }
 
-  async function onDeleteLive2d(id: string) {
-    try {
-      await deleteLive2dAvatar(id);
-      message.success("已删除");
-      await refresh();
-    } catch (err) {
-      message.error((err as Error).message);
-    }
-  }
-
-  async function onCreate(values: {
-    name: string;
-    idle_crf?: number;
-    idle_preset?: string;
-  }) {
-    const { name, idle_crf, idle_preset } = values;
-    const file = fileList[0]?.originFileObj;
-    if (!file) {
-      message.warning("请先选择图片或视频");
-      return;
-    }
-    const isVideo = file.type.startsWith("video/");
+  async function onFinish(values: FormValues) {
     // Synchronous re-entry guard: `creating` state flips too late to stop a
     // second click -- while video metadata is awaited (can be tens/hundreds
-    // of ms on a slow disk) or in the tick before React re-renders -- and two
-    // POSTs would land, with two GPU prepare jobs behind them. `run` takes
-    // the lock synchronously before its task reaches its first await, so the
-    // probe-await window is covered; the over-15s early return and probe
-    // failure settle the task and release the lock via `finally`.
-    const { ran } = await creatingGuard.run(async () => {
-      setCreating(true);
-      try {
-        if (isVideo) {
-          try {
-            const seconds = await videoSeconds(file);
-            if (seconds > 15) {
-              message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
-              return;
-            }
-          } catch {
-            // Duration is only a convenience; the server is authoritative.
-          }
-        }
-        const body = new FormData();
-        body.append("name", name);
-        body.append("file", file);
-        // Per-avatar idle-video overrides. Empty fields fall through to the
-        // server-side defaults (the column is JSON NOT NULL DEFAULT '{}');
-        // the server validates against tunables.ParamSpec bounds.
-        if (typeof idle_crf === "number") body.append("idle_crf", String(idle_crf));
-        if (typeof idle_preset === "string" && idle_preset !== "") {
-          body.append("idle_preset", idle_preset);
-        }
-        // No per-knob override / animate flag here: image-to-video generation
-        // now lives on its own tab ("/video-gen") instead of being inlined in
-        // this upload form. The endpoint accepts only name + file + (server
-        // side) animate; the latter defaults to false and the operator opts
-        // in by visiting the new tab.
-        await api("/api/admin/avatars", { method: "POST", form: body });
-        message.success("已提交，正在生成");
-        form.resetFields();
-        setFileList([]);
-        await refresh();
-      } catch (err) {
-        message.error((err as Error).message);
-      } finally {
-        setCreating(false);
-      }
-    });
+    // of ms on a slow disk) or in the tick before React re-renders -- and
+    // two POSTs would land, with two GPU prepare jobs behind them. `run`
+    // takes the lock synchronously before its task reaches its first await,
+    // so the probe-await window is covered; the over-15s early return and
+    // probe failure settle the task and release the lock via `finally`.
+    // One guard covers both kinds: both cost the operator real work to redo.
+    const { ran } = await creatingGuard.run(() =>
+      kind === "live2d" ? submitLive2d(values) : submitPhotoreal(values),
+    );
     if (!ran) return;
   }
 
-  async function onDelete(id: string) {
+  async function onDelete(id: string, avatarKind: AvatarKind) {
     try {
-      await api(`/api/admin/avatars/${id}`, { method: "DELETE" });
+      // Two delete routes for one feature: the live2d one refuses a
+      // photoreal id outright rather than deleting it. Merging the table
+      // does not merge that guard, so the row's kind picks the route.
+      await (avatarKind === "live2d"
+        ? deleteLive2dAvatar(id)
+        : api(`/api/admin/avatars/${id}`, { method: "DELETE" }));
       message.success("已删除");
       await refresh();
     } catch (err) {
@@ -374,33 +349,32 @@ export default function Avatars() {
       ),
     },
     {
+      title: "类型",
+      dataIndex: "kind",
+      width: 100,
+      render: (k: AvatarKind) => <KindTag kind={k} />,
+    },
+    {
       title: "驱动方式",
       width: 110,
       render: (_, a) => {
-        // `prep.mode` is only known after the build writes pack.json. Until
-        // then fall back to the file-suffix heuristic kept here as a hint.
-        const cfg = a.config as Record<string, unknown>;
-        const prep = (cfg.musetalk as Record<string, unknown> | undefined) ?? {};
-        const mode = (prep.mode as string | undefined) ?? null;
-        if (mode === "video") return <Tag color="cyan">视频驱动</Tag>;
-        if (mode === "image") return <Tag color="geekblue">图片驱动</Tag>;
-        return <Tag>—</Tag>;
-      },
-    },
-    {
-      title: "帧数",
-      width: 90,
-      render: (_, a) => {
-        const cfg = a.config as Record<string, unknown>;
-        const prep = (cfg.musetalk as Record<string, unknown> | undefined) ?? {};
-        const v = prep.frame_count;
-        return typeof v === "number" ? v : "—";
+        const label = driveLabel(a);
+        if (!label) return <Tag>—</Tag>;
+        const color =
+          a.kind === "live2d" ? "purple" : label === "视频驱动" ? "cyan" : "geekblue";
+        return <Tag color={color}>{label}</Tag>;
       },
     },
     {
       title: "警告",
       width: 90,
       render: (_, a) => {
+        // Live2D has no source pack, so there is no source-quality
+        // assessment to report. A dash reads truer than "无" on a row that
+        // was never assessed.
+        if (a.kind === "live2d") {
+          return <Typography.Text type="secondary">—</Typography.Text>;
+        }
         const warnings = a.config.warnings ?? [];
         if (warnings.length === 0) return <Typography.Text type="secondary">无</Typography.Text>;
         return (
@@ -433,11 +407,15 @@ export default function Avatars() {
         <div onClick={(e) => e.stopPropagation()}>
           <Popconfirm
             title="删除该形象？"
-            description="删除后不可恢复。"
+            description={
+              a.kind === "live2d"
+                ? "删除后不可恢复，模型文件也会一并移除。"
+                : "删除后不可恢复。"
+            }
             okText="删除"
             cancelText="取消"
             okButtonProps={{ danger: true }}
-            onConfirm={() => onDelete(a.avatar_id)}
+            onConfirm={() => onDelete(a.avatar_id, a.kind)}
           >
             <Button danger size="small">
               删除
@@ -455,17 +433,29 @@ export default function Avatars() {
       </Typography.Title>
 
       <Card title="新建形象">
+        <Segmented
+          value={kind}
+          onChange={(v) => setKind(v as AvatarKind)}
+          options={[
+            { label: "真人视频", value: "photoreal" },
+            { label: "Live2D", value: "live2d" },
+          ]}
+          style={{ marginBottom: 16 }}
+        />
         <Form
           form={form}
           layout="vertical"
-          onFinish={onCreate}
+          onFinish={onFinish}
           style={{ maxWidth: 560 }}
-          // Defaults pulled from /api/admin/settings so the form mirrors the
-          // server's effective values; the server's defaults take over if
-          // the round trip fails.
+          // Idle knobs default to the server's live values so an operator
+          // who never opens the Advanced section still gets what the box is
+          // set to. `entry` defaults to the conventional filename; leaving
+          // it blank makes the server detect it, which is what the
+          // folder-in-zip shape needs.
           initialValues={{
             idle_crf: idleDefaults?.idle_crf ?? IDLE_CRF_DEFAULT,
             idle_preset: idleDefaults?.idle_preset ?? IDLE_PRESET_DEFAULT,
+            entry: "model.model3.json",
           }}
         >
           <Form.Item
@@ -473,69 +463,94 @@ export default function Avatars() {
             label="名称"
             rules={[{ required: true, message: "请输入名称" }]}
           >
-            <Input placeholder="例如：小美" />
+            <Input placeholder={kind === "live2d" ? "例如：Hiyori" : "例如：小美"} />
           </Form.Item>
-          <Form.Item label="驱动图片或视频" required>
-            <Upload.Dragger
-              accept="image/*,video/*"
-              maxCount={1}
-              listType="picture"
-              beforeUpload={() => false}
-              fileList={fileList}
-              onChange={({ fileList: next }) => setFileList(next)}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined />
-              </p>
-              <p className="ant-upload-drag-text">点击或拖拽图片 / 视频到此处</p>
-              <p className="ant-upload-hint">支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身；视频中请保持闭嘴、不说话</p>
-            </Upload.Dragger>
-          </Form.Item>
-          {/*
-            Idle-video knobs. Collapsed by default so the form stays calm
-            for the common "just upload a photo" path; expand to tweak the
-            quality / encode-speed trade-off per avatar.
-          */}
-          <Form.Item label="高级参数（可选）" style={{ marginBottom: 12 }}>
-            <Collapse
-              ghost
-              items={[
-                {
-                  key: "idle",
-                  label: "空闲视频编码",
-                  children: (
-                    <Space direction="vertical" size={12} style={{ width: "100%" }}>
-                      <Form.Item
-                        name="idle_crf"
-                        label="视频质量 (CRF)"
-                        tooltip="0=无损 51=最小体积，建议 16~23；调高可减小文件但降低画质"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <InputNumber
-                          min={IDLE_CRF_MIN}
-                          max={IDLE_CRF_MAX}
-                          step={1}
-                          precision={0}
-                          style={{ width: 200 }}
-                        />
-                      </Form.Item>
-                      <Form.Item
-                        name="idle_preset"
-                        label="x264 编码速度"
-                        tooltip="veryslow 文件更小但编码更慢；ultrafast 相反"
-                        style={{ marginBottom: 0 }}
-                      >
-                        <Select
-                          style={{ width: 200 }}
-                          options={X264_PRESETS.map((p) => ({ value: p, label: p }))}
-                        />
-                      </Form.Item>
-                    </Space>
-                  ),
-                },
-              ]}
-            />
-          </Form.Item>
+
+          {kind === "photoreal" ? (
+            <>
+              <Form.Item label="驱动图片或视频" required>
+                <UploadField
+                  accept="image/*,video/*"
+                  dragText="点击或拖拽图片 / 视频到此处"
+                  hint="支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身；视频中请保持闭嘴、不说话"
+                  fileList={photoFiles}
+                  onChange={setPhotoFiles}
+                />
+              </Form.Item>
+              {/*
+                Idle-video knobs. Collapsed by default so the form stays calm
+                for the common "just upload a photo" path; expand to tweak the
+                quality / encode-speed trade-off per avatar.
+              */}
+              <Form.Item label="高级参数（可选）" style={{ marginBottom: 12 }}>
+                <Collapse
+                  ghost
+                  items={[
+                    {
+                      key: "idle",
+                      label: "空闲视频编码",
+                      children: (
+                        <Space direction="vertical" size={12} style={{ width: "100%" }}>
+                          <Form.Item
+                            name="idle_crf"
+                            label="视频质量 (CRF)"
+                            tooltip="0=无损 51=最小体积，建议 16~23；调高可减小文件但降低画质"
+                            style={{ marginBottom: 0 }}
+                          >
+                            <InputNumber
+                              min={IDLE_CRF_MIN}
+                              max={IDLE_CRF_MAX}
+                              step={1}
+                              precision={0}
+                              style={{ width: 200 }}
+                            />
+                          </Form.Item>
+                          <Form.Item
+                            name="idle_preset"
+                            label="x264 编码速度"
+                            tooltip="veryslow 文件更小但编码更慢；ultrafast 相反"
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              style={{ width: 200 }}
+                              options={X264_PRESETS.map((p) => ({ value: p, label: p }))}
+                            />
+                          </Form.Item>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Form.Item label="Live2D 模型压缩包" required>
+                <UploadField
+                  accept=".zip,application/zip"
+                  dragText="点击或拖拽 .zip 到此处"
+                  hint="把整个 Cubism 工程打包成 zip。工程放在子目录里也能用，服务端会自动找到 model3.json"
+                  fileList={zipFiles}
+                  onChange={setZipFiles}
+                />
+              </Form.Item>
+              <Form.Item
+                name="entry"
+                label="入口文件"
+                tooltip="工程内的 model3.json 路径。留空则由服务端自动探测；其余文件（moc3、纹理、动作）由它引用，无需单独填写。"
+              >
+                <Input placeholder="model.model3.json" />
+              </Form.Item>
+              <Form.Item
+                name="expressions"
+                label="表情映射（可选，JSON）"
+                tooltip='形如 {"smile": 0, "think": 1}，数值是模型自身表情列表的下标。注册时会校验下标是否存在。'
+              >
+                <Input.TextArea rows={2} placeholder={'{"smile": 0}'} />
+              </Form.Item>
+            </>
+          )}
+
           <Button type="primary" htmlType="submit" loading={creating} icon={<PlusOutlined />}>
             上传创建
           </Button>
@@ -571,7 +586,7 @@ export default function Avatars() {
         <Table
           rowKey="avatar_id"
           columns={columns}
-          dataSource={photoItems}
+          dataSource={visibleItems}
           loading={loading}
           scroll={{ x: 1000 }}
           pagination={{ pageSize: 10, hideOnSinglePage: true }}
@@ -580,132 +595,6 @@ export default function Avatars() {
             onClick: () => navigate(`/avatars/${a.avatar_id}`),
             style: { cursor: "pointer" },
           })}
-        />
-      </Card>
-
-      <Card title="注册 Live2D 模型">
-        <Typography.Paragraph type="secondary" style={{ maxWidth: 720 }}>
-          填写服务端上 Cubism 工程的目录。注册时服务端会把工程复制进形象自己的存储并逐项校验
-          （moc3、纹理、动作、表情），任何一项缺失都会在注册这一步报错并指出具体文件。
-        </Typography.Paragraph>
-        <Form
-          form={l2dForm}
-          layout="vertical"
-          onFinish={onRegisterLive2d}
-          style={{ maxWidth: 560 }}
-          initialValues={{ entry: "model.model3.json" }}
-        >
-          <Form.Item name="name" label="名称" rules={[{ required: true, message: "请输入名称" }]}>
-            <Input placeholder="例如：Hiyori" />
-          </Form.Item>
-          <Form.Item
-            name="model_dir"
-            label="模型目录（服务端路径）"
-            rules={[{ required: true, message: "请填写模型目录" }]}
-          >
-            <Input placeholder="例如：data/live2d-models/hiyori" />
-          </Form.Item>
-          <Form.Item
-            name="entry"
-            label="入口文件"
-            tooltip="模型目录下的 model3.json 文件名。其余文件（moc3、纹理、动作）由它引用，无需单独填写。"
-            rules={[{ required: true, message: "请填写入口文件名" }]}
-          >
-            <Input placeholder="model.model3.json" />
-          </Form.Item>
-          <Form.Item
-            name="expressions"
-            label="表情映射（可选，JSON）"
-            tooltip='形如 {"smile": 0, "think": 1}，数值是模型自身表情列表的下标。注册时会校验下标是否存在。'
-          >
-            <Input.TextArea rows={2} placeholder='{"smile": 0}' />
-          </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={l2dCreating}
-            icon={<PlusOutlined />}
-          >
-            注册模型
-          </Button>
-        </Form>
-      </Card>
-
-      <Card title="Live2D 模型">
-        <Table
-          rowKey="avatar_id"
-          dataSource={live2dItems}
-          columns={[
-            {
-              title: "形象 ID",
-              dataIndex: "avatar_id",
-              width: 110,
-              render: (v: string) => <CopyableId id={v} />,
-            },
-            { title: "名称", dataIndex: "name" },
-            {
-              title: "入口文件",
-              render: (_, a) => {
-                const cfg = a.config as Live2DModelConfig;
-                return cfg?.model?.entry ?? "—";
-              },
-            },
-            {
-              title: "表情",
-              render: (_, a) => {
-                const cfg = a.config as Live2DModelConfig;
-                const map = cfg?.expressions;
-                if (!map || Object.keys(map).length === 0) {
-                  return <Typography.Text type="secondary">无</Typography.Text>;
-                }
-                return (
-                  <Space size={4} wrap>
-                    {Object.entries(map).map(([tag, idx]) => (
-                      <Tag key={tag}>
-                        {tag} → {idx}
-                      </Tag>
-                    ))}
-                  </Space>
-                );
-              },
-            },
-            {
-              title: "状态",
-              dataIndex: "status",
-              width: 110,
-              render: (status: string) => <StatusTag status={status} />,
-            },
-            {
-              title: "创建时间",
-              dataIndex: "created_at",
-              width: 200,
-              render: (v: string) => new Date(v).toLocaleString(),
-            },
-            {
-              title: "操作",
-              width: 100,
-              align: "right",
-              render: (_, a) => (
-                <div onClick={(e) => e.stopPropagation()}>
-                  <Popconfirm
-                    title="删除该模型？"
-                    description="删除后不可恢复，模型文件也会一并移除。"
-                    okText="删除"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                    onConfirm={() => onDeleteLive2d(a.avatar_id)}
-                  >
-                    <Button danger size="small">
-                      删除
-                    </Button>
-                  </Popconfirm>
-                </div>
-              ),
-            },
-          ]}
-          scroll={{ x: 900 }}
-          pagination={{ pageSize: 10, hideOnSinglePage: true }}
-          locale={{ emptyText: <Empty description="暂无 Live2D 模型" /> }}
         />
       </Card>
     </Space>
