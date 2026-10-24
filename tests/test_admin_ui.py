@@ -102,9 +102,24 @@ def test_avatar_create_has_synchronous_reentry_guard():
     # actually covers the probe await.
     source = _avatars_source()
     assert "createReentryGuard()" in source
-    assert "creatingGuard.run(async () =>" in source
-    assert "setCreating(true);" in source
-    assert "      } finally {\n        setCreating(false);\n      }" in source
+    # One guard covers both avatar kinds -- a second click on either branch
+    # has to be refused -- so the run call must dispatch to BOTH submits.
+    assert "creatingGuard.run(" in source
+    assert (
+        'kind === "live2d" ? submitLive2d(values) : submitPhotoreal(values)'
+        in source
+    ), "the guard must wrap both submits, not just one of them"
+    # Each submit takes the button down and puts it back in a finally, so a
+    # failed upload cannot leave the button spinning forever.
+    assert source.count("setCreating(true);") == 2, (
+        "both submits must take the button down"
+    )
+    assert source.count("setCreating(false);") == 2, (
+        "both submits must put the button back"
+    )
+    assert source.count("finally {") == 2, (
+        "the button must be restored in a finally, not on the success path"
+    )
 
 
 def test_reentry_guard_blocks_double_submit_behaviorally():
