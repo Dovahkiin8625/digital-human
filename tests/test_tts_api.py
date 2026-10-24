@@ -9,24 +9,50 @@ ADMIN = {"X-Admin-Token": "dev-admin-token"}
 
 
 @pytest.fixture()
-def tts_env(monkeypatch):
-    """Configure MiniMax the way a real .env would, and drop the settings cache.
+def tts_db(tmp_path, monkeypatch):
+    """A DB session the tests can drive, with the MiniMax config seeded.
 
-    get_settings() is lru_cached, so a bare setenv would be ignored until the
-    cache is cleared; the yield/cleanup keeps the cache from leaking a fake key
-    into the next test.
+    The env layer is gone -- the ``settings`` table is the only place the
+    MiniMax config lives -- so the fixture seeds it directly, the same way
+    the console's Models-tab dialog does.
     """
-    monkeypatch.setenv("DH_MINIMAX_API_KEY", "test-key")
-    monkeypatch.setenv("DH_MINIMAX_GROUP_ID", "test-group")
-    monkeypatch.setenv("DH_MINIMAX_BASE_URL", "https://api.example.test")
-    monkeypatch.setenv("DH_MINIMAX_VOICE_ID", "male-qn-qingse")
-    monkeypatch.setenv("DH_MINIMAX_MODEL", "speech-02-hd")
-    monkeypatch.setenv("DH_MINIMAX_SAMPLE_RATE", "32000")
+    from tests.env import apply_env
     from server.config import get_settings
+    from server.db.session import init_db, get_engine, reset_engine
 
+    apply_env(monkeypatch, tmp_path)
+    reset_engine()
+    init_db(get_engine())
     get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
+    from sqlalchemy.orm import sessionmaker
+
+    Session = sessionmaker(bind=get_engine())
+    db = Session()
+    try:
+        yield db
+    finally:
+        db.close()
+        reset_engine()
+        get_settings.cache_clear()
+
+
+def _seed_config(db, **overrides):
+    """Write a MiniMax config into the ``settings`` table.
+
+    Mirrors what the console's Models-tab dialog persists, so the tests
+    exercise the same read path production does.
+    """
+    from server.tts.config import write_config
+
+    payload = {
+        "api_key": "test-key",
+        "group_id": "test-group",
+        "base_url": "https://api.example.test",
+        "model": "speech-02-hd",
+        "sample_rate": 32000,
+    }
+    payload.update(overrides)
+    return write_config(db, payload)
 
 
 def _mock_client(handler) -> httpx.AsyncClient:
@@ -63,8 +89,10 @@ def test_wav_from_pcm_writes_a_16bit_mono_header():
 
 
 @pytest.mark.asyncio
-async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_env):
+async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_db):
     from server.tts.minimax import synthesize
+
+    _seed_config(tts_db)
 
     pcm = b"\x10\x20\x30\x40"
     seen: dict = {}
@@ -83,7 +111,7 @@ async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_env):
 
     client = _mock_client(handler)
     try:
-        wav = await synthesize("你好世界", "female-shaonv", client=client)
+        wav = await synthesize("你好世界", "female-shaonv", db=tts_db, client=client)
     finally:
         await client.aclose()
 
@@ -101,7 +129,7 @@ async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_env):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_rejects_empty_voice_id(tts_env):
+async def test_synthesize_rejects_empty_voice_id(tts_db):
     """``voice_id`` is required -- the operator picks it per session in the
     debug page, so there is no server-wide default. An empty string
     surfaces as 400 ``missing_voice_id`` so the UI can prompt the user
@@ -109,37 +137,40 @@ async def test_synthesize_rejects_empty_voice_id(tts_env):
     """
     from server.tts.minimax import synthesize
 
+    _seed_config(tts_db)
+
     with pytest.raises(AppError) as excinfo:
-        await synthesize("hi", "")
+        await synthesize("hi", "", db=tts_db)
     assert excinfo.value.status == 400
     assert excinfo.value.code == "missing_voice_id"
 
     # Whitespace-only counts as missing too (UI often ends up with that).
     with pytest.raises(AppError) as excinfo:
-        await synthesize("hi", "   ")
+        await synthesize("hi", "   ", db=tts_db)
     assert excinfo.value.status == 400
     assert excinfo.value.code == "missing_voice_id"
 
 
 @pytest.mark.asyncio
-async def test_synthesize_without_api_key_raises_not_configured(monkeypatch):
-    monkeypatch.setenv("DH_MINIMAX_API_KEY", "")
-    from server.config import get_settings
+async def test_synthesize_without_api_key_raises_not_configured(tts_db):
+    """No api_key in the ``settings`` table means "not configured" -- the
+    synthesise path refuses to call out rather than sending an empty
+    bearer token.
+    """
     from server.tts.minimax import synthesize
 
-    get_settings.cache_clear()
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", "female-shaonv")
-        assert excinfo.value.status == 503
-        assert excinfo.value.code == "tts_not_configured"
-    finally:
-        get_settings.cache_clear()
+    # A DB with no MiniMax rows at all: the defaults carry an empty key.
+    with pytest.raises(AppError) as excinfo:
+        await synthesize("hi", "female-shaonv", db=tts_db)
+    assert excinfo.value.status == 503
+    assert excinfo.value.code == "tts_not_configured"
 
 
 @pytest.mark.asyncio
-async def test_synthesize_surfaces_a_minimax_error(tts_env):
+async def test_synthesize_surfaces_a_minimax_error(tts_db):
     from server.tts.minimax import synthesize
+
+    _seed_config(tts_db)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -153,7 +184,7 @@ async def test_synthesize_surfaces_a_minimax_error(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", "female-shaonv", client=client)
+            await synthesize("hi", "female-shaonv", db=tts_db, client=client)
     finally:
         await client.aclose()
 
@@ -163,10 +194,12 @@ async def test_synthesize_surfaces_a_minimax_error(tts_env):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_rejects_a_non_hex_payload(tts_env):
+async def test_synthesize_rejects_a_non_hex_payload(tts_db):
     # output_format=hex is pinned, but if the reply ever carries a URL instead we
     # want the 502 that names the problem, not a bare ValueError turned 500.
     from server.tts.minimax import synthesize
+
+    _seed_config(tts_db)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -180,7 +213,7 @@ async def test_synthesize_rejects_a_non_hex_payload(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", "female-shaonv", client=client)
+            await synthesize("hi", "female-shaonv", db=tts_db, client=client)
     finally:
         await client.aclose()
 
@@ -189,8 +222,10 @@ async def test_synthesize_rejects_a_non_hex_payload(tts_env):
 
 
 @pytest.mark.asyncio
-async def test_synthesize_surfaces_a_transport_error(tts_env):
+async def test_synthesize_surfaces_a_transport_error(tts_db):
     from server.tts.minimax import synthesize
+
+    _seed_config(tts_db)
 
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
@@ -198,7 +233,7 @@ async def test_synthesize_surfaces_a_transport_error(tts_env):
     client = _mock_client(handler)
     try:
         with pytest.raises(AppError) as excinfo:
-            await synthesize("hi", "female-shaonv", client=client)
+            await synthesize("hi", "female-shaonv", db=tts_db, client=client)
     finally:
         await client.aclose()
 
@@ -235,13 +270,10 @@ def test_tts_endpoint_rejects_blank_text(client):
     assert resp.json()["error"]["code"] == "empty_text"
 
 
-def test_tts_endpoint_reports_missing_configuration(client, monkeypatch):
-    # No synthesize stub here: the real client must refuse to call out without a key.
-    monkeypatch.setenv("DH_MINIMAX_API_KEY", "")
-    from server.config import get_settings
-
-    get_settings.cache_clear()
-
+def test_tts_endpoint_reports_missing_configuration(client):
+    # No synthesize stub here: the real client must refuse to call out
+    # without a key. The console's DB has no MiniMax rows, so the
+    # effective config carries an empty key and the path refuses.
     resp = client.post(
         "/api/admin/tts", headers=ADMIN, json={"text": "hi", "voice_id": "female-shaonv"}
     )

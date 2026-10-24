@@ -5,8 +5,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    drive_engine: str = "musetalk"
-    avatar_pipeline: str = "musetalk"
     data_dir: Path = Path("data")
     database_url: str = "sqlite:///data/digital-human.db"
     session_idle_timeout: float = 60.0
@@ -34,20 +32,14 @@ class Settings(BaseSettings):
     # clip even at a phone high bitrate (100 Mbps * 15 s ~= 188 MB).
     avatar_max_upload_bytes: int = 300_000_000
 
-    # MiniMax text-to-speech, used by the console's text-driven debug page.
-    # Empty api_key means "not configured": the endpoint returns 503 rather than
-    # calling out. group_id is optional -- newer accounts authenticate on the
-    # bearer token alone, and MiniMax ignores the query param when it is absent.
-    # voice_id is *not* here: the operator picks it per session in the debug
-    # page, so the synthesise endpoint takes it as a required argument rather
-    # than reading a server-wide default.
-    minimax_api_key: str = ""
-    minimax_group_id: str = ""
-    minimax_base_url: str = "https://api.minimaxi.com"
-    minimax_model: str = "speech-02-hd"
-    # MiniMax tops out at 44100 Hz, so this is never the render session's 48000;
-    # the browser resamples onto the WS audio channel (webrtc.ts).
-    minimax_sample_rate: int = 32000
+    # NOTE: the MiniMax TTS config (api_key / group_id / base_url / model /
+    # sample_rate) lives entirely in the SQLite ``settings`` table and is
+    # configured from the Models tab, exactly like the LLM below. There are
+    # deliberately no ``DH_MINIMAX_*`` env defaults: two persistence layers
+    # for one credential meant the console's badge tracked the wrong one.
+    # MiniMax tops out at 44100 Hz, so the synthesised rate is never the
+    # render session's 48000 -- the browser resamples onto the WS audio
+    # channel (webrtc.ts).
 
     # NOTE: LLM config (api_key / base_url / model) lives entirely in the
     # SQLite ``settings`` table and is configured from the Models tab.
@@ -67,7 +59,10 @@ class Settings(BaseSettings):
 
     # Live2D. `live2d_sdk_dir` is read by the server only to serve the SDK's
     # Core and Shaders to the browser -- the server never renders a Cubism
-    # model. `live2d_enabled` hides the whole feature from the console.
+    # model. `live2d_enabled` is *reported* (it lands in the Live2D health
+    # payload the console's System tab renders) but not enforced: no
+    # endpoint branches on it, so the Live2D upload route and the create
+    # form's Live2D option keep working when it is False.
     live2d_enabled: bool = True
     live2d_sdk_dir: Path = Path("data/CubismSdkForWeb-5-r.5")
     # A Live2D upload is an operator-supplied zip of a whole Cubism project.
@@ -78,7 +73,18 @@ class Settings(BaseSettings):
     live2d_max_unpacked_bytes: int = 512_000_000
     live2d_max_entry_bytes: int = 64_000_000
 
-    model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env")
+    # ``extra="ignore"`` rather than the pydantic-settings default of
+    # ``"forbid"``: a box upgraded from a version that still shipped
+    # ``DH_MINIMAX_*`` (or the retired ``DH_DRIVE_ENGINE`` /
+    # ``DH_AVATAR_PIPELINE``) in its .env must not fail to start just
+    # because those keys no longer have a Settings field. Unknown DH_*
+    # vars are inert; they are simply not read by anything.
+    #
+    # Which digital-human model this box runs is NOT an env concern: it is
+    # an operator choice stored in the SQLite ``settings`` table, the same
+    # place the MiniMax TTS and LLM configs live. See
+    # ``server/model_registry.py``.
+    model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env", extra="ignore")
 
 
 @lru_cache

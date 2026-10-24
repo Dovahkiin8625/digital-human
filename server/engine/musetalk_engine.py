@@ -579,9 +579,9 @@ class MuseTalkEngine(DriveEngine):
         The Models tab POSTs ``/api/admin/models/{id}/load`` and the admin
         router dispatches via ``getattr(engine, "load", None)``. The
         engine's actual entry point has been ``warmup`` since pre-launch;
-        ``load()`` keeps the admin endpoint engine-agnostic (mock has no
-        ``load``, real engines do) without renaming the lifespan-managed
-        lifecycle call.
+        ``load()`` keeps the admin endpoint engine-agnostic (an engine
+        without weights has no ``load``) without renaming the
+        lifespan-managed lifecycle call.
 
         Calls ``warmup`` unchanged, so cold start still costs the same
         ~30 s the lifespan task was paying. Idempotent-ish: a second call
@@ -1038,8 +1038,8 @@ class MuseTalkEngine(DriveEngine):
         prep = pack.prep or {}
         if not prep.get("latents") or not (prep.get("coords") or prep.get("mask")):
             raise EngineUnavailable(
-                f"avatar {pack.avatar_id} has no musetalk pack; prepare it with "
-                "DH_AVATAR_PIPELINE=musetalk"
+                f"avatar {pack.avatar_id} has no musetalk pack; re-upload it so "
+                "the avatar pipeline can build one"
             )
         root = Path(pack.root)
         mode = prep.get("mode")

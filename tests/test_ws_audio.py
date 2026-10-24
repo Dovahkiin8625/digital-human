@@ -28,7 +28,7 @@ def test_ws_audio_channel_drives_frames(client):
         ws.send_text('{"type": "flush"}')
 
     render = client.app.state.session_manager.get_render(sid)
-    # MockEngine at 25fps emits round(0.1s * 25) = 2 frames for a 100ms block
+    # FakeEngine at 25fps emits round(0.1s * 25) = 2 frames for a 100ms block
     # (banker's rounding). The brief's "5 frames" is a math slip: 100ms of audio
     # is one 100ms ingest block, driven once. Matches Task 6's ruling on the
     # same 100ms-block arithmetic.

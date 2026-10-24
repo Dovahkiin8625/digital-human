@@ -81,7 +81,7 @@ def _cv2_and_torch():
     """Import the GPU-venv-only deps at call time.
 
     This module must import cleanly in the torch-free `.venv` so that a
-    misconfigured DH_AVATAR_PIPELINE reports a clear error instead of an
+    misconfigured environment reports a clear error instead of an
     ImportError at import time.
     """
     import cv2
@@ -107,9 +107,8 @@ def default_models_dir() -> Path:
 def fit_to_canvas(img: Image.Image, width: int, height: int) -> Image.Image:
     """Letterbox `img` into a width x height canvas, preserving aspect ratio.
 
-    The mock pipeline already guarantees a 720x1280 `normalized.png`; the real
-    one must produce the same shape because `RenderSession` assumes the media
-    contract's frame size.
+    The pipeline must produce a 720x1280 `normalized.png` because
+    `RenderSession` assumes the media contract's frame size.
     """
     canvas = Image.new("RGB", (width, height), (16, 16, 24))
     scale = min(width / img.width, height / img.height)

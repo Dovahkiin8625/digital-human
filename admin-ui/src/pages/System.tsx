@@ -24,7 +24,7 @@ import type { Live2DHealth, SessionInfo } from "../types";
 interface EngineInfo {
   name: string;
   gpu: boolean;
-  // Only the real engine reports these; the mock has no weights to load.
+  // Only an engine with weights on disk reports these.
   models_dir?: string;
   weights_present?: boolean;
   loaded?: boolean;
@@ -34,6 +34,8 @@ interface EngineInfo {
 
 interface SystemInfo {
   engine: EngineInfo;
+  // The digital-human model this box runs. One model bundles the avatar
+  // pipeline and the drive engine, so the pipeline's name is the model's.
   pipeline: string;
   version: string;
   data_dir: string;
@@ -242,9 +244,8 @@ export default function System() {
                             <>
                               服务端只从该目录伺服 Core 与 Shaders。把 Cubism SDK 解压到
                               <code> {l2d.sdk_dir} </code>
-                              （可用环境变量 <code>DH_LIVE2D_SDK_DIR</code> 指向别处），或把{" "}
-                              <code>DH_LIVE2D_ENABLED</code> 设为 <code>false</code>{" "}
-                              关掉该功能。
+                              （可用环境变量 <code>DH_LIVE2D_SDK_DIR</code> 指向别处）。
+                              <code>DH_LIVE2D_ENABLED</code> 目前只作状态上报，并不真正关闭该功能。
                             </>
                           }
                         />

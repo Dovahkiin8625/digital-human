@@ -1,8 +1,14 @@
+"""The test doubles that stand in for the digital-human model.
+
+They are the reason the suite runs in the torch-free ``.venv``: no GPU, no
+weights, no torch. Their behaviour is frozen -- the suite asserts on their
+exact frame arithmetic and on the pack they write.
+"""
 import numpy as np
 import pytest
 
-from server.engine.base import AvatarPack, create_engine
-from server.engine.mock_engine import MockEngine
+from server.engine.base import AvatarPack
+from doubles import FakeEngine
 
 
 def _pack(tmp_path):
@@ -15,7 +21,7 @@ def _pack(tmp_path):
 
 @pytest.mark.asyncio
 async def test_drive_returns_frames_matching_audio_duration(tmp_path):
-    engine = MockEngine()
+    engine = FakeEngine()
     pack = _pack(tmp_path)
     audio = np.zeros(48000, dtype=np.float32)  # 1s
     frames = await engine.drive(pack, audio, 48000)
@@ -28,7 +34,7 @@ async def test_drive_returns_frames_matching_audio_duration(tmp_path):
 
 @pytest.mark.asyncio
 async def test_drive_is_deterministic(tmp_path):
-    engine = MockEngine()
+    engine = FakeEngine()
     pack = _pack(tmp_path)
     audio = np.linspace(-0.5, 0.5, 24000, dtype=np.float32)
     a = await engine.drive(pack, audio, 48000)
@@ -38,12 +44,17 @@ async def test_drive_is_deterministic(tmp_path):
 
 @pytest.mark.asyncio
 async def test_loud_audio_opens_mouth_more(tmp_path):
-    engine = MockEngine()
+    engine = FakeEngine()
     pack = _pack(tmp_path)
     silent = await engine.drive(pack, np.zeros(4800, dtype=np.float32), 48000)
     loud = await engine.drive(pack, np.ones(4800, dtype=np.float32) * 0.9, 48000)
     assert np.abs(loud[0].image.astype(int) - silent[0].image.astype(int)).sum() > 0
 
 
-def test_create_engine_factory():
-    assert create_engine("mock").__class__.__name__ == "MockEngine"
+def test_fake_engine_is_not_a_registered_model():
+    # The double is a test artefact, not a deployment mode: the registry
+    # has no entry for it, so the server can never be pointed at it.
+    from server.model_registry import ModelUnavailable, get_model
+
+    with pytest.raises(ModelUnavailable):
+        get_model("fake")

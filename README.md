@@ -18,8 +18,11 @@ VAE 编码，产出一份形象包；会话中每个 100ms 音频块驱动一次
 这是 MuseTalk 的固有形态 —— 它是「视频配音」模型，单张照片时头部静止、只有嘴与下颌区域动。
 若日后要头部摆动，那是 LivePortrait 一类模型的活，不在当前范围内。
 
-`mock` 引擎与 `mock` 制作流水线**保留为测试替身**：无 GPU 的机器与 CI 用它跑通全链路。
-生产部署请按下面的「MuseTalk 环境准备」启用真实路径。
+服务端只实现**一个数字人模型**（MuseTalk 1.5）。模型 = 一条形象制作流水线 + 一个驱动引擎，
+两者成对绑定：流水线产出的形象包只有配套引擎读得懂。模型清单是代码里的注册表
+（`server/model_registry.py`），当前用哪个模型存在 SQLite `settings` 表里，在管理台
+「模型」页切换 —— 切换在**重启服务后**生效（引擎是持有显存的进程级单例）。
+无 GPU 的机器仍可跑全部单测：测试用替身住在 `tests/doubles.py`，不进入服务端。
 
 技术栈：Python 3.11+ / FastAPI / aiortc / SQLAlchemy + SQLite；React + Vite + TS + vitest。
 
@@ -42,7 +45,7 @@ flowchart LR
     SIG --> RS["RenderSession ×N"]
     C -- "WebRTC 媒体" --> RS
     RS --> ING["AudioIngest<br/>RTP 或 WS 音频"]
-    RS --> ENG["DriveEngine<br/>Mock | MuseTalk"]
+    RS --> ENG["DriveEngine<br/>MuseTalk"]
     RS --> SINK["StreamSink<br/>WebRTC video track"]
     ADM["后台调试台 (React)"] -- "REST / WS" --> ADMIN["Admin API / AvatarStore<br/>SQLite + 磁盘资产"]
 ```
@@ -50,19 +53,24 @@ flowchart LR
 - **API 层**：形象 CRUD、会话生命周期、API Key 鉴权（`/api/v1/*`）。
 - **SessionManager / RenderSession**：会话编排与状态机（`idle → listening → speaking → closed`）。
   空闲时按帧率推静态保活帧，避免视频轨因无帧可发而冻住。
-- **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `mock` / `musetalk`。
+- **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `musetalk`。
   真引擎把同步 CUDA 工作放到单工作线程池，事件循环不被阻塞；跨会话在 GPU 上串行。
-- **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `mock`（占位产物）/ `musetalk`（真实制作）。
+- **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `musetalk`（真实制作）。
+- **数字人模型注册表**（`server/model_registry.py`）：一个模型 = 一条流水线 + 一个引擎，
+  成对注册。当前只有 MuseTalk；新增模型 = 实现两个抽象基类 + 注册一条。
 - **AvatarStore**：形象包管理（SQLite 元数据 + 磁盘资产）。
 - **音频双通道**：RTP audio track 为主，WS 音频分片为备，进入同一 `AudioIngest`，引擎无感知。
 - **会话短生命周期**：显式 DELETE 或 `DH_SESSION_IDLE_TIMEOUT` 秒无音频自动回收。
 
 ## 快速开始
 
-前置：Python 3.11+、Node 18+。真实模型另需 NVIDIA GPU（见下节）。
+前置：Python 3.11+、Node 18+。跑真实模型另需 NVIDIA GPU（见下节）。
+
+服务端只实现 MuseTalk 一个数字人模型，**跑起来需要 GPU + 权重**（`.venv-musetalk`）；
+下面第一个 `.venv` 只用于跑单测。
 
 ```bash
-# 1. Python 虚拟环境与依赖（torch-free，够跑 mock 与全部单测）
+# 1. 单测用的虚拟环境（torch-free，够跑全部单测）
 python -m venv .venv
 source .venv/Scripts/activate          # Windows (Git Bash)；PowerShell 用 .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
@@ -75,17 +83,15 @@ cd ..
 
 # 3. 配置环境变量
 cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR / DH_V1_API_TOKEN
-
-# 4. 启动服务（mock：无 GPU 也能跑通全链路）
-python -m uvicorn --factory server.main:create_app --host 0.0.0.0 --port 8000
 ```
 
-要在本机跑真实模型，先按「[MuseTalk 环境准备](#musetalk-环境准备)」建好 `.venv-musetalk`
+要跑真实模型，先按「[MuseTalk 环境准备](#musetalk-环境准备)」建好 `.venv-musetalk`
 并拉取权重，然后用那个解释器启动：
 
 ```bash
-DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \
-  ./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
+./scripts/setup_musetalk.sh             # 建 .venv-musetalk 并装依赖
+./scripts/fetch_musetalk_weights.sh     # 拉权重（约数 GB）
+./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
   --host 0.0.0.0 --port 8000
 ```
 
@@ -98,11 +104,12 @@ DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \
 
 ```bash
 curl http://127.0.0.1:8000/healthz
-# {"status":"ok","engine":"mock","pipeline":"mock","gpu":false}
+# {"status":"ok","engine":"musetalk","pipeline":"musetalk","gpu":true}
 ```
 
 `gpu` 在启动时探测一次（导入 torch 是昂贵的那一步，而结论不会在运行中改变）。
-`engine` 与 `pipeline` 是配置里选定的实现名，不是探测结果 —— 见「环境变量」。
+`engine` 与 `pipeline` 是**当前生效的数字人模型名**，不是探测结果 —— 一个模型 = 一条
+形象制作流水线 + 一个驱动引擎，两半同名。模型在管理台「模型」页切换，重启后生效。
 
 开发时前端可 `cd admin-ui && npm run dev`（Vite 已把 `/api` 代理到 `127.0.0.1:8000`）。
 
@@ -112,18 +119,14 @@ curl http://127.0.0.1:8000/healthz
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DH_DRIVE_ENGINE` | `musetalk` | 驱动引擎：`mock` 或 `musetalk` |
-| `DH_AVATAR_PIPELINE` | `musetalk` | 形象制作流水线：`mock` 或 `musetalk`。与 `DH_DRIVE_ENGINE` 保持一致：mock 形象包没有真引擎要读的 sidecar，真形象包带着 mock 用不上的张量 |
 | `DH_AVATAR_MAX_VIDEO_SECONDS` | `15.0` | 驱动视频时长上限（秒），超出上传即 422 |
 | `DH_AVATAR_MAX_VIDEO_FRAMES` | `375` | 驱动视频解码帧数上限（15s × 25fps） |
 | `DH_AVATAR_CACHE_SIZE` | `2` | 引擎按形象缓存的份数；视频形象每份常驻约 1GB 内存 |
 | `DH_AVATAR_MAX_UPLOAD_BYTES` | `300000000` | 上传字节上限，超出返回 413 |
 | `DH_DATA_DIR` | `data` | 运行时数据目录（SQLite、形象资产、模型权重） |
 | `DH_DATABASE_URL` | `sqlite:///data/digital-human.db` | SQLAlchemy 数据库 URL |
-| `DH_ADMIN_PASSWORD` | `admin123` | **已失效** —— 登录鉴权随多租户重构一并删除，保留仅为不打断旧 `.env` |
-| `DH_ADMIN_TOKEN` | `dev-admin-token` | **已失效** —— 同上，无任何端点校验它 |
 | `DH_V1_API_TOKEN` | 空 | Live2D 模型托管端点的可选令牌（请求头 `X-V1-Token`）。留空 = 不校验，供桌面宠物连远程部署 |
-| `DH_LIVE2D_ENABLED` | `true` | 关掉后管理台不再提供 Live2D 相关入口 |
+| `DH_LIVE2D_ENABLED` | `true` | **仅上报，不生效** —— 该值只出现在 Live2D 健康检查的 JSON 里（管理台系统页据此显示「启用：否」），服务端没有任何端点按它分支。设为 `false` **不会**关掉 Live2D 功能：上传端点与创建形象页的 Live2D 选项照常可用 |
 | `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/`（core）与 `Framework/Shaders/`（GLSL）下发给浏览器，不渲染任何 Live2D |
 | `DH_LIVE2D_MAX_ARCHIVE_ENTRIES` | `512` | 上传的 Live2D 压缩包条目数上限。zip 是外部输入，一个几百 KB 的包可以声明上百万个条目 |
 | `DH_LIVE2D_MAX_UNPACKED_BYTES` | `512000000` | 同一个压缩包**解压后**的累计字节上限。压缩包体积上限挡不住高压缩比炸弹（几 KB 展开成几百 MB 全零） |
@@ -133,22 +136,59 @@ curl http://127.0.0.1:8000/healthz
 | `DH_FRAME_WIDTH` | `720` | 输出视频宽 |
 | `DH_FRAME_HEIGHT` | `1280` | 输出视频高 |
 | `DH_FPS` | `25` | 输出帧率 |
+| `DH_VIDEO_BITRATE` | `3500000` | 出站 H.264 目标码率（bps）。aiortc 的 OpenH264 默认只有 1 Mbps，而 720×1280@25 下嘴部是画面里最耗码率的区域，1 Mbps 会糊成马赛克 |
+| `DH_VIDEO_MAX_BITRATE` | `4000000` | 出站 H.264 码率上限（bps），配合 aiortc 的 REMB 上限使用 |
 | `DH_SAMPLE_RATE` | `48000` | 音频采样率（Hz） |
-| `DH_MINIMAX_API_KEY` | 空 | MiniMax TTS 密钥。留空即禁用调试页的文本合成，端点返回 503 |
-| `DH_MINIMAX_GROUP_ID` | 空 | 可选：老账号需要它作为 `GroupId` query 参数，新账号只认 bearer token |
-| `DH_MINIMAX_BASE_URL` | `https://api.minimaxi.com` | 国内平台；国际版改 `https://api.minimax.io` |
-| `DH_MINIMAX_MODEL` | `speech-02-hd` | 合成模型 |
-| `DH_MINIMAX_SAMPLE_RATE` | `32000` | 合成采样率。MiniMax 上限 44100，故**不可能是** `DH_SAMPLE_RATE`，重采样在浏览器侧完成 |
 
-> **LLM 配置不走环境变量**。OpenAI 兼容大模型的 `api_key` / `base_url` / `model`
-> 在 Models 页面的「服务」列表中点击大模型行的 **[设置]** 写入 SQLite `settings`
-> 表；`.env` 里没有对应变量。这样能让一次部署的服务在 UI 上切换 provider，
-> 也避免泄漏的 `DH_LLM_*` 在没显式 opt-in 时打开 chat 端点。
+> **TTS 与 LLM 配置都不走环境变量**。MiniMax TTS 的 `api_key` / `group_id` /
+> `base_url` / `model` / `sample_rate`，以及 OpenAI 兼容大模型的 `api_key` /
+> `base_url` / `model`，都在 Models 页面的「服务」列表中点对应行的 **[设置]**
+> 写入 SQLite `settings` 表；`.env` 里没有对应变量。这样能让一次部署的服务在 UI
+> 上切换 provider，也避免泄漏的 `DH_MINIMAX_*` / `DH_LLM_*` 在没显式 opt-in 时
+> 打开合成或 chat 端点。
+>
+> **数字人模型的选择同样不走环境变量**。用哪个模型（今天只有 MuseTalk）写在
+> `settings` 表的 `dh_active_model` 行里，在 Models 页的「当前数字人模型」卡片切换。
+> 模型 = 流水线 + 引擎，成对绑定，所以只有一个开关而不是两个必须保持一致的变量。
+>
+> 从旧版本（`.env` 里带 `DH_MINIMAX_*`）升级的机器可以跑一次迁移脚本把现有值
+> 搬进 `settings` 表：`python scripts/migrate_minimax_env_to_db.py`。
 
-> 上表是**代码默认值**。`.env.example` 模板里两个引擎项都写成 `mock`，这样
-> `cp .env.example .env` 之后在 torch-free 的 `.venv` 里能直接跑通 —— 若模板发
-> `musetalk`，一次形象上传就会去 import torch 而失败。生产部署按「MuseTalk 环境准备」
-> 把两者一起改成 `musetalk`。
+> **已移除的变量**：`DH_ADMIN_PASSWORD`、`DH_ADMIN_TOKEN`（登录鉴权随多租户重构删除）、
+> `DH_MINIMAX_*`（改由 Models 页配置）与 `DH_DRIVE_ENGINE` / `DH_AVATAR_PIPELINE`
+> （改由 Models 页选数字人模型）都已不再是 `Settings` 字段。旧 `.env` 里留着
+> 它们不会报错 —— 服务端对未知 `DH_*` 变量一律忽略 —— 但也不会有任何作用，可以直接删掉。
+
+## 数字人模型（可插拔）
+
+服务端把「形象制作流水线」与「驱动引擎」成对绑成一个**数字人模型**：流水线产出的形象包
+（`pack.json` + sidecar）只有配套引擎读得懂，所以两者必须一起换，不能各选各的。
+
+注册表在 `server/model_registry.py`，当前只有 MuseTalk 一条：
+
+```python
+register_model(
+    DigitalHumanModel(
+        name="mymodel",
+        label_zh="我的模型",
+        engine_factory=MyEngine,        # 实现 server.engine.base.DriveEngine
+        pipeline_factory=MyPipeline,    # 实现 server.avatar.pipeline.AvatarPipeline
+    )
+)
+```
+
+新增一个模型要做的全部事情：
+
+1. 实现 `DriveEngine`（`drive()` 是唯一必须实现的方法）与 `AvatarPipeline`（`process()`）。
+2. 在注册表里注册一条。
+3. 若它有独立权重，加一个 fetch 脚本，并在 Models 页的「模型」表格里暴露一行。
+
+不需要碰配置面：`.env` 里没有任何与模型相关的变量。
+
+**当前用哪个模型**存在 SQLite `settings` 表的 `dh_active_model` 行里，在管理台
+「模型」页的「当前数字人模型」卡片切换（`PUT /api/admin/models/active`）。
+切换**在重启服务后生效** —— 引擎是持有显存的进程级单例，形象制作流水线必须与它
+一起切换，否则会产出「一个模型产的包、另一个模型驱动」的错配。
 
 ## 对外 API
 
@@ -184,7 +224,7 @@ curl http://127.0.0.1:8000/healthz
 | `avg_latency_ms` | 每块延迟的 EMA（0.8 旧 + 0.2 新） |
 | `blocks` | 累计处理的音频块数（每块 100ms） |
 | `state` | `idle` / `listening` / `speaking` / `closed` / `error` |
-| `queue_depth` | 引擎工作队列中待处理的作业数（`mock` 恒为 0，它同步渲染） |
+| `queue_depth` | 引擎工作队列中待处理的作业数（同步渲染的引擎恒为 0） |
 | `overflows` | WebRTC 视频轨因队列满而丢弃的帧数。持续 > 0 表示渲染跟不上推流 |
 | `p50_latency_ms` / `p95_latency_ms` / `max_latency_ms` | 最近 600 块（60 秒）延迟分位数，无样本时为 `0.0` |
 | `latency_histogram` | 同一窗口的延迟分桶（`<25` … `>=250` ms），零桶省略 |
@@ -206,7 +246,8 @@ curl http://127.0.0.1:8000/healthz
 - **WebRTC 只回传视频轨，没有音频。** 调试页会另外用 `<audio>` 本地回放同一段合成音频，
   否则你只能看见嘴动、听不见声音。
 
-需要 `DH_MINIMAX_API_KEY`；未配置时按钮会报出服务端那句 503 的说明。
+需要在 Models 页面「服务」列表的 MiniMax TTS 行点 **[设置]** 填 API Key；未配置时
+按钮会报出服务端那句 503 的说明。
 
 ### 管理面 `/api/admin`（**无鉴权**）
 
@@ -216,7 +257,9 @@ curl http://127.0.0.1:8000/healthz
 | POST | `/api/admin/live2d/avatars` | multipart `name` + `file`(整个 Cubism 工程的 zip) + `entry`(可选) + `expressions`(可选 JSON) → 解压并校验后建 `kind=live2d` 行，返回值含解析后的 `config.model.entry`。`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到）。校验失败 422 并清理已解压文件，消息指出具体缺失文件 |
 | DELETE | `/api/admin/live2d/avatars/{id}` | 删除 Live2D 形象及其模型文件（204）。对 `photoreal` 形象返回 404 |
 | GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
-| GET | `/api/admin/system` | 引擎描述 / 制作流水线名 / GPU / 版本 / 数据目录 |
+| GET | `/api/admin/system` | 引擎描述 / 当前数字人模型名 / GPU / 版本 / 数据目录 |
+| GET | `/api/admin/models` | Models 页的轮询载荷：权重行、服务行、GPU 快照，以及 `active_model` / `selected_model` / `available_models` |
+| PUT | `/api/admin/models/active` | JSON `{"name"}` → 写入 `settings` 表的 `dh_active_model`；**重启服务后**生效。未注册的名字 400 |
 | GET | `/api/admin/tenants` | 租户列表 |
 | POST | `/api/admin/tenants` | JSON `{"name"}` → `{tenant_id, name, api_key}`（`api_key` 仅此一次返回） |
 | POST | `/api/admin/tenants/{tenant_id}/api-key` | 轮换并返回新 API Key（旧 key 立即失效） |
@@ -228,7 +271,9 @@ curl http://127.0.0.1:8000/healthz
 | PATCH | `/api/admin/avatars/{avatar_id}/config` | 调优 `mouth_scale` / `expression_intensity` |
 | GET | `/api/admin/avatars/{avatar_id}/idle.mp4` | 空闲循环视频（视频形象；首次请求时生成，支持 Range） |
 | GET | `/api/admin/avatars/{avatar_id}/normalized.png` | 静态画面（照片形象与回退） |
-| POST | `/api/admin/tts` | JSON `{"text", "voice_id"}` → `audio/wav`。调试页用；`text` 为空 400，`voice_id` 缺失 400，未配 `DH_MINIMAX_API_KEY` 503，MiniMax 报错 502 |
+| POST | `/api/admin/tts` | JSON `{"text", "voice_id"}` → `audio/wav`。调试页用；`text` 为空 400，`voice_id` 缺失 400，未配置 API Key 503，MiniMax 报错 502 |
+| GET | `/api/admin/tts/config` | MiniMax TTS 配置；返回 `api_key_masked`（`****<末4位>`，未配置时为 `(未设置)`） |
+| PUT | `/api/admin/tts/config` | 同上，写入到 `settings` 表；保存后下一次合成请求即刻生效 |
 | GET | `/api/admin/llm/config` | 大模型（OpenAI 兼容）配置；返回 `api_key_masked` 与 `configured` 标志 |
 | PUT | `/api/admin/llm/config` | 同上，写入到 `settings` 表 |
 | POST | `/api/admin/llm/chat` | JSON `{messages}` → `{content}`。非流式；用作同步回退 |
@@ -325,8 +370,8 @@ Google / PyTorch 官方 CDN。若换到能直连 HF 的网络，可改用 `HF_EN
 ### 启动
 
 ```bash
-python -m uvicorn --factory server.main:create_app  --host 0.0.0.0 --port 8000
-
+./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
+  --host 0.0.0.0 --port 8000
 ```
 
 启动时后台任务会预热权重（4.4 GB），避免第一个 `POST /sessions` 付这笔代价；预热失败不致命，
@@ -342,8 +387,9 @@ digital-human/
 │  ├─ config.py             # DH_* 配置
 │  ├─ api/                  # REST + WS：avatars, sessions, admin, deps
 │  ├─ core/                 # session_manager, render_session, audio_ingest, stream_sink, webrtc
-│  ├─ engine/               # base(接口), mock_engine(测试替身), musetalk_engine(生产)
+│  ├─ engine/               # base(接口), musetalk_engine(生产)
 │  ├─ avatar/               # store, pipeline, musetalk_pipeline
+│  ├─ model_registry.py     # 数字人模型注册表（流水线 + 引擎成对绑定）
 │  └─ db/                   # models, session
 ├─ admin-ui/                # React + Vite 调试台（构建产物挂载到 /admin）
 ├─ scripts/
@@ -371,10 +417,10 @@ cd admin-ui && npm run build            # 前端类型检查 + 构建
 ./.venv-musetalk/Scripts/python.exe -m pytest -q -m 'gpu or musetalk'
 ```
 
-`tests/conftest.py` 同时把 `DH_DRIVE_ENGINE` 与 `DH_AVATAR_PIPELINE` 钉成 `mock` ——
+`tests/conftest.py` 把整个数字人模型换成测试替身（`tests/doubles.py`）——
 否则所有走上传路径的测试（`test_e2e_smoke` / `test_sessions_api` / `test_ws_audio` /
-`test_signal_ws` / `test_admin_api`）会去加载真权重。带 torch 的文件另有
-`pytest.importorskip("torch")` 兜底，在错误的解释器里会干净地 skip 而不是报错。
+`test_signal_ws` / `test_admin_api`）会去加载真权重。替身只在测试树里，服务端一行不留。
+带 torch 的文件另有 `pytest.importorskip("torch")` 兜底，在错误的解释器里会干净地 skip 而不是报错。
 
 ## 错误处理
 

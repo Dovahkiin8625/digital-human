@@ -27,7 +27,7 @@ def test_artifacts_lists_pack_files_with_sizes(client):
     assert resp.status_code == 200
     rows = resp.json()
     paths = {r["path"]: r for r in rows}
-    # Mock pipeline writes normalized.png + pack.json; source.<suffix> too.
+    # The fake pipeline writes normalized.png + pack.json; source.<suffix> too.
     assert "normalized.png" in paths
     assert "pack.json" in paths
     for r in rows:
@@ -50,7 +50,7 @@ def test_timeline_returns_pipeline_meta(client):
     resp = client.get(f"/api/admin/avatars/{avatar_id}/timeline")
     assert resp.status_code == 200
     body = resp.json()
-    # Either the mock pipeline (no musetalk dir) returns minimal meta, or the real
+    # Either the fake pipeline (no musetalk dir) returns minimal meta, or the real
     # one returns the full musetalk/meta.json contents. Both shapes include mode.
     assert "mode" in body
     assert body["mode"] in {"image", "video"}
@@ -68,7 +68,7 @@ def test_timeline_rejects_unknown_avatar(client):
 
 def test_timeline_includes_quality_warnings_when_present(client):
     avatar_id = _upload_avatar(client, "a")
-    # Forge warnings into the avatar's config_json (mock pipeline path).
+    # Forge warnings into the avatar's config_json (fake pipeline path).
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 

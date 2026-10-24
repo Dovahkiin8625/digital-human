@@ -8,7 +8,7 @@ from server.core.render_session import RenderSession, SessionState
 from server.core.render_session import _histogram
 from server.core.stream_sink import FrameBufferSink, NullSink, SinkClosed
 from server.engine.base import AvatarPack
-from server.engine.mock_engine import MockEngine
+from doubles import FakeEngine
 
 
 def test_audio_ingest_blocks():
@@ -67,7 +67,7 @@ class _AudioSink(_RecordingSink):
         self.events.append(("a", float(pts)))
 
 
-class _BoomEngine(MockEngine):
+class _BoomEngine(FakeEngine):
     async def drive(self, pack, audio, sample_rate, *, context=None):
         raise RuntimeError("engine exploded")
 
@@ -79,7 +79,7 @@ def _session(tmp_path, engine=None, sink=None):
     Image.new("RGB", (720, 1280), (10, 10, 10)).save(img)
     pack = AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img, config={})
     sink = sink if sink is not None else FrameBufferSink()
-    return RenderSession("s1", pack, engine or MockEngine(), sink), sink
+    return RenderSession("s1", pack, engine or FakeEngine(), sink), sink
 
 
 @pytest.mark.asyncio
@@ -88,7 +88,7 @@ async def test_push_pcm_drives_frames_and_metrics(tmp_path):
     await session.start()
     await session.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())  # 0.5s → 5×100ms blocks
     assert session.state == SessionState.SPEAKING
-    # 5 blocks × round(0.1s*25fps)=round(2.5)=2 frames/block = 10 (MockEngine math)
+    # 5 blocks × round(0.1s*25fps)=round(2.5)=2 frames/block = 10 (FakeEngine math)
     assert session.metrics["frames_out"] == 10
     assert sink.latest is not None
     assert sink.latest[1].shape == (1280, 720, 3)
@@ -227,10 +227,10 @@ async def test_close_flushes_audio_tail(tmp_path):
     assert session.metrics["frames_out"] == 1
 
 
-class _GateEngine(MockEngine):
+class _GateEngine(FakeEngine):
     """Yields inside the first drive() so a concurrent close() can interleave.
 
-    MockEngine.drive never awaits, so it cannot expose the missing lock; this
+    FakeEngine.drive never awaits, so it cannot expose the missing lock; this
     stand-in mimics a real (GPU) engine whose drive() suspends.
     """
 
@@ -402,7 +402,7 @@ async def test_metrics_report_latency_histogram_and_queue(tmp_path):
     assert sum(m["latency_histogram"].values()) == 5
     assert m["p95_latency_ms"] >= m["p50_latency_ms"] > 0.0
     assert m["max_latency_ms"] >= m["p95_latency_ms"]
-    assert m["queue_depth"] == 0  # MockEngine renders synchronously
+    assert m["queue_depth"] == 0  # FakeEngine renders synchronously
     assert m["overflows"] == 0
     assert m["state"] == "speaking"
     await session.close()
@@ -410,7 +410,7 @@ async def test_metrics_report_latency_histogram_and_queue(tmp_path):
 
 # -- idle source-frame playback -----------------------------------------
 
-class _IdleEngine(MockEngine):
+class _IdleEngine(FakeEngine):
     """Serves solid-colour source frames ping-pong, like the real engine."""
 
     def __init__(self, n=3):
@@ -498,7 +498,7 @@ async def test_speech_end_reads_back_the_engine_position(tmp_path):
     engine = _IdleEngine(n=3)
     session, _ = _session(tmp_path, engine=engine, sink=_LiveSink())
     await session.start()
-    # 0.5 s: five 100 ms blocks, mock emits 2 frames each -> emitted 10.
+    # 0.5 s: five 100 ms blocks, the fake engine emits 2 frames each -> emitted 10.
     await session.push_pcm(np.zeros(24000, np.int16).tobytes())
     session.maybe_idle(now=session.last_audio_at + 3.0)
     assert session.state == SessionState.IDLE
@@ -522,7 +522,7 @@ async def test_idle_resumes_from_the_speech_end_position(tmp_path):
 
 @pytest.mark.asyncio
 async def test_static_fallback_does_not_advance_the_position(tmp_path):
-    # Default MockEngine has no idle frames (idle_frame -> None): the resting
+    # Default FakeEngine has no idle frames (idle_frame -> None): the resting
     # canvas is pushed instead and the cycle position must stay put.
     session, _ = _session_with_canvas(tmp_path)
     await session.start()
@@ -542,7 +542,7 @@ class _ClosedOnPush(_RecordingSink):
 @pytest.mark.asyncio
 async def test_sink_closed_does_not_advance_position(tmp_path):
     # The engine must supply a source frame so the loop reaches sink.push:
-    # with the default MockEngine there is no canvas in this pack, so the
+    # with the default FakeEngine there is no canvas in this pack, so the
     # push (and thus the SinkClosed path) would never be exercised.
     engine = _IdleEngine(n=3)
     session, _ = _session(tmp_path, engine=engine, sink=_ClosedOnPush())

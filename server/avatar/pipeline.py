@@ -4,11 +4,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PIL import Image
-
-from server.avatar import video
-from server.config import Settings, get_settings
-
 if TYPE_CHECKING:
     from server.avatar.store import AvatarStore
 
@@ -29,58 +24,23 @@ class AvatarPipeline(ABC):
         ...
 
 
-class MockAvatarPipeline(AvatarPipeline):
-    MIN_SIZE = 256
+def create_pipeline(name: str | None = None) -> AvatarPipeline:
+    """Build the avatar pipeline of a registered digital-human model.
 
-    def process(
-        self,
-        avatar_id: str,
-        source_path: Path,
-        out_dir: Path,
-        progress: Callable[[str, int], None],
-    ) -> dict:
-        progress("detect_face", 10)
-        source_path = Path(source_path)
-        if video.is_video_suffix(source_path.suffix):
-            settings = get_settings()
-            frames, _ = video.decode_frames(
-                source_path,
-                target_fps=settings.fps,
-                max_frames=1,
-                canvas=(settings.frame_width, settings.frame_height),
-            )
-            if frames.shape[0] == 0:
-                raise PipelineError("video has no decodable frames")
-            img = Image.fromarray(frames[0])
-        else:
-            img = Image.open(source_path).convert("RGB")
-        if img.width < self.MIN_SIZE or img.height < self.MIN_SIZE:
-            raise PipelineError(f"image too small: {img.width}x{img.height}, min {self.MIN_SIZE}x{self.MIN_SIZE}")
-        progress("align", 40)
-        side = min(img.width, img.height)
-        left = (img.width - side) // 2
-        top = (img.height - side) // 2
-        cropped = img.crop((left, top, left + side, top + side))
-        progress("normalize", 70)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        canvas = Image.new("RGB", (720, 1280), (16, 16, 24))
-        resized = cropped.resize((720, 720))
-        canvas.paste(resized, (0, 280))
-        canvas.save(out_dir / "normalized.png")
-        progress("build_pack", 100)
-        return {"crop": {"mode": "center"}}
+    ``name`` defaults to the model this process is running (see
+    ``server.model_registry``). The pipeline and the drive engine always
+    come from the same model, so a pack can never be written by one model
+    and driven by another.
 
+    Raises :class:`PipelineError` for a name that is not registered.
+    """
+    from server.model_registry import ModelUnavailable, get_model
 
-def create_pipeline(name: str | None = None, settings: Settings | None = None) -> AvatarPipeline:
-    settings = settings or get_settings()
-    name = name or settings.avatar_pipeline
-    if name == "mock":
-        return MockAvatarPipeline()
-    if name == "musetalk":
-        from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
-
-        return MuseTalkAvatarPipeline()
-    raise PipelineError(f"unknown pipeline: {name}")
+    try:
+        model = get_model(name)
+    except ModelUnavailable as exc:
+        raise PipelineError(str(exc)) from exc
+    return model.pipeline_factory()
 
 
 def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:

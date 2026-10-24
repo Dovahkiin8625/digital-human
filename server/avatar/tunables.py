@@ -146,7 +146,14 @@ def effective(db, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     from server.db.models import Setting
 
     out = dict(defaults())
-    rows = db.execute(select(Setting)).scalars().all()
+    # Only the tunable rows are merged. The ``settings`` table is shared
+    # with the cloud-service configs (``llm_api_key`` / ``minimax_api_key``
+    # among them), and this dict is served verbatim by
+    # ``GET /api/admin/settings`` -- an unauthenticated endpoint. Selecting
+    # the whole table would hand out those bearer tokens in plaintext.
+    rows = db.execute(
+        select(Setting).where(Setting.key.in_([p.name for p in TUNABLES]))
+    ).scalars().all()
     for row in rows:
         try:
             out[row.key] = coerce_json(row.value)

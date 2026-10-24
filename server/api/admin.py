@@ -68,12 +68,13 @@ def _list_avatar_artifacts(avatar: Avatar) -> list[dict]:
 def _pipeline_timeline(avatar: Avatar, raw_meta: dict | None) -> dict:
     """Compose the admin-side timeline view from ``Avatar.config_json``.
 
-    Mock and MuseTalk both write a config_json; both have ``prep.mode``. The
-    MuseTalk pack adds ``crop``, ``detector``, ``version``, ``fps``,
-    ``source_fps``, ``frame_count``, plus an optional ``warnings`` list.
+    The MuseTalk pack writes a ``prep`` block with ``mode``, plus ``crop``,
+    ``detector``, ``version``, ``fps``, ``source_fps``, ``frame_count``, and
+    an optional ``warnings`` list.
 
-    For mock avatars (no ``prep`` block, no ``musetalk/meta.json``) we fall
-    back to the source file's suffix so the UI still gets a usable mode.
+    An avatar whose pack carries no ``prep`` block (and no
+    ``musetalk/meta.json``) falls back to the source file's suffix so the
+    UI still gets a usable mode.
     """
     cfg = dict(avatar.config_json or {})
     prep = cfg.get("musetalk", {}) if isinstance(cfg.get("musetalk"), dict) else {}
@@ -112,6 +113,7 @@ class TtsIn(BaseModel):
 @router.get("/system")
 def system_info() -> dict:
     from server.main import get_session_manager
+    from server.model_registry import active
 
     # The shared engine, not a fresh one per request: a real engine's describe()
     # is cheap, but constructing one per request would be a new thread pool and
@@ -120,7 +122,10 @@ def system_info() -> dict:
     settings = get_settings()
     return {
         "engine": described,
-        "pipeline": settings.avatar_pipeline,
+        # The model this box runs -- one entry covers both halves (the avatar
+        # pipeline and the drive engine), so the pipeline's name is the
+        # model's name.
+        "pipeline": active().name,
         "version": "0.1.0",
         "data_dir": str(settings.data_dir),
         "gpu": described.get("gpu", False),
@@ -134,7 +139,6 @@ def system_info() -> dict:
         "session_sweep_interval": settings.session_sweep_interval,
         "avatar_max_video_seconds": settings.avatar_max_video_seconds,
         "avatar_max_upload_bytes": settings.avatar_max_upload_bytes,
-        "minimax_sample_rate": settings.minimax_sample_rate,
     }
 
 
@@ -1162,7 +1166,7 @@ async def synthesize_speech(body: TtsIn, db=Depends(get_db)) -> Response:
     Session-agnostic on purpose: the console pushes the bytes it gets back down
     the same audio WebSocket the file-upload path uses, so this endpoint never
     needs to know which session is being driven. The ``db`` session is plumbed
-    through so the effective MiniMax config (DB overrides + env defaults) is
+    through so the effective MiniMax config (the SQLite ``settings`` rows) is
     read fresh on every call.
     """
     text = body.text.strip()
@@ -1694,19 +1698,25 @@ def _animator_model_rows() -> list[dict]:
     return out
 
 
-def _tts_service_row() -> dict:
+def _tts_service_row(db) -> dict:
     """MiniMax TTS as a Models tab row.
 
     TTS isn't a local model -- the audio comes from api.minimaxi.com --
     but the operator still wants to see "is it configured, what's the
     voice, can I synthesise at all" on the Models tab. Local weight
     presence is replaced with ``configured`` + sample rate cap, all
-    read from settings.
-    """
-    from server.config import get_settings
+    read from the SQLite ``settings`` table (via
+    :func:`server.tts.config.read_config`).
 
-    settings = get_settings()
-    configured = bool(getattr(settings, "minimax_api_key", ""))
+    Like the LLM row below, the config has no env layer: a successful
+    ``PUT /api/admin/tts/config`` flips the badge on the very next
+    Models tab poll.
+    """
+    from server.tts.config import read_config
+
+    cfg = read_config(db)
+    api_key = cfg.get("api_key", "")
+    configured = bool(api_key)
     return {
         "id": _TTS_ID,
         "kind": "tts_service",
@@ -1714,23 +1724,26 @@ def _tts_service_row() -> dict:
         "group_zh": "云端服务",
         "description": (
             "数字人对话使用 MiniMax 的语音合成接口；"
-            "需要配置 DH_MINIMAX_API_KEY；采样率上限 44100 Hz"
+            "需要在服务行配置 API Key；采样率上限 44100 Hz"
         ),
         "configured": configured,
         "weights_present": False,  # remote service, no on-disk weights
         "weights_dir": None,
-        "missing_script": None if configured else "set DH_MINIMAX_API_KEY in .env",
+        # No fetch script: the [设置] button is the only entry point, so a
+        # non-null hint here would replace the button with dead text and
+        # leave the operator no way to configure the service.
+        "missing_script": None,
         "vram_required_gb": 0,
         "vram_hint": "云端",
         "fits_current_gpu": None,
-        "model": getattr(settings, "minimax_model", "speech-02-hd"),
+        "model": cfg.get("model", "speech-02-hd"),
         "sample_rate_cap_hz": 44100,
-        "sample_rate": getattr(settings, "minimax_sample_rate", 32000),
+        "sample_rate": cfg.get("sample_rate", 32000),
         "status": "已配置" if configured else "未配置",
     }
 
 
-def _llm_service_row(db=None) -> dict:
+def _llm_service_row(db) -> dict:
     """LLM as a Models tab row.
 
     Like TTS, the LLM is a remote service -- no on-disk weights, no in-
@@ -1749,11 +1762,7 @@ def _llm_service_row(db=None) -> dict:
     """
     from server.llm.config import is_configured, read_config
 
-    cfg = read_config(db) if db is not None else {
-        "api_key": "",
-        "base_url": "",
-        "model": "gpt-3.5-turbo",
-    }
+    cfg = read_config(db)
     api_key = cfg.get("api_key", "")
     base_url = cfg.get("base_url", "")
     model = cfg.get("model", "gpt-3.5-turbo")
@@ -1793,26 +1802,73 @@ def admin_list_models(db=Depends(get_db)) -> dict:
       the same flags (``loaded`` / ``can_load`` / ``can_unload``) so
       the Models tab renders one table per kind.
     * ``services`` -- the MiniMax TTS endpoint. Remote service, no
-      on-disk weights; ``configured`` + ``voice_id`` etc. surface the
+      on-disk weights; ``configured`` + ``model`` etc. surface the
       operator's "can I synthesise right now" question.
     * ``gpu`` -- a :func:`get_vram_snapshot` dict or ``None`` when CUDA
       isn't available (the tab renders a CPU placeholder instead).
     * ``active_sessions`` -- count of currently-running StreamSession
       rows; the unload button refuses when this is non-zero.
+    * ``active_model`` / ``selected_model`` / ``available_models`` -- which
+      digital-human model this box runs, which one the operator has picked
+      in the settings table, and the full registry. The two differ after a
+      switch: the engine is a process-wide singleton, so the new model
+      takes effect on the next restart.
     """
     from server.avatar.vram import get_vram_snapshot
     from server.main import get_session_manager
+    from server.model_registry import active, catalog, read_active_model
 
     engine = get_session_manager().engine
     described = engine.describe()
     # Drive-engine slot rows first, then portrait animators. Both shapes
     # are unified ``ModelInfo`` (see _animator_model_row / engine describe).
     engine_rows = described.get("models") or []
+    running = active()
     return {
         "models": [*engine_rows, *_animator_model_rows()],
-        "services": [_tts_service_row(), _llm_service_row(db=db)],
+        "services": [_tts_service_row(db=db), _llm_service_row(db=db)],
         "gpu": get_vram_snapshot(),
         "active_sessions": _active_session_count(db),
+        "active_model": {"name": running.name, "label_zh": running.label_zh},
+        "selected_model": read_active_model(db),
+        "available_models": catalog(),
+    }
+
+
+class ActiveModelIn(BaseModel):
+    """Body shape for ``PUT /api/admin/models/active``.
+
+    ``extra='forbid'`` makes Pydantic reject unknown keys at the request
+    boundary so a typo'd field name surfaces as a 400 rather than being
+    silently dropped.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    name: str
+
+
+@router.put("/models/active")
+def admin_set_active_model(body: ActiveModelIn, db=Depends(get_db)) -> dict:
+    """Persist the operator's choice of digital-human model.
+
+    The choice lands in the SQLite ``settings`` table (the same place the
+    MiniMax TTS and LLM configs live -- there is deliberately no env
+    layer). The running engine is NOT swapped here: it is a process-wide
+    singleton holding the model's weights in VRAM, and the avatar pipeline
+    has to change with it or a pack could be written by one model and
+    driven by another. A restart applies the change, so the response says
+    so explicitly.
+    """
+    from server.model_registry import ModelUnavailable, active, write_active_model
+
+    try:
+        selected = write_active_model(db, body.name)
+    except ModelUnavailable as exc:
+        raise AppError("unknown_model", str(exc), 400, detail={"name": body.name})
+    return {
+        "selected_model": selected,
+        "restart_required": selected != active().name,
     }
 
 
@@ -1824,7 +1880,7 @@ async def admin_load_model(model_id: str) -> dict:
     ``animator:liveportrait`` (moved out of services when their model
     shape became obvious). One POST to the right dispatcher:
 
-    * ``musetalk_runtime`` / ``mock_drive`` → engine slot
+    * ``musetalk_runtime`` → engine slot
     * ``animator:<name>`` → ``ANIMATORS[name].load()``
 
     409 if already loaded, 503 if loading raises ``EngineUnavailable``
@@ -1911,7 +1967,7 @@ def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
 
     Refuses with 409 while any session is active so tearing the runtime
     out doesn't silently wedge live conversations; refuses with 400 when
-    the engine reports ``can_unload=False`` (mock); 404 for an unknown id.
+    the engine reports ``can_unload=False``; 404 for an unknown id.
     """
     # Animator dispatch: ``animator:<name>`` → registered instance.
     animator, name = _resolve_animator_model_id(model_id)
@@ -2009,7 +2065,7 @@ async def admin_load_service(service_id: str) -> dict:
     * 200 -- service moved from ``loaded=False`` to ``loaded=True``.
     * 409 -- already loaded (idempotency rejected so the operator can
       tell the click was processed).
-    * 400 -- service has no weights to load (mock or remote TTS).
+    * 400 -- service has no weights to load (or is a remote TTS).
     * 503 -- load raised an ``AnimatorError`` (missing runtime /
       weights -- the operator must run the fetch script).
     """

@@ -6,7 +6,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from server.engine.mock_engine import MockEngine
+from doubles import FakeEngine
 
 
 def _seed(client):
@@ -52,7 +52,7 @@ def test_session_audio_drives_metrics(client):
     render = client.app.state.session_manager.get_render(sid)
     asyncio.run(render.push_pcm(np.zeros(24000, dtype=np.int16).tobytes()))
     detail = client.get(f"/api/v1/sessions/{sid}").json()
-    # 24000 samples @48kHz = 0.5s -> 5x100ms ingest blocks; MockEngine emits
+    # 24000 samples @48kHz = 0.5s -> 5x100ms ingest blocks; FakeEngine emits
     # max(1, round(0.1*25))=2 frames/block = 10 (same math as test_render_session).
     assert detail["metrics"]["frames_out"] == 10
 
@@ -102,7 +102,7 @@ def test_attach_sink_receives_frames(client):
     assert render.metrics["frames_out"] == 2
 
 
-class _CloseTrackingEngine(MockEngine):
+class _CloseTrackingEngine(FakeEngine):
     def __init__(self):
         super().__init__()
         self.close_calls = 0
@@ -137,9 +137,13 @@ def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path):
 
 
 def _build_app(tmp_path, monkeypatch, **env):
+    from doubles import install_doubles
     from env import apply_env
 
     apply_env(monkeypatch, tmp_path, **env)
+    # Same swap the ``client`` fixture does: the app's engine and pipeline
+    # are the doubles, not the GPU-backed MuseTalk model.
+    install_doubles(monkeypatch)
     from server.db.session import get_engine, init_db, reset_engine
     from server.main import create_app
 

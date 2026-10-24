@@ -159,7 +159,7 @@ def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
 
 def _stub_video(monkeypatch, duration=2.0, fps=25.0):
     # Both call sites look the names up on the module at call time (store does
-    # `video.probe_video`, the mock pipeline `video.decode_frames`), which is
+    # `video.probe_video`, the fake pipeline `video.decode_frames`), which is
     # what makes patching `server.avatar.video` sufficient for both.
     monkeypatch.setattr(
         "server.avatar.video.probe_video",

@@ -276,7 +276,10 @@ LivePortrait ready.
   smoke test  : $VENV/Scripts/python.exe -c \\
                   "from LivePortrait.live_portrait_pipeline import LivePortraitPipeline; \\
                    print(LivePortraitPipeline)"
-  run server  : DH_DRIVE_ENGINE=liveportrait DH_AVATAR_PIPELINE=liveportrait \\
-                $VENV/Scripts/python.exe -m uvicorn --factory server.main:create_app
+  run server  : $VENV/Scripts/python.exe -m uvicorn --factory server.main:create_app
+
+  LivePortrait is an animator backend, not a digital-human model -- it does
+  not appear in the 模型 list of the admin console and there is nothing to
+  select for it. The 形象活化 tab picks it per run instead.
 
 EOF

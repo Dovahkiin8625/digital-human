@@ -14,7 +14,6 @@ import struct
 
 import httpx
 
-from server.config import get_settings
 from server.core.errors import AppError
 
 _WAV_HEADER = struct.Struct("<4sI4s4sIHHIIHH4sI")
@@ -46,25 +45,6 @@ def wav_from_pcm(pcm: bytes, sample_rate: int, channels: int = 1) -> bytes:
     return header + pcm
 
 
-def _require_configured():
-    """Legacy stub kept for callers that pass ``db=None`` (the test path).
-
-    Real callers should rely on :func:`server.tts.config.read_config`'s
-    own "not configured" branch in :func:`synthesize` -- this helper only
-    exists so importing the symbol doesn't break older call sites.
-    """
-    from server.config import get_settings
-
-    settings = get_settings()
-    if not settings.minimax_api_key:
-        raise AppError(
-            "tts_not_configured",
-            "MiniMax is not configured: set DH_MINIMAX_API_KEY in .env",
-            503,
-        )
-    return settings
-
-
 def _audio_from_response(body: dict, status_code: int) -> str:
     """Pull the hex audio out of a MiniMax reply, or raise a 502 that says why."""
     base = body.get("base_resp") or {}
@@ -80,7 +60,7 @@ def _audio_from_response(body: dict, status_code: int) -> str:
     return audio
 
 
-async def synthesize(text: str, voice_id: str, *, client: httpx.AsyncClient | None = None, db=None) -> bytes:
+async def synthesize(text: str, voice_id: str, *, db, client: httpx.AsyncClient | None = None) -> bytes:
     """Synthesize ``text`` into WAV bytes, or raise AppError.
 
     ``voice_id`` is required: the operator picks the voice per session in the
@@ -90,8 +70,10 @@ async def synthesize(text: str, voice_id: str, *, client: httpx.AsyncClient | No
 
     ``client`` is injectable so tests can drive the real parse path through an
     httpx.MockTransport instead of the network. ``db`` is the FastAPI request
-    session; passed through so the effective MiniMax config (DB rows layered
-    over env defaults) is read fresh on every call, not cached.
+    session; it is required, because the SQLite ``settings`` table is the
+    only place the MiniMax config lives -- the ``DH_MINIMAX_*`` env layer is
+    gone. Reading it per call keeps a console edit effective on the very
+    next request without a server restart.
     """
     if not voice_id or not voice_id.strip():
         raise AppError(
@@ -100,21 +82,14 @@ async def synthesize(text: str, voice_id: str, *, client: httpx.AsyncClient | No
             400,
         )
 
-    # Read from the layered config helper rather than get_settings() so a
-    # console edit via ``PUT /api/admin/tts/config`` takes effect on the
-    # very next request without a server restart. Falls back to env
-    # defaults when ``db`` is None (test path).
     from server.tts.config import read_config
 
-    if db is not None:
-        cfg = read_config(db)
-    else:
-        cfg = _settings_defaults_as_public()
+    cfg = read_config(db)
 
     if not cfg.get("api_key"):
         raise AppError(
             "tts_not_configured",
-            "MiniMax is not configured: set DH_MINIMAX_API_KEY in .env or save it via the Models tab",
+            "MiniMax is not configured: save the API key in the Models tab",
             503,
         )
 
@@ -157,21 +132,3 @@ async def synthesize(text: str, voice_id: str, *, client: httpx.AsyncClient | No
         # asked for (e.g. a URL) -- name it rather than 500 on a bare ValueError.
         raise AppError("tts_failed", "MiniMax returned audio that is not hex", 502) from exc
     return wav_from_pcm(pcm, cfg["sample_rate"])
-
-
-def _settings_defaults_as_public() -> dict:
-    """Mirror of ``read_config`` for callers without a DB session.
-
-    The test path (and any future non-HTTP caller) needs the same
-    public-shape dict without going through SQLAlchemy.
-    """
-    from server.config import get_settings
-
-    s = get_settings()
-    return {
-        "api_key": getattr(s, "minimax_api_key", ""),
-        "group_id": getattr(s, "minimax_group_id", ""),
-        "base_url": getattr(s, "minimax_base_url", "https://api.minimaxi.com"),
-        "model": getattr(s, "minimax_model", "speech-02-hd"),
-        "sample_rate": getattr(s, "minimax_sample_rate", 32000),
-    }

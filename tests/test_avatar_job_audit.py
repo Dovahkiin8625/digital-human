@@ -9,7 +9,8 @@ import json
 import pytest
 from PIL import Image
 
-from server.avatar.pipeline import MockAvatarPipeline, run_avatar_job
+from doubles import FakePipeline
+from server.avatar.pipeline import run_avatar_job
 from server.avatar.store import AvatarStore
 from server.db.models import Avatar, AvatarJob, Setting
 
@@ -53,7 +54,7 @@ def test_avatar_job_records_effective_params(tmp_path, db):
     db.add(job)
     db.commit()
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
     db.refresh(avatar)
 
     params = avatar.config_json["_effective_params"]
@@ -74,7 +75,7 @@ def test_avatar_job_records_defaults_when_no_overrides(tmp_path, db):
     db.add(job)
     db.commit()
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
     db.refresh(avatar)
 
     params = avatar.config_json["_effective_params"]
@@ -109,7 +110,7 @@ def test_avatar_job_uses_per_avatar_overrides(tmp_path, db):
     db.add(job)
     db.commit()
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
     db.refresh(avatar)
 
     params = avatar.config_json["_effective_params"]

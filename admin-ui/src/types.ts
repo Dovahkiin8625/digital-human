@@ -56,12 +56,12 @@ export interface JobInfo {
   created_at: string;
 }
 
-// Engine description returned inside SystemInfo.engine. The mock reports a
-// subset; the real engine reports all of them.
+// Engine description returned inside SystemInfo.engine. An engine without
+// weights to load reports a subset.
 export interface EngineInfo {
   name: string;
   gpu: boolean;
-  // Only the real engine reports these; the mock has no weights to load.
+  // Only an engine with weights on disk reports these.
   models_dir?: string;
   weights_present?: boolean;
   loaded?: boolean;
@@ -87,8 +87,6 @@ export interface SystemInfo {
   session_sweep_interval?: number;
   avatar_max_video_seconds?: number;
   avatar_max_upload_bytes?: number;
-  minimax_voice_id?: string;
-  minimax_sample_rate?: number;
 }
 
 // Idle-video knobs the create form exposes per avatar. Bounds mirror the
@@ -196,7 +194,7 @@ export interface ModelInfo {
   // the operator can reload. ``can_load`` does NOT require weights on
   // disk -- the click surfaces a 503 with the fetch-script hint.
   can_load: boolean;
-  // False for engines that hold no unloadable weights (mock). Drives
+  // False for engines that hold no unloadable weights. Drives
   // the unload button visibility.
   can_unload: boolean;
   // ISO timestamp the runtime last became live (mounted weight).
@@ -206,6 +204,14 @@ export interface ModelInfo {
   loaded_at: string | null;
 }
 
+// One digital-human model: the avatar-preparation pipeline plus the drive
+// engine that renders its pack. The two are bound together server-side, so
+// the console picks a model, not a pipeline and an engine separately.
+export interface DhModelInfo {
+  name: string;
+  label_zh: string;
+}
+
 // Top-level shape the Models tab polls. gpu is null on a CPU-only
 // host (the page renders a "CPU" placeholder instead of a bar).
 export interface ModelsPayload {
@@ -213,6 +219,15 @@ export interface ModelsPayload {
   services: ServiceInfo[];
   gpu: GpuSnapshot | null;
   active_sessions: number;
+  // The model this box is running right now.
+  active_model: DhModelInfo;
+  // The model the operator has picked in the settings table. It differs
+  // from active_model after a switch: the engine is a process-wide
+  // singleton holding the weights in VRAM, so a new model takes effect on
+  // the next restart.
+  selected_model: string;
+  // Every model the server ships.
+  available_models: DhModelInfo[];
 }
 
 // MiniMax TTS configuration surfaced by ``GET /api/admin/tts/config`` and

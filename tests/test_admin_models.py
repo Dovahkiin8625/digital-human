@@ -1,9 +1,10 @@
 """HTTP layer for the Models admin tab: list, load, unload.
 
 These tests run against a real FastAPI TestClient with the test doubles wired
-through ``tests/conftest.py`` (drive engine = mock). The mock engine reports
-its own model slot; load/unload paths are checked by stubbing the relevant
-engine methods so the route's *dispatch* stays tested without needing a GPU.
+through ``tests/conftest.py`` (drive engine = the fake double). The double
+reports its own model slot; load/unload paths are checked by stubbing the
+relevant engine methods so the route's *dispatch* stays tested without
+needing a GPU.
 """
 from __future__ import annotations
 
@@ -34,14 +35,14 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
         }
     assert body["active_sessions"] == 0
 
-    # The mock engine surfaces exactly one drive_runtime row; portrait
+    # The drive engine surfaces exactly one drive_runtime row; portrait
     # animators are merged in too (test env registers LivePortrait + Wan
     # 2.2 via side-effect imports). The operator sees one row per
     # thing-that-can-go-on-the-GPU in the Models tab.
     engine_rows = [m for m in body["models"] if m["kind"] == "drive_runtime"]
     assert len(engine_rows) == 1
     m = engine_rows[0]
-    assert m["id"] == "mock_drive"
+    assert m["id"] == "fake_drive"
     assert set(m) >= {
         "id",
         "type",
@@ -57,13 +58,13 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
 # ----- POST /api/admin/models/{id}/load ----------------------------------
 
 
-def test_load_refuses_to_load_a_mock_engine_slot(client):
-    # The mock engine has no runtime to materialise; it also reports itself
+def test_load_refuses_to_load_an_engine_slot_without_weights(client):
+    # The double has no runtime to materialise; it also reports itself
     # ``loaded=True`` (always-loaded CPU placeholder). Either refusal --
     # 400 "no weights" or 409 "already loaded" -- is a valid answer; the
     # point of this test is that the endpoint must NOT silently 200 an
     # empty action.
-    resp = client.post("/api/admin/models/mock_drive/load")
+    resp = client.post("/api/admin/models/fake_drive/load")
     assert resp.status_code in (400, 409)
     code = resp.json()["error"]["code"]
     assert code in {"no_weights_to_load", "already_loaded"}
@@ -149,8 +150,8 @@ def test_load_409_when_already_loaded(client, monkeypatch):
 
 
 def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypatch):
-    # Mock has nothing to unload either; the operator gets the same clear
-    # refusal rather than a 200-no-op. The engine's describe reports
+    # The double has nothing to unload either; the operator gets the same
+    # clear refusal rather than a 200-no-op. The engine's describe reports
     # can_unload=False; the endpoint uses that as the gate.
     from server.main import _app
 
@@ -162,7 +163,7 @@ def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypat
             "gpu": False,
             "models": [
                 {
-                    "id": "mock_drive",
+                    "id": "fake_drive",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -175,7 +176,7 @@ def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypat
         }
 
     monkeypatch.setattr(engine, "describe", fake_describe)
-    resp = client.post("/api/admin/models/mock_drive/unload")
+    resp = client.post("/api/admin/models/fake_drive/unload")
     assert resp.status_code == 400
 
 
@@ -412,7 +413,7 @@ def test_load_model_dispatches_animator_ids_to_anims(client, monkeypatch):
     every row in its table; portrait animators are now in that table too
     (under ids like ``animator:liveportrait``). The endpoint must
     dispatch to the right backend -- engine slot for ``musetalk_runtime``
-    / ``mock_drive``, animator instance for ``animator:<name>``.
+    / ``fake_drive``, animator instance for ``animator:<name>``.
 
     Regression for the bug where moving animators into the models list
     left their load button wired to the engine-slot dispatcher and the
@@ -729,7 +730,7 @@ def test_unload_service_409_when_not_loaded(client):
 
 
 def test_unload_service_400_when_no_unload_method(client):
-    # A backend without an ``unload`` method (e.g. mock-shaped or
+    # A backend without an ``unload`` method (e.g. the test double or
     # future TTS-shaped backends) can't release VRAM, so the endpoint
     # returns 400. The Models tab hides the button on the client side;
     # the dispatch gives a clean refusal if it ever races.
@@ -791,16 +792,19 @@ def test_list_services_lists_portrait_animators(client):
 
 def test_list_services_includes_minimax_tts(client):
     # The TTS service is a singleton ``tts:minimax`` entry; configured
-    # mirrors whether ``DH_MINIMAX_API_KEY`` is set. Tests run with the
-    # key pinned to empty, so configured is False here -- an honest
+    # mirrors whether an api_key is present in the ``settings`` table.
+    # The test DB starts empty, so configured is False here -- an honest
     # "未配置" badge.
     body = client.get("/api/admin/models").json()
     tts_entries = [s for s in body["services"] if s["kind"] == "tts_service"]
     assert any(s["id"] == "tts:minimax" for s in tts_entries)
     row = next(s for s in tts_entries if s["id"] == "tts:minimax")
-    assert row["configured"] is False  # the test env pins the key to ""
+    assert row["configured"] is False  # nothing saved yet
     assert row["label_zh"]
     assert row["description"]
+    # No fetch script: the [设置] button is the only entry point, and a
+    # non-null hint here would replace that button with dead text.
+    assert row["missing_script"] is None
 
 
 def test_models_list_includes_portrait_animators(client):
@@ -813,9 +817,9 @@ def test_models_list_includes_portrait_animators(client):
     """
     body = client.get("/api/admin/models").json()
     model_ids = {m["id"] for m in body["models"]}
-    # The drive engine slot is always there (mock in CI, musetalk on
-    # the GPU host). We only assert one engine slot exists, not which
-    # specific id, because the test env uses the mock engine.
+    # The drive engine slot is always there (the test double in CI,
+    # musetalk on the GPU host). We only assert one engine slot exists,
+    # not which specific id, because the test env uses the double.
     engine_rows = [m for m in body["models"] if m.get("kind") == "drive_runtime"]
     assert len(engine_rows) == 1, f"expected one drive_runtime row, got {engine_rows}"
     # Portrait animators are merged in.
@@ -875,40 +879,26 @@ def test_list_services_animator_row_includes_vram_hint(client):
     }
 
 
-def test_list_services_tts_configured_flips_with_api_key(client, monkeypatch):
-    # The badge the operator sees reflects the current value of
-    # ``DH_MINIMAX_API_KEY``: an empty key surfaces as "未配置" so the
-    # operator can distinguish "service is misconfigured" from "service
-    # is slow / down". The endpoint helper is called for each request,
-    # so a monkeypatched settings value is observable on the next GET.
-    from server.api import admin as admin_module
-    from server.config import get_settings
+def test_list_services_tts_configured_flips_with_api_key(client):
+    # The badge the operator sees reflects the *effective* MiniMax config,
+    # which lives in the ``settings`` table. Saving a key through the
+    # console's own endpoint flips the badge on the very next poll --
+    # an empty key surfaces as "未配置" so the operator can distinguish
+    # "service is misconfigured" from "service is slow / down".
+    body = client.get("/api/admin/models").json()
+    tts = next(s for s in body["services"] if s["id"] == "tts:minimax")
+    assert tts["configured"] is False
 
-    get_settings.cache_clear()
-    try:
-        # Empty (the test default) -> not configured.
-        body = client.get("/api/admin/models").json()
-        tts = next(s for s in body["services"] if s["id"] == "tts:minimax")
-        assert tts["configured"] is False
+    resp = client.put(
+        "/api/admin/tts/config",
+        json={"api_key": "test-key-1234567890"},
+    )
+    assert resp.status_code == 200, resp.text
 
-        # Monkeypatch the helper directly so the next request sees the
-        # configured branch without rebuilding the app (the conftest's
-        # ``reset_engine`` path is heavy and not needed for this flip).
-        original = admin_module._tts_service_row
-
-        def configured_row():
-            row = original()
-            row["configured"] = True
-            row["status"] = "已配置"
-            return row
-
-        monkeypatch.setattr(admin_module, "_tts_service_row", configured_row)
-        body = client.get("/api/admin/models").json()
-        tts = next(s for s in body["services"] if s["id"] == "tts:minimax")
-        assert tts["configured"] is True
-        assert tts["status"] == "已配置"
-    finally:
-        get_settings.cache_clear()
+    body = client.get("/api/admin/models").json()
+    tts = next(s for s in body["services"] if s["id"] == "tts:minimax")
+    assert tts["configured"] is True
+    assert tts["status"] == "已配置"
 
 
 def test_list_services_includes_llm(client):
@@ -965,3 +955,50 @@ def test_list_services_llm_configured_flips_with_keys(client, monkeypatch):
     assert llm["configured"] is True
     assert llm["status"] == "已配置"
     assert llm["base_url"] == "https://api.example.test/v1"
+
+
+# ----- the digital-human model selector -----------------------------------
+
+
+def test_list_models_reports_the_active_model_and_the_registry(client):
+    """The Models tab renders the model selector from this payload.
+
+    ``active_model`` is what the process is running right now;
+    ``selected_model`` is what the operator has picked in the settings
+    table (they differ after a switch -- the engine is a process-wide
+    singleton, so the new model takes effect on the next restart).
+    """
+    body = client.get("/api/admin/models").json()
+
+    assert body["active_model"]["name"] == "musetalk"
+    assert body["active_model"]["label_zh"]
+    assert body["selected_model"] == "musetalk"
+    assert {m["name"] for m in body["available_models"]} == {"musetalk"}
+    assert all(m["label_zh"] for m in body["available_models"])
+
+
+def test_set_active_model_persists_the_choice(client):
+    resp = client.put("/api/admin/models/active", json={"name": "musetalk"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["selected_model"] == "musetalk"
+    # Already running -> no restart needed.
+    assert body["restart_required"] is False
+
+    body = client.get("/api/admin/models").json()
+    assert body["selected_model"] == "musetalk"
+
+
+def test_set_active_model_refuses_an_unregistered_name(client):
+    resp = client.put("/api/admin/models/active", json={"name": "nope"})
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "unknown_model"
+
+    # The rejected name never landed.
+    body = client.get("/api/admin/models").json()
+    assert body["selected_model"] == "musetalk"
+
+
+def test_set_active_model_rejects_an_unknown_field(client):
+    resp = client.put("/api/admin/models/active", json={"name": "musetalk", "engine": "x"})
+    assert resp.status_code == 422

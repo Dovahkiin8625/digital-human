@@ -13,12 +13,13 @@ def test_get_returns_masked_api_key(client):
     """The GET response masks ``api_key`` as ``****<last4>`` so the UI
     never has to display the raw bearer token.
 
-    Test env pins ``DH_LLM_API_KEY=""`` so the masked value is the
-    "(未设置)" sentinel; the field's *presence* is what matters here.
+    The LLM has no env layer, and the test DB carries no rows, so the
+    effective api_key is empty and the masked value is the "(未设置)"
+    sentinel; the field's *presence* is what matters here.
     """
     body = client.get("/api/admin/llm/config").json()
     assert "api_key_masked" in body
-    assert body["api_key_masked"] == "(未设置)"  # test env has empty key
+    assert body["api_key_masked"] == "(未设置)"  # nothing configured yet
     # The unmasked ``api_key`` is *not* in the GET response.
     assert "api_key" not in body
 

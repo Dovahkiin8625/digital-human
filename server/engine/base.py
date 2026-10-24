@@ -4,8 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-from server.config import Settings, get_settings
-
 
 class EngineUnavailable(Exception):
     pass
@@ -15,7 +13,7 @@ def gpu_available() -> bool:
     """Whether a CUDA device is usable. Never raises, never loads a weight.
 
     torch only exists in the GPU venv, so this must tolerate ImportError: the
-    torch-free venv is a supported configuration (mock engine + test suite).
+    torch-free venv is a supported configuration for the test suite.
     """
     try:
         import torch
@@ -108,15 +106,20 @@ class DriveEngine(ABC):
         pass
 
 
-def create_engine(name: str | None = None, settings: Settings | None = None) -> DriveEngine:
-    settings = settings or get_settings()
-    name = name or settings.drive_engine
-    if name == "mock":
-        from server.engine.mock_engine import MockEngine
+def create_engine(name: str | None = None) -> DriveEngine:
+    """Build the drive engine of a registered digital-human model.
 
-        return MockEngine(settings.frame_width, settings.frame_height, settings.fps)
-    if name == "musetalk":
-        from server.engine.musetalk_engine import MuseTalkEngine
+    ``name`` defaults to the model this process is running (see
+    ``server.model_registry``). The engine and the avatar pipeline always
+    come from the same model, so a pack can never be written by one model
+    and driven by another.
 
-        return MuseTalkEngine()
-    raise EngineUnavailable(f"unknown engine: {name}")
+    Raises :class:`EngineUnavailable` for a name that is not registered.
+    """
+    from server.model_registry import ModelUnavailable, get_model
+
+    try:
+        model = get_model(name)
+    except ModelUnavailable as exc:
+        raise EngineUnavailable(str(exc)) from exc
+    return model.engine_factory()

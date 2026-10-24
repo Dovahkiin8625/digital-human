@@ -4,7 +4,8 @@ import json
 import pytest
 from PIL import Image
 
-from server.avatar.pipeline import MockAvatarPipeline, PipelineError, create_pipeline, run_avatar_job
+from doubles import FakePipeline
+from server.avatar.pipeline import PipelineError, create_pipeline, run_avatar_job
 from server.avatar.store import AvatarStore
 from server.db.models import Avatar, AvatarJob
 
@@ -42,7 +43,7 @@ def test_pipeline_produces_pack(tmp_path, db):
     db.add(job)
     db.commit()
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
 
     db.refresh(avatar)
     assert avatar.status == "ready"
@@ -73,7 +74,7 @@ def test_run_avatar_job_reports_failure_when_pack_write_raises(tmp_path, monkeyp
 
     monkeypatch.setattr("pathlib.Path.write_text", raise_disk_full)
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
 
     db.refresh(avatar)
     db.refresh(job)
@@ -93,7 +94,7 @@ def test_pipeline_rejects_tiny_image(tmp_path, db):
     db.add(job)
     db.commit()
 
-    run_avatar_job(db, store, MockAvatarPipeline(), job.id)
+    run_avatar_job(db, store, FakePipeline(), job.id)
 
     db.refresh(avatar)
     db.refresh(job)
@@ -101,13 +102,13 @@ def test_pipeline_rejects_tiny_image(tmp_path, db):
     assert "256" in job.error
 
 
-def test_mock_pipeline_stages_and_config(tmp_path):
+def test_fake_pipeline_stages_and_config(tmp_path):
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (10, 20, 30)).save(src)
     out = tmp_path / "out"
     stages = []
 
-    cfg = MockAvatarPipeline().process("a", src, out, lambda s, p: stages.append((s, p)))
+    cfg = FakePipeline().process("a", src, out, lambda s, p: stages.append((s, p)))
 
     assert stages == [("detect_face", 10), ("align", 40), ("normalize", 70), ("build_pack", 100)]
     assert cfg == {"crop": {"mode": "center"}}
@@ -141,7 +142,11 @@ def test_delete_assets_removes_avatar_dir(tmp_path):
     assert not d.exists()
 
 
-def test_create_pipeline_mock_and_unknown():
-    assert isinstance(create_pipeline("mock"), MockAvatarPipeline)
+def test_create_pipeline_builds_the_registered_model():
+    # The factory has no env layer any more: the pipeline comes from the
+    # registered digital-human model, and an unregistered name is refused.
+    from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
+
+    assert isinstance(create_pipeline("musetalk"), MuseTalkAvatarPipeline)
     with pytest.raises(PipelineError):
         create_pipeline("nope")

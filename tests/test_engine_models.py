@@ -9,20 +9,20 @@ the operator's "释放显存" button actually releases memory.
 from __future__ import annotations
 
 
-# ----- MockEngine -----------------------------------------------------------
+# ----- FakeEngine -----------------------------------------------------------
 
 
-def test_mock_engine_describe_lists_a_single_loaded_model():
-    # Mock has no weights: the tab still needs a model entry so the operator
-    # can see "nothing is loaded, by design" -- and the buttons stay hidden
-    # because there's nothing to load or unload.
-    from server.engine.mock_engine import MockEngine
+def test_fake_engine_describe_lists_a_single_loaded_model():
+    # The double has no weights: the tab still needs a model entry so the
+    # operator can see "nothing is loaded, by design" -- and the buttons stay
+    # hidden because there's nothing to load or unload.
+    from doubles import FakeEngine
 
-    d = MockEngine().describe()
+    d = FakeEngine().describe()
     assert "models" in d, "every engine must surface a models list for the Models tab"
     assert len(d["models"]) == 1
     m = d["models"][0]
-    assert m["id"] == "mock_drive"
+    assert m["id"] == "fake_drive"
     assert m["type"] == "drive_runtime"
     assert m["loaded"] is True
     assert m["can_unload"] is False

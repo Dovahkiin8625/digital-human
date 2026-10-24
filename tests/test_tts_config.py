@@ -1,10 +1,13 @@
-"""MiniMax TTS config helper: layer DB overrides on top of env defaults.
+"""MiniMax TTS config helper: layer DB rows on top of the built-in defaults.
 
 The DB rows live in the ``settings`` table (one row per key) so they share
 the persistence + admin-edit surface with the existing avatar tunables.
 This module owns read/write + per-field validation; the synthesise path
 calls ``read_config(db)`` once per request so the change takes effect
 without a server restart.
+
+There is no env layer any more: the Models tab's dialog is the only
+entry point, exactly like the LLM.
 """
 from __future__ import annotations
 
@@ -15,8 +18,8 @@ import pytest
 
 @pytest.fixture()
 def _fresh_db(tmp_path, monkeypatch):
-    """Apply the standard test env (data_dir in tmp, mocked settings) and
-    give back an initialised SQLAlchemySession for the test to drive.
+    """Apply the standard test env (data_dir + DB in tmp) and give back an
+    initialised SQLAlchemySession for the test to drive.
     """
     from tests.env import apply_env
     from server.config import get_settings
@@ -39,13 +42,13 @@ def _fresh_db(tmp_path, monkeypatch):
         get_settings.cache_clear()
 
 
-def test_read_config_returns_env_defaults_when_db_empty(_fresh_db):
-    """No DB rows → the helper returns whatever ``Settings`` provided.
+def test_read_config_returns_defaults_when_db_empty(_fresh_db):
+    """No DB rows → the helper returns the built-in defaults.
 
-    ``apply_env`` pins ``DH_MINIMAX_API_KEY=""`` so the env default for
-    api_key is empty; model / sample_rate carry real defaults. ``voice_id``
-    used to live here -- the operator now picks it per session in the debug
-    page, so the config dict no longer surfaces it.
+    The api_key default is empty (a fresh install has no credential);
+    model / sample_rate carry real defaults. ``voice_id`` used to live
+    here -- the operator now picks it per session in the debug page, so
+    the config dict no longer surfaces it.
     """
     from server.tts.config import read_config
 
@@ -56,10 +59,10 @@ def test_read_config_returns_env_defaults_when_db_empty(_fresh_db):
 
 
 def test_read_config_layers_db_rows_over_defaults(_fresh_db):
-    """A DB row for one key overrides the env default for that key.
+    """A DB row for one key overrides the built-in default for that key.
 
-    Other keys still come from ``Settings`` (env defaults) so a partial
-    update doesn't accidentally blank unrelated fields.
+    Other keys still come from the defaults so a partial update doesn't
+    accidentally blank unrelated fields.
     """
     from server.tts.config import read_config
     from server.db.models import Setting
@@ -69,7 +72,7 @@ def test_read_config_layers_db_rows_over_defaults(_fresh_db):
 
     cfg = read_config(_fresh_db)
     assert cfg["model"] == "speech-02-turbo"
-    # Other keys still come from env defaults.
+    # Other keys still come from the defaults.
     assert cfg["sample_rate"] == 32000
 
 

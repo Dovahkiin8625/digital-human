@@ -12,29 +12,30 @@ def test_get_returns_masked_api_key(client):
     """The GET response masks ``api_key`` as ``****<last4>`` so the UI
     never has to display the raw bearer token.
 
-    Test env pins ``DH_MINIMAX_API_KEY=""`` so the masked value is the
-    "(未设置)" sentinel; the field's *presence* is what matters here.
+    The test DB carries no MiniMax rows, so the effective api_key is
+    empty and the masked value is the "(未设置)" sentinel; the field's
+    *presence* is what matters here.
     """
     body = client.get("/api/admin/tts/config").json()
     assert "api_key_masked" in body
-    assert body["api_key_masked"] == "(未设置)"  # test env has empty key
+    assert body["api_key_masked"] == "(未设置)"  # nothing configured yet
     # The unmasked ``api_key`` is *not* in the GET response.
     assert "api_key" not in body
 
 
 def test_get_includes_public_config_fields(client):
     """The GET response carries every operator-facing field. The
-    ``model`` / ``sample_rate`` defaults come from Settings;
-    ``group_id`` / ``base_url`` likewise. ``voice_id`` used to live here
-    -- the operator now picks it per session in the debug page, so it
-    isn't a server-wide setting anymore.
+    ``model`` / ``sample_rate`` / ``group_id`` / ``base_url`` values come
+    from the built-in defaults when the DB has no rows. ``voice_id``
+    used to live here -- the operator now picks it per session in the
+    debug page, so it isn't a server-wide setting anymore.
     """
     body = client.get("/api/admin/tts/config").json()
     for field in ("model", "sample_rate", "group_id", "base_url"):
         assert field in body
     # ``voice_id`` is gone from the GET shape.
     assert "voice_id" not in body
-    # Defaults from Settings.
+    # Built-in defaults.
     assert body["model"] == "speech-02-hd"
     assert body["sample_rate"] == 32000
 

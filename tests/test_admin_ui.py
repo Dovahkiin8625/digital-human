@@ -602,3 +602,39 @@ def test_detail_preview_is_a_loop_video_with_image_fallback():
 def test_detail_has_no_drive_level_slider():
     source = _detail_source()
     assert "驱动电平" not in source
+
+
+def _models_page_source():
+    return (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "admin-ui" / "src" / "pages" / "Models.tsx"
+    ).read_text(encoding="utf-8")
+
+
+def test_models_tab_exposes_the_digital_human_model_selector():
+    # Which digital-human model this box runs is an operator choice, so it
+    # belongs on the Models tab next to the weights it loads. The page must
+    # read the choice from the polled payload and write it back through the
+    # active-model endpoint -- not through an env var, which the console
+    # has no way to set.
+    source = _models_page_source()
+    assert "/api/admin/models/active" in source, (
+        "the Models tab must save the active model through "
+        "PUT /api/admin/models/active"
+    )
+    assert "active_model" in source, (
+        "the Models tab must render the model this box is running"
+    )
+    assert "available_models" in source, (
+        "the Models tab must offer the registered models to choose from"
+    )
+    assert "重启服务后生效" in source, (
+        "the tab must say that a model change needs a restart -- the engine "
+        "is a process-wide singleton holding the weights in VRAM"
+    )
+
+
+def test_types_expose_the_model_selector_payload():
+    types = _types_source()
+    for field in ("active_model", "selected_model", "available_models"):
+        assert field in types, f"ModelsPayload must carry {field}"

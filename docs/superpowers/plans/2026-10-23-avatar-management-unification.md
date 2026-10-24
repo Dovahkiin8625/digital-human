@@ -2103,8 +2103,8 @@ cd E:/project/digital-human && git add admin-ui/src/pages/AvatarDetail.tsx admin
 单测覆盖不到的两件事，必须在浏览器里确认：
 
 ```bash
-# 起服务（mock 引擎，无需 GPU）
-cd E:/project/digital-human && .venv/Scripts/python -m uvicorn --factory server.main:create_app --host 0.0.0.0 --port 8000
+# 起服务（真实模型，需 GPU + 权重；见「MuseTalk 环境准备」）
+cd E:/project/digital-human && .venv-musetalk/Scripts/python -m uvicorn --factory server.main:create_app --host 0.0.0.0 --port 8000
 ```
 
 1. `/admin/avatars` → 类型切到 Live2D → 拖一个真实 Hiyori zip（工程在子目录里的那种）→ 创建 → 列表同一张表里出现新行，类型列显示 Live2D，驱动方式显示 Cubism。

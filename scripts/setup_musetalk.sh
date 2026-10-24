@@ -202,6 +202,5 @@ Environment ready.
 
   interpreter : $PYBIN
   run tests   : $PYBIN -m pytest -q -m 'gpu or musetalk'
-  run server  : DH_DRIVE_ENGINE=musetalk DH_AVATAR_PIPELINE=musetalk \\
-                $PYBIN -m uvicorn --factory server.main:create_app
+  run server  : $PYBIN -m uvicorn --factory server.main:create_app
 EOF

@@ -36,7 +36,7 @@ def test_full_flow_with_ws_audio(client):
 
     detail = client.get(f"/api/v1/sessions/{sid}").json()
     # 48000 samples is 1.0s. AudioIngest splits into 100ms blocks (4800 samples
-    # each) -> 10 blocks. MockEngine.drive computes n_frames = max(1, round(duration * fps));
+    # each) -> 10 blocks. FakeEngine.drive computes n_frames = max(1, round(duration * fps));
     # per block duration == 0.1s and 0.1 * 25 == 2.5, which round() sends to 2
     # (banker's rounding) -> 2 frames/block * 10 blocks == 20 frames.
     assert detail["metrics"]["frames_out"] == 20

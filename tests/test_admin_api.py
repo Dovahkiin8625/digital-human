@@ -46,8 +46,8 @@ def _set_status(avatar_id, status):
 
 def test_system_info(client):
     body = client.get("/api/admin/system").json()
-    assert body["engine"]["name"] == "mock"
-    assert body["pipeline"] == "mock"
+    assert body["engine"]["name"] == "fake"
+    assert body["pipeline"] == "musetalk"
     assert body["gpu"] is False
 
 

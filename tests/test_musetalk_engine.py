@@ -1157,8 +1157,8 @@ def test_idle_position(engine):
 
 @pytest.mark.asyncio
 async def test_default_engine_idle_surface_is_unsupported():
-    from server.engine.mock_engine import MockEngine
+    from doubles import FakeEngine
 
-    eng = MockEngine()
+    eng = FakeEngine()
     assert await eng.idle_frame(None, None, 0) is None
     assert eng.idle_position(None) == 0

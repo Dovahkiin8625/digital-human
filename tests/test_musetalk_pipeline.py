@@ -18,7 +18,7 @@ from server.avatar.musetalk_pipeline import (
     MuseTalkAvatarPipeline,
     fit_to_canvas,
 )
-from server.avatar.pipeline import MockAvatarPipeline, PipelineError, create_pipeline
+from server.avatar.pipeline import PipelineError, create_pipeline
 from server.avatar.store import AvatarStore
 
 SIDECARS = ["latents.pt", "coords.json", "meta.json"]
@@ -141,22 +141,12 @@ def test_load_pack_exposes_prep_block(tmp_path):
     assert pack.prep == {"crop": 256, "bbox": [1, 2, 3, 4]}
 
 
-def test_create_pipeline_honours_settings(tmp_path, monkeypatch):
-    monkeypatch.setenv("DH_AVATAR_PIPELINE", "mock")
-    from server.config import get_settings
-
-    get_settings.cache_clear()
-    assert isinstance(create_pipeline(), MockAvatarPipeline)
-
-    monkeypatch.setenv("DH_AVATAR_PIPELINE", "musetalk")
-    get_settings.cache_clear()
-    assert isinstance(create_pipeline(), MuseTalkAvatarPipeline)
-
-    monkeypatch.setenv("DH_AVATAR_PIPELINE", "nope")
-    get_settings.cache_clear()
+def test_create_pipeline_builds_the_registered_model(tmp_path, monkeypatch):
+    # There is no env layer any more: the pipeline comes from the registered
+    # digital-human model, and an unregistered name is refused.
+    assert isinstance(create_pipeline("musetalk"), MuseTalkAvatarPipeline)
     with pytest.raises(PipelineError):
-        create_pipeline()
-    get_settings.cache_clear()
+        create_pipeline("nope")
 
 
 def test_musetalk_pipeline_rejects_tiny_image(tmp_path, monkeypatch):

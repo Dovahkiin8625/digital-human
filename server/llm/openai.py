@@ -49,23 +49,23 @@ SYSTEM_PROMPT = (
 
 
 def _read_cfg(db) -> dict[str, Any]:
-    """Pull the effective LLM config (DB rows over env defaults).
+    """Pull the effective LLM config (DB rows over the built-in defaults).
 
-    Falls back to ``Settings``-only defaults when ``db`` is None (the
-    test path) so unit tests can stub the env without spinning up a DB.
+    Falls back to the built-in defaults when ``db`` is None (the test
+    path) so unit tests can stub the config without spinning up a DB.
     """
     from server.llm.config import read_config
 
     if db is not None:
         return read_config(db)
-    return _settings_defaults_as_public()
+    return _defaults_as_public()
 
 
-def _settings_defaults_as_public() -> dict[str, Any]:
+def _defaults_as_public() -> dict[str, Any]:
     """Mirror of ``read_config`` for callers without a DB session.
 
-    LLM has no env-var defaults -- the operator wires it via the Models
-    tab. The defaults returned here are the same empty placeholders
+    The LLM has no env-var defaults -- the operator wires it via the
+    Models tab. The defaults returned here are the same empty placeholders
     ``read_config`` would surface for a freshly-installed box.
     """
     return {
@@ -95,13 +95,13 @@ def _require_configured(cfg: dict[str, Any]) -> None:
     if not cfg.get("api_key"):
         raise AppError(
             "llm_not_configured",
-            "LLM is not configured: set DH_LLM_API_KEY in .env or save it via the Models tab",
+            "LLM is not configured: save the API key in the Models tab",
             503,
         )
     if not cfg.get("base_url"):
         raise AppError(
             "llm_not_configured",
-            "LLM is not configured: set DH_LLM_BASE_URL in .env or save it via the Models tab",
+            "LLM is not configured: save the base URL in the Models tab",
             503,
         )
 

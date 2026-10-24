@@ -1,11 +1,12 @@
-"""LLM configuration: env defaults + DB row overrides.
+"""LLM configuration: DB row overrides on top of built-in defaults.
 
-Mirrors the layer shape ``server/tts/config.py`` uses for MiniMax: env
-defaults come from ``server.config.Settings`` (the ``DH_LLM_*`` group); the
-admin console writes per-key overrides to the ``settings`` table via
-``PUT /api/admin/llm/config``; the chat path reads the layered result on
-every call so a console edit takes effect on the very next request without
-a server restart.
+There is deliberately **no env layer**: the admin console writes per-key
+values to the ``settings`` table via ``PUT /api/admin/llm/config``; the
+chat path reads the layered result on every call so a console edit takes
+effect on the very next request without a server restart.
+
+The MiniMax TTS config (``server/tts/config.py``) has the same shape --
+DB rows over built-in defaults, configured from the Models tab.
 
 Three configurable keys:
 
@@ -37,44 +38,37 @@ PUBLIC_KEYS: tuple[str, ...] = (
 )
 
 #: Wire name ↔ public name. ``_KEY_TO_PUBLIC[k]`` is the key the API
-#: surface exposes; ``_PUBLIC_TO_KEY[p]`` is the DB / env key.
+#: surface exposes; ``_PUBLIC_TO_KEY[p]`` is the DB key.
 _KEY_TO_PUBLIC = dict(zip(KEYS, PUBLIC_KEYS))
 _PUBLIC_TO_KEY = dict(zip(PUBLIC_KEYS, KEYS))
 
-
-def _env_defaults() -> dict[str, Any]:
-    """Default values when no DB row is present.
-
-    Deliberately all empty: the LLM is configured via the Models tab
-    only (see ``PUT /api/admin/llm/config``). No env-var fallback on
-    purpose -- a freshly-deployed box should show the LLM row as
-    "未配置" until an operator wires it through the UI, the same way
-    MiniMax TTS surfaces as not-configured until an api_key lands.
-    """
-    return {
-        "llm_api_key": "",
-        "llm_base_url": "",
-        "llm_model": "gpt-3.5-turbo",
-    }
+#: Fallback for a key with no DB row. ``api_key`` / ``base_url`` are
+#: empty on purpose: a fresh install has no credential, which the chat
+#: path reports as 503 "not configured" rather than calling out.
+DEFAULTS: dict[str, Any] = {
+    "llm_api_key": "",
+    "llm_base_url": "",
+    "llm_model": "gpt-3.5-turbo",
+}
 
 
-def _public_view(env: dict[str, Any]) -> dict[str, Any]:
+def _public_view(values: dict[str, Any]) -> dict[str, Any]:
     """Strip the ``llm_`` prefix so the API matches what the form sends."""
-    return {_KEY_TO_PUBLIC[k]: env[k] for k in KEYS}
+    return {_KEY_TO_PUBLIC[k]: values[k] for k in KEYS}
 
 
 def read_config(db) -> dict[str, Any]:
     """Return the *currently effective* LLM config for one DB session.
 
-    DB rows win over env defaults on a per-key basis; absent keys fall
-    back to whatever ``Settings`` returned. Returns the public (no-prefix)
+    DB rows win over :data:`DEFAULTS` on a per-key basis; absent keys
+    fall back to the built-in default. Returns the public (no-prefix)
     key shape so the API surface and the chat path agree.
     """
     from sqlalchemy import select
 
     from server.db.models import Setting
 
-    out = _env_defaults()
+    out = dict(DEFAULTS)
     rows = db.execute(
         select(Setting).where(Setting.key.in_(KEYS))
     ).scalars().all()
@@ -82,7 +76,7 @@ def read_config(db) -> dict[str, Any]:
         try:
             out[row.key] = json.loads(row.value)
         except (ValueError, TypeError):
-            # A malformed value falls back to the env default rather than
+            # A malformed value falls back to the default rather than
             # 500-ing the caller; the operator can re-PUT to fix it.
             continue
     return _public_view(out)

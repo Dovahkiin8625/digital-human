@@ -72,6 +72,29 @@ async def _warmup(engine) -> None:
         )
 
 
+def _resolve_active_model() -> str:
+    """Read the operator's chosen digital-human model and freeze it.
+
+    The choice lives in the SQLite ``settings`` table (see
+    ``server/model_registry``); the DB is already initialised by the time
+    this runs. A missing row, a malformed value, or a name that is no
+    longer registered all fall back to the default model rather than
+    stopping the server from booting.
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.session import get_engine
+    from server.model_registry import activate, read_active_model
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        name = read_active_model(db)
+    finally:
+        db.close()
+    activate(name)
+    return name
+
+
 def create_app() -> FastAPI:
     global _app
     settings = get_settings()
@@ -118,10 +141,13 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> dict:
+        from server.model_registry import active
+
+        model = active()
         return {
             "status": "ok",
-            "engine": settings.drive_engine,
-            "pipeline": settings.avatar_pipeline,
+            "engine": model.name,
+            "pipeline": model.name,
             "gpu": app.state.gpu,
         }
 
@@ -139,6 +165,16 @@ def create_app() -> FastAPI:
     app.include_router(avatars_router)
     app.include_router(sessions_router)
     app.include_router(live2d_router)
+
+    # Which digital-human model this box runs is the operator's choice, and
+    # it lives in the SQLite ``settings`` table (see server/model_registry).
+    # It is resolved once, here: the drive engine is a process-wide singleton
+    # holding the model's weights in VRAM, so a change is applied by a
+    # restart. The engine and the avatar pipeline are then built from the
+    # same model -- a pack written by one model must never be driven by
+    # another.
+    _resolve_active_model()
+
     app.state.session_manager = SessionManager(
         create_engine(), AvatarStore(settings.data_dir), settings.session_idle_timeout
     )
