@@ -11,13 +11,13 @@ The server never renders a Cubism model. It owns three things only: the row
 that says a model exists, the files on disk, and the bytes to hand out.
 """
 
+import json
 import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Form, UploadFile
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from server.api.avatars import _require_uuid_hex, _serialize
@@ -27,6 +27,7 @@ from server.core.auth import require_v1_token
 from server.core.errors import AppError
 from server.db.models import Avatar
 from server.db.session import get_db
+from server.live2d.archive import extract_archive, resolve_entry
 from server.live2d.registry import validate_model_dir
 
 router = APIRouter(prefix="/api", tags=["live2d"])
@@ -68,45 +69,111 @@ def _safe_join(root: Path, relative: str) -> Path:
 
 # ----- console surface ----------------------------------------------------
 
-class RegisterIn(BaseModel):
-    model_config = {"extra": "forbid"}
+def _save_upload(dest: Path, file: UploadFile) -> None:
+    """Stream the archive to ``dest``, refusing an oversized body mid-copy.
 
-    name: str = Field(min_length=1, max_length=128)
-    #: Server-side path to a Cubism project directory. Copied into the
-    #: avatar's own storage so the avatar owns its files and deleting it
-    #: takes the model with it -- the source directory is left untouched.
-    model_dir: str
-    config: dict = Field(default_factory=dict)
+    The declared length can lie and is absent entirely on a chunked body,
+    so the copy is counted rather than trusted -- the same shape as
+    ``AvatarStore.save_source``, which is why the limit is shared too.
+    """
+    limit = get_settings().avatar_max_upload_bytes
+    written = 0
+    with dest.open("wb") as out:
+        while True:
+            chunk = file.file.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > limit:
+                raise AppError("file_too_large", f"upload is larger than {limit} bytes", 413)
+            out.write(chunk)
+
+
+def _parse_expressions(raw: str) -> dict:
+    """Parse the operator's ``{"smile": 0}`` map, or refuse it.
+
+    The console rejects a malformed map before submitting, so a failure
+    here means a hand-rolled client -- but it must still fail loudly
+    rather than register a model whose emotion map silently does nothing.
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError as exc:
+        raise AppError(
+            "live2d_invalid_config", f"expressions is not valid JSON: {exc}", 422
+        ) from exc
+    if not isinstance(parsed, dict) or not all(
+        isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)
+        for k, v in parsed.items()
+    ):
+        raise AppError(
+            "live2d_invalid_config",
+            'expressions must be an object of {"tag": index}',
+            422,
+        )
+    return parsed
 
 
 @router.post("/admin/live2d/avatars", status_code=201)
-def register_live2d_avatar(body: RegisterIn, db=Depends(get_db)) -> dict:
-    source = Path(body.model_dir)
-    if not source.is_dir():
-        raise AppError("live2d_invalid_model", f"model_dir not found: {body.model_dir}", 422)
+def upload_live2d_avatar(
+    name: str = Form(...),
+    file: UploadFile = ...,
+    entry: str = Form(""),
+    expressions: str = Form(""),
+    db=Depends(get_db),
+) -> dict:
+    """Register a Live2D avatar from an uploaded Cubism project archive.
 
+    The archive is extracted into the avatar's own directory, checked with
+    the same ``validate_model_dir`` the server-side registration used, and
+    only then written to the database -- so a rejected upload leaves no row
+    and no files behind, and the shape that IS served is the shape that was
+    validated.
+
+    ``entry`` may be blank: the usual way an operator produces a zip is to
+    right-click the exported folder, which puts it at
+    ``Hiyori/model.model3.json``, so auto-detection is what makes the common
+    upload work without the operator retyping a path they never knew.
+    """
+    config: dict = {"expressions": _parse_expressions(expressions)}
+
+    settings = get_settings()
     avatar_id = uuid4().hex
     store = _store()
     target = store.avatar_dir(avatar_id)
-    shutil.copytree(source, target)
+    scratch = Path(settings.data_dir) / "tmp" / "live2d_upload"
+    scratch.mkdir(parents=True, exist_ok=True)
+    archive = scratch / f"{avatar_id}.zip"
 
-    # Validate the copy, not the source: that is the directory that will be
-    # served, and a source that changes afterwards must not silently
-    # invalidate the registration.
+    target.mkdir(parents=True, exist_ok=True)
     try:
-        validate_model_dir(target, body.config)
+        _save_upload(archive, file)
+        extract_archive(
+            archive,
+            target,
+            max_entries=settings.live2d_max_archive_entries,
+            max_unpacked_bytes=settings.live2d_max_unpacked_bytes,
+            max_entry_bytes=settings.live2d_max_entry_bytes,
+        )
+        config["model"] = {"entry": resolve_entry(target, entry.strip() or None)}
+        validate_model_dir(target, config)
     except Exception:
         shutil.rmtree(target, ignore_errors=True)
         raise
+    finally:
+        archive.unlink(missing_ok=True)
 
     row = Avatar(
         id=avatar_id,
-        name=body.name,
+        name=name,
         status="ready",
         source_image_path="",
         pack_path=None,
         kind="live2d",
-        config_json=body.config,
+        config_json=config,
     )
     db.add(row)
     db.commit()

@@ -210,7 +210,7 @@ curl http://127.0.0.1:8000/healthz
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/admin/login` | JSON `{"password"}` → `{"token"}`。**已失效**，登录鉴权随多租户重构删除，保留仅为不打断旧调用 |
-| POST | `/api/admin/live2d/avatars` | JSON `{name, model_dir, config}` → 复制并校验 Cubism 工程后建 `kind=live2d` 行。校验失败 422，消息指出具体缺失文件 |
+| POST | `/api/admin/live2d/avatars` | multipart `name` + `file`(整个 Cubism 工程的 zip) + `entry`(可选) + `expressions`(可选 JSON) → 解压并校验后建 `kind=live2d` 行，返回值含解析后的 `config.model.entry`。`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到）。校验失败 422 并清理已解压文件，消息指出具体缺失文件 |
 | DELETE | `/api/admin/live2d/avatars/{id}` | 删除 Live2D 形象及其模型文件（204）。对 `photoreal` 形象返回 404 |
 | GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
 | GET | `/api/admin/system` | 引擎描述 / 制作流水线名 / GPU / 版本 / 数据目录 |

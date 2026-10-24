@@ -18,6 +18,72 @@ from server.config import get_settings
 LIVE2D_ID = "a" * 32
 
 
+def _project_zip(prefix: str = "") -> bytes:
+    """A Cubism project as a browser would send it.
+
+    ``prefix`` puts every file inside a folder, which is what right-click
+    compress produces and what the server has to cope with.
+    """
+    import io
+    import zipfile
+
+    entries = {
+        "model.model3.json": json.dumps({
+            "Version": 3,
+            "FileReferences": {
+                "Moc": "model.moc3",
+                "Textures": ["texture_00.png"],
+                "Expressions": [{"Name": "0", "File": "0.exp3.json"}],
+            },
+        }).encode(),
+        "model.moc3": b"\x00" * 16,
+        "texture_00.png": b"\x89PNG\r\n\x1a\n",
+        "0.exp3.json": b"{}",
+    }
+    if prefix:
+        entries = {f"{prefix}/{k}": v for k, v in entries.items()}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _zip_without(filename: str) -> bytes:
+    """A project zip with one member missing, for the validation failures."""
+    entries = {
+        "model.model3.json": json.dumps({
+            "Version": 3,
+            "FileReferences": {"Moc": "model.moc3", "Textures": ["texture_00.png"]},
+        }).encode(),
+        "model.moc3": b"\x00" * 16,
+        "texture_00.png": b"\x89PNG",
+    }
+    entries.pop(filename)
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _upload(client, name="Hiyori", prefix="", entry="", expressions="", raw=None):
+    data = _project_zip(prefix) if raw is None else raw
+    form = {"name": name}
+    if entry:
+        form["entry"] = entry
+    if expressions:
+        form["expressions"] = expressions
+    return client.post(
+        "/api/admin/live2d/avatars",
+        data=form,
+        files={"file": ("model.zip", data, "application/zip")},
+    )
+
+
 def _write_model(root):
     root.mkdir(parents=True, exist_ok=True)
     (root / "model.model3.json").write_text(
@@ -74,59 +140,90 @@ def _assert_refused(resp):
 
 # ----- registration -------------------------------------------------------
 
-def test_registration_copies_and_validates(client, tmp_path):
-    src = _write_model(tmp_path / "src")
-    resp = client.post(
-        "/api/admin/live2d/avatars",
-        json={
-            "name": "Hiyori",
-            "model_dir": str(src),
-            "config": {"model": {"entry": "model.model3.json"}, "expressions": {"smile": 0}},
-        },
-    )
+def test_upload_extracts_and_validates(client):
+    resp = _upload(client, expressions='{"smile": 0}')
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
-
-    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
-    assert detail["kind"] == "live2d"
-    assert detail["status"] == "ready"
-    # The avatar owns its files, so deleting it takes the model with it.
+    body = resp.json()
+    assert body["kind"] == "live2d"
+    assert body["status"] == "ready"
+    # The response carries the config so the console can render the entry
+    # without a second round trip.
+    assert body["config"]["model"]["entry"] == "model.model3.json"
     root = client.app.state.session_manager.store.avatar_dir(avatar_id)
-    assert (root / "model.moc3").is_file()
-    assert src.is_dir(), "the source directory must be left alone"
+    assert (root / "model.moc3").read_bytes() == b"\x00" * 16
 
 
-def test_registration_rejects_a_broken_model(client, tmp_path):
-    src = _write_model(tmp_path / "src")
-    (src / "model.moc3").unlink()
-    resp = client.post(
-        "/api/admin/live2d/avatars",
-        json={"name": "broken", "model_dir": str(src),
-              "config": {"model": {"entry": "model.model3.json"}}},
+def test_upload_detects_an_entry_inside_a_subfolder(client):
+    """The shape right-click compress produces. A hardcoded entry name
+    would fail on exactly this."""
+    resp = _upload(client, prefix="Hiyori")
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["config"]["model"]["entry"] == "Hiyori/model.model3.json"
+    avatar_id = resp.json()["avatar_id"]
+    served = client.get(
+        f"/api/v1/live2d/avatars/{avatar_id}/model/Hiyori/model.model3.json"
     )
+    assert served.status_code == 200
+
+
+def test_upload_rejects_a_broken_model(client):
+    resp = _upload(client, name="broken", raw=_zip_without("model.moc3"))
     assert resp.status_code == 422
     assert resp.json()["error"]["code"] == "live2d_invalid_model"
     assert "moc" in resp.json()["error"]["message"]
 
 
-def test_registration_rejects_a_missing_directory(client, tmp_path):
-    resp = client.post(
-        "/api/admin/live2d/avatars",
-        json={"name": "nope", "model_dir": str(tmp_path / "absent"),
-              "config": {"model": {"entry": "model.model3.json"}}},
-    )
+def test_upload_rejects_a_body_that_is_not_a_zip(client):
+    resp = _upload(client, raw=b"not a zip at all")
+    assert resp.status_code == 422
+    assert "zip" in resp.json()["error"]["message"]
+
+
+def test_upload_rejects_an_expression_the_model_lacks(client):
+    resp = _upload(client, expressions='{"smile": 9}')
     assert resp.status_code == 422
 
 
-def test_registration_rejects_an_expression_the_model_lacks(client, tmp_path):
-    src = _write_model(tmp_path / "src")
-    resp = client.post(
-        "/api/admin/live2d/avatars",
-        json={"name": "bad-expr", "model_dir": str(src),
-              "config": {"model": {"entry": "model.model3.json"},
-                         "expressions": {"smile": 9}}},
-    )
+def test_upload_rejects_malformed_expressions(client):
+    resp = _upload(client, expressions="{not json")
     assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "live2d_invalid_config"
+
+
+def test_a_rejected_upload_leaves_nothing_behind(client):
+    store = client.app.state.session_manager.store
+    avatars_dir = store.data_dir / "avatars"
+
+    def names():
+        return set(p.name for p in avatars_dir.glob("*")) if avatars_dir.exists() else set()
+
+    before = names()
+    resp = _upload(client, raw=_zip_without("model.moc3"))
+    assert resp.status_code == 422
+    assert names() == before
+    # And no row was written.
+    assert client.get("/api/admin/avatars?kind=live2d").json() == []
+
+
+def test_upload_refuses_a_zip_slip_entry(client):
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("model.model3.json", "{}")
+        zf.writestr("../../.env", "secret")
+    resp = _upload(client, raw=buf.getvalue())
+    assert resp.status_code == 422
+    assert "illegal path" in resp.json()["error"]["message"]
+
+
+def test_upload_refuses_an_oversized_body(client, monkeypatch):
+    monkeypatch.setenv("DH_AVATAR_MAX_UPLOAD_BYTES", "1024")
+    get_settings.cache_clear()
+    resp = _upload(client, raw=b"\x00" * 4096)
+    assert resp.status_code == 413
 
 
 def test_delete_removes_row_and_assets(client):

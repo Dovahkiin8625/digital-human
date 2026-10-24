@@ -92,6 +92,36 @@ def test_rejects_a_missing_motion_file(tmp_path):
     assert ei.value.code == "live2d_invalid_model"
 
 
+def test_resolves_file_references_next_to_the_entry(tmp_path):
+    """Cubism resolves every FileReferences path relative to the model3.json
+    that declares them -- and so does the console's own loader, which
+    fetches the moc from beside the entry rather than from the project root.
+
+    A model in a subfolder (what right-click compress produces) names its
+    moc "model.moc3" while the file sits next to the entry, not at the
+    root. Validating against the root instead rejects every such model.
+    """
+    root = tmp_path / "Hiyori"
+    root.mkdir(parents=True)
+    _write_model(root)
+    cfg = validate_model_dir(tmp_path, {"model": {"entry": "Hiyori/model.model3.json"}})
+    assert cfg["model"]["entry"] == "Hiyori/model.model3.json"
+
+
+def test_rejects_a_missing_moc_beside_a_subfolder_entry(tmp_path):
+    """The subfolder case has to fail loudly too: a moc that is missing
+    next to the entry is missing, even if some other file of that name
+    happens to sit at the project root."""
+    root = tmp_path / "Hiyori"
+    root.mkdir(parents=True)
+    _write_model(root)
+    (tmp_path / "model.moc3").write_bytes(b"\x00" * 16)
+    (root / "model.moc3").unlink()
+    with pytest.raises(AppError) as ei:
+        validate_model_dir(tmp_path, {"model": {"entry": "Hiyori/model.model3.json"}})
+    assert ei.value.code == "live2d_invalid_model"
+
+
 def test_accepts_a_model_with_no_motions_key(tmp_path):
     # Plenty of models ship without motions. An absent Motions key is not a
     # broken model, only a dangling reference is.

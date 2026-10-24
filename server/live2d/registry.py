@@ -52,10 +52,18 @@ def validate_model_dir(path: Path, config: dict) -> dict:
     entry_name = (config.get("model") or {}).get("entry")
     if not entry_name:
         raise _fail("config.model.entry is required")
-    _require_file(root, entry_name, "entry file")
+    entry_path = _require_file(root, entry_name, "entry file")
+
+    # Cubism resolves every FileReferences path relative to the model3.json
+    # that declares them, and so does the console's own loader, which
+    # fetches the moc from beside the entry. A model that lives in a
+    # subfolder -- what right-click compress produces -- names its moc
+    # "model.moc3" while the file sits next to the entry, not at the
+    # project root, so resolving against the root would reject it.
+    base = entry_path.parent
 
     try:
-        spec = json.loads((root / entry_name).read_text(encoding="utf-8"))
+        spec = json.loads(entry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise _fail(f"entry file is not readable JSON: {exc}") from exc
 
@@ -64,20 +72,20 @@ def validate_model_dir(path: Path, config: dict) -> dict:
     moc = refs.get("Moc")
     if not moc:
         raise _fail("entry file declares no Moc")
-    _require_file(root, moc, "moc")
+    _require_file(base, moc, "moc")
 
     for texture in refs.get("Textures") or []:
-        _require_file(root, texture, "texture")
+        _require_file(base, texture, "texture")
 
     expression_names: list[str] = []
     for expr in refs.get("Expressions") or []:
         name = str(expr.get("Name"))
         expression_names.append(name)
-        _require_file(root, expr.get("File", ""), f"expression {name}")
+        _require_file(base, expr.get("File", ""), f"expression {name}")
 
     for group in (refs.get("Motions") or {}).values():
         for motion in group or []:
-            _require_file(root, motion.get("File", ""), "motion")
+            _require_file(base, motion.get("File", ""), "motion")
 
     # The operator's emotion map is {emotion tag: POSITION in the model's
     # expression list} -- that is what expressionIndex() consumes on the
