@@ -1,4 +1,4 @@
-import type { AvatarInfo, Live2DHealth, Live2DModelConfig } from "./types";
+import type { AvatarInfo, Live2DHealth } from "./types";
 import { modelFileUrl } from "./live2d/cubism/core";
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
@@ -74,15 +74,33 @@ export async function downloadWithToken(path: string): Promise<void> {
 
 // ----- Live2D -------------------------------------------------------------
 
-export interface Live2DRegisterIn {
+export interface Live2DUploadIn {
   name: string;
-  /** Server-side path to a Cubism project directory. */
-  model_dir: string;
-  config: Live2DModelConfig;
+  /** The whole Cubism project, zipped. */
+  file: File;
+  /** model3.json's path inside the archive. Blank lets the server detect
+   *  it, which is what makes a zip of the exported folder work. */
+  entry?: string;
+  /** Emotion tag -> index into the model's own expression list. */
+  expressions?: Record<string, number>;
 }
 
-export function registerLive2dAvatar(body: Live2DRegisterIn): Promise<AvatarInfo> {
-  return api<AvatarInfo>("/api/admin/live2d/avatars", { method: "POST", body });
+/**
+ * Register a Live2D avatar from an uploaded project archive.
+ *
+ * Replaces the old server-path registration: an operator used to have to
+ * SCP the project onto the box and type an absolute path, which is not a
+ * thing a browser can do.
+ */
+export function uploadLive2dAvatar(body: Live2DUploadIn): Promise<AvatarInfo> {
+  const form = new FormData();
+  form.append("name", body.name);
+  form.append("file", body.file);
+  if (body.entry) form.append("entry", body.entry);
+  if (body.expressions && Object.keys(body.expressions).length > 0) {
+    form.append("expressions", JSON.stringify(body.expressions));
+  }
+  return api<AvatarInfo>("/api/admin/live2d/avatars", { method: "POST", form });
 }
 
 export function deleteLive2dAvatar(avatarId: string): Promise<void> {
