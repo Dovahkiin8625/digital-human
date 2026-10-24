@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     # model. `live2d_enabled` hides the whole feature from the console.
     live2d_enabled: bool = True
     live2d_sdk_dir: Path = Path("data/CubismSdkForWeb-5-r.5")
+    # A Live2D upload is an operator-supplied zip of a whole Cubism project.
+    # Three limits, because the archive size alone does not bound what an
+    # upload does: a few hundred KB of zeros can expand to hundreds of MB,
+    # and a small archive can declare a million members.
+    live2d_max_archive_entries: int = 512
+    live2d_max_unpacked_bytes: int = 512_000_000
+    live2d_max_entry_bytes: int = 64_000_000
 
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env")
 
