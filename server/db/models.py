@@ -39,6 +39,11 @@ class Avatar(Base):
     # by default; the column is NOT NULL so the pipeline can pass the
     # value through without a None-check.
     tunable_overrides: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    #: Free-form build options handed to the model's pipeline. The ``lite``
+    #: model reads ``train`` / ``checkpoint`` / ``epochs`` from here; other
+    #: models ignore it. Persisted on the row rather than in the job so a
+    #: retry rebuilds the avatar the same way.
+    build_options: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

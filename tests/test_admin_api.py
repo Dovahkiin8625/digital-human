@@ -27,6 +27,49 @@ def _admin_avatar(client, name="a", size=(640, 800)):
     )
 
 
+def test_the_build_options_are_validated_and_kept(client):
+    """The `options` field carries the model's build instructions.
+
+    The lite engine reads `train` / `checkpoint` from it; a malformed blob
+    is a 400 rather than a job that fails minutes later.
+    """
+    ok = client.post(
+        "/api/admin/avatars",
+        data={"name": "with-options", "options": '{"train": true}'},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert ok.status_code == 201
+
+    # The options live on the avatar row, so a retry rebuilds it the same way.
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+
+    from server.db.models import Avatar
+    from server.db.session import get_engine
+
+    db = sessionmaker(bind=get_engine())()
+    try:
+        row = db.execute(
+            select(Avatar).where(Avatar.id == ok.json()["avatar_id"])
+        ).scalar_one()
+        assert row.build_options == {"train": True}
+    finally:
+        db.close()
+
+    bad = client.post(
+        "/api/admin/avatars", data={"name": "bad", "options": "{not json"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "invalid_avatar_options"
+
+    not_an_object = client.post(
+        "/api/admin/avatars", data={"name": "bad2", "options": "[1, 2]"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert not_an_object.status_code == 400
+
+
 def _set_status(avatar_id, status):
     """Force an avatar's status so retry can be exercised from every allowed state."""
     from sqlalchemy import select
@@ -49,9 +92,10 @@ def test_system_info(client):
     # Several models may be resident at once, so the page is told about
     # each of them rather than about one "the" engine.
     by_name = {r["name"]: r for r in body["runtimes"]}
-    assert set(by_name) == {"musetalk", "live2d"}
+    assert set(by_name) == {"musetalk", "live2d", "lite"}
     assert by_name["musetalk"]["client_rendered"] is False
     assert by_name["live2d"]["client_rendered"] is True
+    assert by_name["lite"]["client_rendered"] is False
     assert body["gpu"] is False
 
 

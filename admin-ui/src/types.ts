@@ -14,6 +14,10 @@ export interface DriveModelInfo {
   // True when the browser draws the avatar itself -- there is no server
   // session for it.
   client_rendered: boolean;
+  // The upload limit for this model's source in seconds, when it overrides
+  // the global one (the lite engine takes minutes of footage). Undefined
+  // means "the global limit applies".
+  max_video_seconds?: number | null;
 }
 
 export interface AvatarInfo {

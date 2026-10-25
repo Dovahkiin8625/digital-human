@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Collapse,
   Empty,
   Form,
@@ -65,6 +66,10 @@ type FormValues = {
   idle_preset?: string;
   entry?: string;
   expressions?: string;
+  // The lite engine's visual model is personalised: either train one from
+  // this person's footage, or point at one that was trained elsewhere.
+  lite_train?: boolean;
+  lite_checkpoint?: string;
 };
 
 function videoSeconds(file: File): Promise<number> {
@@ -255,16 +260,36 @@ export default function Avatars() {
     }
     setCreating(true);
     try {
+      // The upload limit belongs to the model: the lite engine is trained
+      // from the person's own footage and needs minutes, not seconds.
+      const maxSeconds = model.max_video_seconds ?? 15;
       if (!isArchive && file.type.startsWith("video/")) {
         try {
           const seconds = await videoSeconds(file);
-          if (seconds > 15) {
-            message.error(`视频 ${seconds.toFixed(1)} 秒，超过 15 秒上限，请先剪短`);
+          if (seconds > maxSeconds) {
+            message.error(`视频 ${seconds.toFixed(1)} 秒，超过 ${maxSeconds} 秒上限，请先剪短`);
             return;
           }
         } catch {
           /* Duration is only a convenience; the server is authoritative. */
         }
+      }
+      // The lite engine needs a personalised visual model: either train one
+      // here, or point at one that was trained elsewhere.
+      const isLite = model.name === "lite";
+      const checkpoint = (values.lite_checkpoint ?? "").trim();
+      const options =
+        isLite
+          ? {
+              ...(values.lite_train ? { train: true } : {}),
+              ...(checkpoint ? { checkpoint } : {}),
+            }
+          : undefined;
+      if (isLite && !values.lite_train && !checkpoint) {
+        message.warning(
+          "轻量引擎需要专属口型模型：请勾选「训练专属模型」，或填写已训练好的 checkpoint 路径",
+        );
+        return;
       }
       await createAvatar({
         name: values.name.trim(),
@@ -278,6 +303,7 @@ export default function Avatars() {
         idle_crf:
           !isArchive && typeof values.idle_crf === "number" ? values.idle_crf : undefined,
         idle_preset: !isArchive ? values.idle_preset : undefined,
+        options,
       });
       message.success("已提交，正在生成");
       form.resetFields();
@@ -463,11 +489,40 @@ export default function Avatars() {
                 <UploadField
                   accept="image/*,video/*"
                   dragText="点击或拖拽图片 / 视频到此处"
-                  hint="支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身；视频中请保持闭嘴、不说话"
+                  hint={
+                    selected?.name === "lite"
+                      ? "支持 MP4 / MOV：轻量引擎需要一段 3~5 分钟、单人正脸口播的视频，用来训练这个人的专属口型模型"
+                      : "支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身；视频中请保持闭嘴、不说话"
+                  }
                   fileList={photoFiles}
                   onChange={setPhotoFiles}
                 />
               </Form.Item>
+              {/*
+                The lite engine's visual model belongs to one person, so a
+                build either trains one from this footage or imports one
+                that was trained elsewhere. There is no third option: the
+                server refuses a build that has neither.
+              */}
+              {selected?.name === "lite" ? (
+                <Form.Item label="专属口型模型" style={{ maxWidth: 560 }}>
+                  <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                    <Form.Item name="lite_train" valuePropName="checked" style={{ marginBottom: 0 }}>
+                      <Checkbox>用这段素材训练专属口型模型（需要 GPU，耗时较长）</Checkbox>
+                    </Form.Item>
+                    <Form.Item
+                      name="lite_checkpoint"
+                      label="或填写已训练好的 checkpoint 路径"
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Input placeholder="例如 D:/models/lite/zhangwei.pth" />
+                    </Form.Item>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      两者至少填一项；训练在后台任务里进行，完成后形象变为可用。
+                    </Typography.Text>
+                  </Space>
+                </Form.Item>
+              ) : null}
               {/*
                 Idle-video knobs. Collapsed by default so the form stays calm
                 for the common "just upload a photo" path; expand to tweak the

@@ -48,6 +48,21 @@ musetalk = [
   # so the first ``pipe(...)`` call doesn't crash with NameError.
   "ftfy>=6.0",
 ]
+# The `lite` (FeatherTalk) engine. It is a strict subset of the musetalk
+# runtime's needs, minus the heavy training/inference extras (diffusers,
+# transformers, mediapipe, librosa): opencv for the frames, torchvision for
+# the perceptual loss, tqdm for the training loop.
+#
+# torch is deliberately NOT listed: a CPU-only box wants the CPU wheel, a GPU
+# box wants the CUDA one, and neither is the default pip resolution. Install
+# it from the index you want, e.g.
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+lite = [
+  "numpy>=2.0",
+  "opencv-python>=4.10",
+  "torchvision",
+  "tqdm",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

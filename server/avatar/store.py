@@ -18,7 +18,15 @@ class AvatarStore:
     def avatar_dir(self, avatar_id: str) -> Path:
         return self.data_dir / "avatars" / avatar_id
 
-    def save_source(self, avatar_id: str, stream, suffix: str) -> Path:
+    def save_source(
+        self,
+        avatar_id: str,
+        stream,
+        suffix: str,
+        *,
+        max_seconds: float | None = None,
+        max_frames: int | None = None,
+    ) -> Path:
         """Persist the upload by streaming it, then reject anything unusable.
 
         The copy is byte-counted: a body larger than
@@ -28,6 +36,11 @@ class AvatarStore:
         Image/video validation then runs on the saved file; any failure
         unlinks the file and removes the now-empty avatar directory -- a
         rejected upload gets no Avatar row, so nothing else ever owns it.
+
+        ``max_seconds`` / ``max_frames`` override the global video limits
+        for models whose source is legitimately longer than the default
+        fifteen seconds (the ``lite`` model trains from minutes of footage).
+        ``None`` means "use the global setting".
         """
         d = self.avatar_dir(avatar_id)
         d.mkdir(parents=True, exist_ok=True)
@@ -35,7 +48,7 @@ class AvatarStore:
         try:
             self._copy_counted(stream, path)
             if video.is_video_suffix(suffix):
-                self._validate_video(path)
+                self._validate_video(path, max_seconds=max_seconds, max_frames=max_frames)
             else:
                 self._validate_image(path)
         except Exception:
@@ -99,18 +112,26 @@ class AvatarStore:
         except (UnidentifiedImageError, OSError) as exc:
             raise AppError("invalid_image", "source image is not a decodable image", 422) from exc
 
-    def _validate_video(self, path: Path) -> None:
+    def _validate_video(
+        self,
+        path: Path,
+        *,
+        max_seconds: float | None = None,
+        max_frames: int | None = None,
+    ) -> None:
         settings = get_settings()
+        limit_seconds = settings.avatar_max_video_seconds if max_seconds is None else max_seconds
+        limit_frames = settings.avatar_max_video_frames if max_frames is None else max_frames
         try:
             info = video.probe_video(path)
         except video.VideoError as exc:
             raise AppError("invalid_video", str(exc), 422) from exc
         out_frames = int(info["duration"] * settings.fps)
-        if info["duration"] > settings.avatar_max_video_seconds or out_frames > settings.avatar_max_video_frames:
+        if info["duration"] > limit_seconds or out_frames > limit_frames:
             raise AppError(
                 "video_too_long",
                 f"video is {info['duration']:.1f}s (~{out_frames} frames); "
-                f"limit is {settings.avatar_max_video_seconds:.0f}s / {settings.avatar_max_video_frames} frames",
+                f"limit is {limit_seconds:.0f}s / {limit_frames} frames",
                 422,
             )
 
@@ -120,12 +141,20 @@ class AvatarStore:
         config = json.loads(pack_json.read_text()) if pack_json.exists() else {}
         source = Path(avatar.source_image_path)
         normalized = root / "normalized.png"
+        # The pack's own block is named after the model that wrote it, so a
+        # pack is never read by the wrong engine. ("musetalk" for the MuseTalk
+        # packs, "lite" for the FeatherTalk ones.) An avatar that has not
+        # been flushed yet has no drive_model in Python -- the column's
+        # default is what the database would say.
+        from server.model_registry import DEFAULT_MODEL
+
+        prep = config.get(avatar.drive_model or DEFAULT_MODEL) or {}
         return AvatarPack(
             avatar_id=avatar.id,
             root=root,
             source_image_path=normalized if normalized.exists() else source,
             config=config,
-            prep=config.get("musetalk", {}),
+            prep=prep,
         )
 
     def delete_assets(self, avatar_id: str) -> None:

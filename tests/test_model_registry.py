@@ -47,6 +47,32 @@ def test_live2d_is_a_model_without_a_server_engine():
     assert entry.client_rendered and not entry.server_rendered
 
 
+def test_lite_is_a_server_rendered_model_with_a_longer_source():
+    """The lite engine is driven by the server like MuseTalk -- only its
+    weights are small enough for a CPU. Its source is longer than the
+    default fifteen seconds, because its visual model is trained from the
+    person's own footage."""
+    entry = get_model("lite")
+    assert entry.engine_factory is not None
+    assert entry.pipeline_factory is not None
+    assert entry.source_kind == SOURCE_IMAGE_VIDEO
+    assert entry.server_rendered and not entry.client_rendered
+    assert entry.max_video_seconds is not None
+    assert entry.max_video_seconds > 15.0
+    assert entry.max_video_frames is not None
+
+
+def test_the_models_that_have_no_source_override_use_the_global_limits():
+    from server.config import get_settings
+
+    settings = get_settings()
+    for name in ("musetalk", "live2d"):
+        entry = get_model(name)
+        assert entry.max_video_seconds is None
+        assert entry.max_video_frames is None
+    assert settings.avatar_max_video_seconds == 15.0
+
+
 def test_catalog_describes_every_model():
     names = {m["name"] for m in catalog()}
     assert names == set(MODELS)

@@ -91,9 +91,9 @@ def test_the_kind_column_is_gone_and_its_values_moved(client):
         )
         conn.exec_driver_sql(
             "INSERT INTO avatars (id, name, status, source_image_path, pack_path, "
-            "config_json, tunable_overrides, drive_model, created_at, kind) "
+            "config_json, tunable_overrides, build_options, drive_model, created_at, kind) "
             "VALUES ('b' || substr(hex(randomblob(16)), 1, 31), 'old', 'ready', '', "
-            "NULL, '{}', '{}', 'musetalk', '2026-01-01 00:00:00', 'live2d')"
+            "NULL, '{}', '{}', '{}', 'musetalk', '2026-01-01 00:00:00', 'live2d')"
         )
 
     init_db(engine)

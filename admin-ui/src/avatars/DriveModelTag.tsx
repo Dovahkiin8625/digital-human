@@ -11,6 +11,7 @@ import type { DriveModelId, DriveModelInfo } from "../types";
 const COLORS: Record<string, string> = {
   musetalk: "blue",
   live2d: "purple",
+  lite: "green",
 };
 
 export default function DriveModelTag({

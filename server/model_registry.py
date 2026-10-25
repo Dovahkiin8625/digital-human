@@ -22,8 +22,8 @@ Two source kinds are registered today:
   no server-side engine at all (the browser renders it), so the model
   registers a pipeline and no ``engine_factory``.
 
-MuseTalk and Live2D are the two registered models. Adding another is one
-class pair plus one :func:`register_model` call::
+MuseTalk, Live2D and the CPU-only `lite` engine are the registered models.
+Adding another is one class pair plus one :func:`register_model` call::
 
     from server.model_registry import DigitalHumanModel, register_model
 
@@ -72,6 +72,11 @@ class DigitalHumanModel:
     ``engine_factory`` is ``None`` for a model the *client* renders: the
     server hosts the files and the browser draws the frames, so there is
     no engine to hold weights and no session to drive.
+
+    ``max_video_seconds`` / ``max_video_frames`` override the global upload
+    limits for this model's source. The ``lite`` model needs minutes of
+    footage (the visual model is trained per person) while the default is
+    fifteen seconds; ``None`` means "use the global setting".
     """
 
     name: str
@@ -79,6 +84,8 @@ class DigitalHumanModel:
     pipeline_factory: Callable[[], "AvatarPipeline"]
     engine_factory: Callable[[], "DriveEngine"] | None = None
     source_kind: str = SOURCE_IMAGE_VIDEO
+    max_video_seconds: float | None = None
+    max_video_frames: int | None = None
 
     @property
     def client_rendered(self) -> bool:
@@ -116,6 +123,10 @@ def catalog() -> list[dict]:
             "label_zh": m.label_zh,
             "source_kind": m.source_kind,
             "client_rendered": m.client_rendered,
+            # The upload limit for this model's source, when it overrides
+            # the global one. ``None`` means "the global setting applies",
+            # which is what the console falls back to.
+            "max_video_seconds": m.max_video_seconds,
         }
         for m in MODELS.values()
     ]
@@ -179,6 +190,18 @@ def _live2d_pipeline() -> "AvatarPipeline":
     return Live2DAvatarPipeline()
 
 
+def _lite_engine() -> "DriveEngine":
+    from server.engine.lite_engine import LiteEngine
+
+    return LiteEngine()
+
+
+def _lite_pipeline() -> "AvatarPipeline":
+    from server.avatar.lite_pipeline import LiteAvatarPipeline
+
+    return LiteAvatarPipeline()
+
+
 register_model(
     DigitalHumanModel(
         name="musetalk",
@@ -198,5 +221,19 @@ register_model(
         # only hosts the project files and the SDK runtime.
         engine_factory=None,
         source_kind=SOURCE_ARCHIVE,
+    )
+)
+
+register_model(
+    DigitalHumanModel(
+        name="lite",
+        label_zh="轻量引擎 (FeatherTalk)",
+        pipeline_factory=_lite_pipeline,
+        engine_factory=_lite_engine,
+        source_kind=SOURCE_IMAGE_VIDEO,
+        # The visual model is personalised: it is trained from this person's
+        # own footage, so the source is minutes of video rather than seconds.
+        max_video_seconds=300.0,
+        max_video_frames=7500,
     )
 )

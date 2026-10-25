@@ -99,6 +99,10 @@ export interface CreateAvatarIn {
   /** Idle-video knobs, for the models that produce an idle clip. */
   idle_crf?: number;
   idle_preset?: string;
+  /** Build options for the model's pipeline, as a JSON object. The lite
+   *  engine reads `train` and `checkpoint` from here; the other models
+   *  ignore them. */
+  options?: Record<string, unknown>;
 }
 
 
@@ -123,6 +127,9 @@ export function createAvatar(body: CreateAvatarIn): Promise<{
   }
   if (typeof body.idle_crf === "number") form.append("idle_crf", String(body.idle_crf));
   if (body.idle_preset) form.append("idle_preset", body.idle_preset);
+  if (body.options && Object.keys(body.options).length > 0) {
+    form.append("options", JSON.stringify(body.options));
+  }
   return api("/api/admin/avatars", { method: "POST", form });
 }
 

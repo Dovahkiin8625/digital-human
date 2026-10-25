@@ -90,6 +90,10 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
             Path(avatar.source_image_path),
             store.avatar_dir(avatar.id),
             progress,
+            # The per-avatar build options the create form captured. The
+            # ``lite`` model reads them (train / checkpoint / epochs); the
+            # others ignore them.
+            options=avatar.build_options or None,
         )
         pack_json = store.avatar_dir(avatar.id) / "pack.json"
         pack_json.write_text(json.dumps(config))

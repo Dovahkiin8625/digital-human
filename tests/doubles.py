@@ -120,12 +120,15 @@ class FakePipeline(AvatarPipeline):
     """
 
     MIN_SIZE = 256
+
     def process(
         self,
         avatar_id: str,
         source_path: Path,
         out_dir: Path,
         progress,
+        *,
+        options: dict | None = None,
     ) -> dict:
         from server.avatar import video
 

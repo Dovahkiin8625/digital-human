@@ -74,6 +74,10 @@ def _create_avatar_rows(
     suffix: str,
     tunable_overrides: dict | None = None,
     drive_model: str = DEFAULT_MODEL,
+    *,
+    build_options: dict | None = None,
+    max_video_seconds: float | None = None,
+    max_video_frames: int | None = None,
 ) -> tuple[str, str]:
     """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
 
@@ -89,10 +93,23 @@ def _create_avatar_rows(
     ``drive_model`` names the digital-human model that will drive this
     avatar. It is recorded on the row, so the pack this job builds and the
     engine that later drives it always belong to the same model.
+
+    ``build_options`` is handed to the model's pipeline when the job runs.
+    It lives on the avatar row rather than on the job so a retry rebuilds
+    the avatar the same way.
+
+    ``max_video_seconds`` / ``max_video_frames`` override the global upload
+    limits for models whose source is longer than the default.
     """
     avatar_id = uuid4().hex
     store = _store()
-    source_path = store.save_source(avatar_id, stream, suffix)
+    source_path = store.save_source(
+        avatar_id,
+        stream,
+        suffix,
+        max_seconds=max_video_seconds,
+        max_frames=max_video_frames,
+    )
 
     avatar = Avatar(
         id=avatar_id,
@@ -101,6 +118,7 @@ def _create_avatar_rows(
         source_image_path=str(source_path),
         config_json={},
         tunable_overrides=tunable_overrides or {},
+        build_options=build_options or {},
         drive_model=drive_model,
     )
     job = AvatarJob(id=uuid4().hex, avatar_id=avatar_id, stage="queued")

@@ -1047,6 +1047,7 @@ def admin_create_avatar(
     idle_preset: str = Form(""),
     entry: str = Form(""),
     expressions: str = Form(""),
+    options: str = Form(""),
     db=Depends(get_db),
 ) -> dict:
     """Create an avatar for the named digital-human model.
@@ -1057,6 +1058,11 @@ def admin_create_avatar(
 
     ``entry`` / ``expressions`` belong to the archive models (Live2D's
     entry point and emotion map); the other models ignore them.
+
+    ``options`` is a JSON object handed to the model's pipeline. The ``lite``
+    model reads ``train`` (bool) and ``checkpoint`` (path) from it: its
+    visual model is personalised, so a build either trains one or imports
+    one that was trained elsewhere.
     """
     try:
         dh_model = get_model(model)
@@ -1112,8 +1118,33 @@ def admin_create_avatar(
             detail=field_errors,
         )
 
+    # Build options for the model's pipeline. Free-form by design: each model
+    # reads what it understands and ignores the rest. A malformed blob is a
+    # 400 rather than a job that fails minutes later.
+    build_options: dict = {}
+    if options.strip():
+        try:
+            parsed = json.loads(options)
+        except ValueError as exc:
+            raise AppError(
+                "invalid_avatar_options", f"options is not valid JSON: {exc}", 400
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise AppError(
+                "invalid_avatar_options", "options must be a JSON object", 400
+            )
+        build_options = parsed
+
     avatar_id, job_id = _create_avatar_rows(
-        db, name, file.file, suffix, overrides or None, dh_model.name
+        db,
+        name,
+        file.file,
+        suffix,
+        overrides or None,
+        dh_model.name,
+        build_options=build_options or None,
+        max_video_seconds=dh_model.max_video_seconds,
+        max_video_frames=dh_model.max_video_frames,
     )
     background.add_task(run_job_in_new_session, job_id, AvatarStore(get_settings().data_dir))
     return {

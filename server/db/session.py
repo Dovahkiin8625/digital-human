@@ -45,6 +45,13 @@ _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "drive_model",
         "ALTER TABLE avatars ADD COLUMN drive_model VARCHAR(32) NOT NULL DEFAULT 'musetalk'",
     ),
+    (
+        # Free-form build options for the model's pipeline. The ``lite``
+        # model reads ``train`` / ``checkpoint`` from here.
+        "avatars",
+        "build_options",
+        "ALTER TABLE avatars ADD COLUMN build_options JSON NOT NULL DEFAULT '{}'",
+    ),
 )
 
 
@@ -161,7 +168,8 @@ def _drop_abandoned_columns(engine) -> None:
         # table matches what ``Base.metadata.create_all`` would produce.
         keep = {name: avatars_cols[name] for name in (
             "id", "name", "status", "source_image_path", "pack_path",
-            "config_json", "tunable_overrides", "drive_model", "created_at",
+            "config_json", "tunable_overrides", "drive_model", "build_options",
+            "created_at",
         )}
         _rebuild_table_without_columns(engine, "avatars", {"tenant_id", "kind"}, keep)
         inspector = inspect(engine)

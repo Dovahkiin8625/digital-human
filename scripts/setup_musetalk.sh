@@ -202,5 +202,5 @@ Environment ready.
 
   interpreter : $PYBIN
   run tests   : $PYBIN -m pytest -q -m 'gpu or musetalk'
-  run server  : $PYBIN -m uvicorn --factory server.main:create_app
+  run server  : $PYBIN run.py
 EOF

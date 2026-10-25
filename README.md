@@ -3,11 +3,12 @@
 实时交互数字人服务：接收**音频 + 形象 ID**，输出**实时数字人视频流**（WebRTC）。
 附带 React 后台管理台（形象管理 / 会话调试 / 数字人对话 / 系统监控）。
 
-支持**两种并存**的数字人形态，由形象所属的**数字人模型**（`avatars.drive_model`）区分：
+支持**三种并存**的数字人形态，由形象所属的**数字人模型**（`avatars.drive_model`）区分：
 
 | 模型 | 渲染位置 | 驱动方式 |
 |---|---|---|
 | `musetalk` | 服务端（GPU） | MuseTalk 1.5，WebRTC 视频流 |
+| `lite` | 服务端（**CPU 即可**） | FeatherTalk，9 M 参数 / 22 MB 权重，WebRTC 视频流 |
 | `live2d` | 客户端（WebGL） | Cubism SDK；服务端只托管模型文件，**不产出任何像素** |
 
 Live2D 的口型在客户端由**正在播放的那个 AudioBuffer** 离线预算出的包络驱动，因此嘴与声音
@@ -35,21 +36,23 @@ flowchart LR
 - **API 层**：形象 CRUD、会话生命周期、API Key 鉴权（`/api/v1/*`）。
 - **SessionManager / RenderSession**：会话编排与状态机（`idle → listening → speaking → closed`）。
   空闲时按帧率推静态保活帧，避免视频轨因无帧可发而冻住。
-- **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `musetalk`。
-  真引擎把同步 CUDA 工作放到单工作线程池，事件循环不被阻塞；跨会话在 GPU 上串行。
-- **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `musetalk`（真实制作）。
+- **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `musetalk`
+  （GPU）与 `lite`（纯 CPU）。真引擎把同步重活放到单工作线程池，事件循环不被阻塞。
+- **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `musetalk`（真实制作）
+  与 `lite`（训练/导入专属口型模型）。
 - **数字人模型注册表**（`server/model_registry.py`）：一个模型 = 一条流水线 + 一个引擎，
-  成对注册。当前有 MuseTalk（服务端驱动）与 Live2D（客户端渲染，没有引擎）；
-  新增模型 = 实现两个抽象基类 + 注册一条。
+  成对注册。当前有 MuseTalk（服务端驱动）、FeatherTalk（服务端驱动，纯 CPU 即可）
+  与 Live2D（客户端渲染，没有引擎）；新增模型 = 实现两个抽象基类 + 注册一条。
 - **AvatarStore**：形象包管理（SQLite 元数据 + 磁盘资产）。
 - **音频双通道**：RTP audio track 为主，WS 音频分片为备，进入同一 `AudioIngest`，引擎无感知。
 - **会话短生命周期**：显式 DELETE 或 `DH_SESSION_IDLE_TIMEOUT` 秒无音频自动回收。
 
 ## 快速开始
 
-前置：Python 3.11+、Node 18+。跑真实模型另需 NVIDIA GPU（见下节）。
+前置：Python 3.11+、Node 18+。跑 MuseTalk 另需 NVIDIA GPU（见下节）；
+`lite` 引擎**纯 CPU 即可**，但它的视觉模型是**按人训练**的（见「轻量引擎」）。
 
-服务端只实现 MuseTalk 一个数字人模型，**跑起来需要 GPU + 权重**（`.venv-musetalk`）；
+服务端注册了 MuseTalk / FeatherTalk（lite）/ Live2D 三个数字人模型。
 下面第一个 `.venv` 只用于跑单测。
 
 ```bash
@@ -74,9 +77,25 @@ cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR / DH_V1
 ```bash
 ./scripts/setup_musetalk.sh             # 建 .venv-musetalk 并装依赖
 ./scripts/fetch_musetalk_weights.sh     # 拉权重（约数 GB）
-python -m uvicorn --factory server.main:create_app \
-  --host 0.0.0.0 --port 8000
+source .venv-musetalk/Scripts/activate  # PowerShell 用 .venv-musetalk\Scripts\Activate.ps1
+python run.py                           # 启动后端
 ```
+
+要用 `lite` 引擎（纯 CPU 推理），再拉它自己的源码与权重（22 MB）：
+
+```bash
+./scripts/setup_lite.sh                 # checkout vendor/FeatherTalk + 拉权重
+```
+
+`run.py`（项目根目录）是后端的启动入口，等价于
+`python -m uvicorn --factory server.main:create_app --host 0.0.0.0 --port 8000`，
+另外做了三件事：把工作目录钉在项目根目录（`.env` / `data/` / `admin-ui/dist`
+才不会指错地方）、在任何目录下都能 import 到 `server`、在端口被占用**之前**
+先报出这台机器缺什么（没有 torch、没有 CUDA、MuseTalk 权重不全、管理台没构建）。
+
+启动参数：`--host` / `--port` / `--reload`（只监听 `server/` 的改动，开发用）/
+`--log-level`。**用哪个解释器跑 `run.py`，后端就跑在哪个解释器上** —— 想跑真实
+MuseTalk 就先激活 `.venv-musetalk`。
 
 打开 <http://127.0.0.1:8000/admin> 进入管理台（无登录步骤，见「关于鉴权」）。
 
@@ -84,7 +103,7 @@ python -m uvicorn --factory server.main:create_app \
 
 ```bash
 curl http://127.0.0.1:8000/healthz
-# {"status":"ok","gpu":true,"models":[{"name":"musetalk","label_zh":"MuseTalk 1.5","loaded":true,"client_rendered":false},{"name":"live2d","label_zh":"Live2D","loaded":false,"client_rendered":true}]}
+# {"status":"ok","gpu":true,"models":[{"name":"musetalk","label_zh":"MuseTalk 1.5","loaded":true,"client_rendered":false},{"name":"lite","label_zh":"轻量引擎 (FeatherTalk)","loaded":false,"client_rendered":false},{"name":"live2d","label_zh":"Live2D","loaded":false,"client_rendered":true}]}
 ```
 
 `gpu` 在启动时探测一次（导入 torch 是昂贵的那一步，而结论不会在运行中改变）。
@@ -93,13 +112,47 @@ curl http://127.0.0.1:8000/healthz
 
 开发时前端可 `cd admin-ui && npm run dev`（Vite 已把 `/api` 代理到 `127.0.0.1:8000`）。
 
+## 轻量引擎（lite / FeatherTalk）
+
+MuseTalk 是 GPU 专属的：它的 UNet 是 fp16 的，CPU 上跑不了。`lite` 是第二个
+服务端驱动的模型，换来的是**纯 CPU 实时**：
+
+| | MuseTalk 1.5 | lite（FeatherTalk） |
+|---|---|---|
+| 参数量 | 947 M | **9 M**（音频 3.4 M + 视觉 5.5 M） |
+| 权重 | ~4 GB | **22 MB** |
+| 硬件 | 8–12 GB 显存 | **纯 CPU**（实测中位 76 ms / 100 ms 音频块，7800X3D） |
+| 形象制作 | 上传一张照片 | 上传一段 **3~5 分钟**的单人口播视频 |
+
+**它的视觉模型是按人训练的**（"个性化"），所以制作流程与 MuseTalk 不同：
+
+1. 上传这个人的 3~5 分钟口播视频（单人正脸，声音清晰）。
+2. 勾选「训练专属模型」→ 后台任务用这段素材训练一份 5.46 M 参数的视觉 UNet
+   （需要 GPU，耗时较长）；或者填一个**已经训练好**的 checkpoint 路径直接导入。
+3. 产出形象包后，服务端用纯 CPU 实时驱动它。
+
+包里的帧就是训练时看到的帧，训练与服务用同一批像素。详细设计见
+[docs/superpowers/specs/2026-10-25-lite-cpu-engine-design.md](docs/superpowers/specs/2026-10-25-lite-cpu-engine-design.md)。
+
+```bash
+./scripts/setup_lite.sh          # checkout vendor/FeatherTalk（锁 commit）+ 拉 22 MB 权重
+```
+
+没有 GPU 的机器可以**服务**已训练好的形象包（`lite/visual.pth`），但不能新建 ——
+训练那一步仍然要 GPU。一台纯 CPU 的机器只需要：
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[lite]"
+```
+
 ## 环境变量
 
 所有配置经 `DH_` 前缀读取，也可写入 `.env`（`.env` 已 gitignore，**切勿提交**）。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DH_AVATAR_MAX_VIDEO_SECONDS` | `15.0` | 驱动视频时长上限（秒），超出上传即 422 |
+| `DH_AVATAR_MAX_VIDEO_SECONDS` | `15.0` | 驱动视频时长上限（秒），超出上传即 422。**`lite` 模型用自己的上限**（300 秒，见 `server/model_registry.py`）：它的源是要拿来训练专属口型模型的口播视频 |
 | `DH_AVATAR_MAX_VIDEO_FRAMES` | `375` | 驱动视频解码帧数上限（15s × 25fps） |
 | `DH_AVATAR_CACHE_SIZE` | `2` | 引擎按形象缓存的份数；视频形象每份常驻约 1GB 内存 |
 | `DH_AVATAR_MAX_UPLOAD_BYTES` | `300000000` | 上传字节上限，超出返回 413 |
@@ -208,13 +261,13 @@ curl http://127.0.0.1:8000/healthz
 | GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
 | GET | `/api/admin/system` | 各运行时状态（`runtimes`）/ GPU / 版本 / 数据目录 |
 | GET | `/api/admin/models` | Models 页的轮询载荷：每个数字人模型一行（外加形象动画器）、服务行、GPU 快照 |
-| GET | `/api/admin/drive-models` | 已注册的数字人模型清单：`name` / `label_zh` / `source_kind` / `client_rendered`。形象创建表单与选择器共用 |
+| GET | `/api/admin/drive-models` | 已注册的数字人模型清单：`name` / `label_zh` / `source_kind` / `client_rendered` / `max_video_seconds`（该模型的源素材时长上限，覆盖全局设置时才有值）。形象创建表单与选择器共用 |
 | POST | `/api/admin/models/{model}/load` / `unload` | 按**模型名**加载 / 卸载该模型的权重。`animator:<name>` 行仍走各自的派发 |
 | GET | `/api/admin/tenants` | 租户列表 |
 | POST | `/api/admin/tenants` | JSON `{"name"}` → `{tenant_id, name, api_key}`（`api_key` 仅此一次返回） |
 | POST | `/api/admin/tenants/{tenant_id}/api-key` | 轮换并返回新 API Key（旧 key 立即失效） |
 | GET | `/api/admin/avatars` | 形象列表（可选 `?drive_model=` 过滤） |
-| POST | `/api/admin/avatars` | multipart `name` + `model`（数字人模型名）+ `file` 创建形象。`model=live2d` 时 `file` 是整个 Cubism 工程的 zip，另可带 `entry`(可选) 与 `expressions`(可选 JSON)；`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到），校验失败 422 且不留行、不留文件 |
+| POST | `/api/admin/avatars` | multipart `name` + `model`（数字人模型名）+ `file` 创建形象。`model=live2d` 时 `file` 是整个 Cubism 工程的 zip，另可带 `entry`(可选) 与 `expressions`(可选 JSON)；`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到），校验失败 422 且不留行、不留文件。`model=lite` 时 `file` 是 3~5 分钟的单人口播视频，另可带 `options`(可选 JSON)：`{"train": true}` 用素材训练专属口型模型，或 `{"checkpoint": "路径"}` 导入已训练好的权重；两者都没有则 422 |
 | GET | `/api/admin/avatars/{avatar_id}` | 形象详情 |
 | DELETE | `/api/admin/avatars/{avatar_id}` | 删除形象（204） |
 | POST | `/api/admin/avatars/{avatar_id}/retry` | 重试制作（202） |

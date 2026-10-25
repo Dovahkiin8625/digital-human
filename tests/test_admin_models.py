@@ -47,17 +47,16 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
         }
     assert body["active_sessions"] == 0
 
-    # One row per digital-human model: the server-driven one and the
-    # client-rendered one. Portrait animators are merged in too (test env
-    # registers LivePortrait + Wan 2.2 via side-effect imports). The
-    # operator sees one row per thing-that-can-go-on-the-GPU in the
-    # Models tab.
+    # One row per digital-human model: the server-driven ones (MuseTalk
+    # and the CPU-only lite engine) and the client-rendered one. Portrait
+    # animators are merged in too (test env registers LivePortrait + Wan 2.2
+    # via side-effect imports). The operator sees one row per
+    # thing-that-can-go-on-the-GPU in the Models tab.
     engine_rows = [m for m in body["models"] if m["kind"] == "drive_runtime"]
-    assert len(engine_rows) == 1
-    m = engine_rows[0]
+    assert {m["id"] for m in engine_rows} == {"musetalk", "lite"}
+    m = next(row for row in engine_rows if row["id"] == "musetalk")
     # The row is addressed by the MODEL name -- that is what an avatar
     # records and what the load / unload buttons act on.
-    assert m["id"] == "musetalk"
     assert set(m) >= {
         "id",
         "type",
@@ -843,7 +842,9 @@ def test_models_list_includes_portrait_animators(client):
     # musetalk on the GPU host). We only assert one engine slot exists,
     # not which specific id, because the test env uses the double.
     engine_rows = [m for m in body["models"] if m.get("kind") == "drive_runtime"]
-    assert len(engine_rows) == 1, f"expected one drive_runtime row, got {engine_rows}"
+    assert {m["id"] for m in engine_rows} == {"musetalk", "lite"}, (
+        f"expected one drive_runtime row per server-driven model, got {engine_rows}"
+    )
     # Portrait animators are merged in.
     animator_models = [m for m in body["models"] if m.get("kind") == "portrait_animator"]
     assert {a["id"] for a in animator_models} >= {"animator:liveportrait"}
@@ -991,12 +992,16 @@ def test_drive_models_endpoint_lists_every_model(client):
     body = client.get("/api/admin/drive-models").json()
 
     by_name = {m["name"]: m for m in body}
-    assert set(by_name) == {"musetalk", "live2d"}
+    assert set(by_name) == {"musetalk", "live2d", "lite"}
     assert all(m["label_zh"] for m in body)
     assert by_name["musetalk"]["client_rendered"] is False
     assert by_name["musetalk"]["source_kind"] == "image_video"
     assert by_name["live2d"]["client_rendered"] is True
     assert by_name["live2d"]["source_kind"] == "archive"
+    # The lite engine is server-driven and takes a photo/video source, like
+    # MuseTalk -- only its weights are small enough for a CPU.
+    assert by_name["lite"]["client_rendered"] is False
+    assert by_name["lite"]["source_kind"] == "image_video"
 
 
 def test_the_models_payload_has_no_active_model(client):
