@@ -90,6 +90,13 @@ def _avatars_source():
     ).read_text(encoding="utf-8")
 
 
+def _api_source():
+    return (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "admin-ui" / "src" / "api.ts"
+    ).read_text(encoding="utf-8")
+
+
 def _function_body(source: str, name: str) -> str:
     """The text of one ``async function <name>(`` in ``source``.
 
@@ -117,28 +124,31 @@ def test_avatar_create_has_synchronous_reentry_guard():
     # actually covers the probe await.
     source = _avatars_source()
     assert "createReentryGuard()" in source
-    # One guard covers both avatar kinds -- a second click on either branch
-    # has to be refused -- so the run call must dispatch to BOTH submits.
+    # One guard covers every drive model -- a second click on any of them
+    # has to be refused -- so the run call must wrap the one submit.
     assert "creatingGuard.run(" in source
-    assert (
-        'kind === "live2d" ? submitLive2d(values) : submitPhotoreal(values)'
-        in source
-    ), "the guard must wrap both submits, not just one of them"
-    # Each submit takes the button down and puts it back in a finally, so a
+    assert "creatingGuard.run(() => submit(values))" in source, (
+        "the guard must wrap the submit, not run beside it"
+    )
+    # The submit takes the button down and puts it back in a finally, so a
     # failed upload cannot leave the button spinning forever. Scoped to the
-    # two submit functions so an unrelated `finally {` elsewhere in the
-    # page cannot break this.
-    for name in ("submitPhotoreal", "submitLive2d"):
-        body = _function_body(source, name)
-        assert body.count("setCreating(true);") == 1, (
-            f"{name} must take the button down"
-        )
-        assert body.count("setCreating(false);") == 1, (
-            f"{name} must put the button back"
-        )
-        assert body.count("finally {") == 1, (
-            f"{name} must restore the button in a finally, not on the success path"
-        )
+    # submit function so an unrelated `finally {` elsewhere in the page
+    # cannot break this.
+    body = _function_body(source, "submit")
+    assert body.count("setCreating(true);") == 1, "submit must take the button down"
+    assert body.count("setCreating(false);") == 1, "submit must put the button back"
+    assert body.count("finally {") == 1, (
+        "submit must restore the button in a finally, not on the success path"
+    )
+
+
+def test_avatar_create_offers_the_drive_models():
+    # The create form picks the digital-human model that will drive the
+    # avatar; the model decides what the upload is.
+    source = _avatars_source()
+    assert "useDriveModels()" in source
+    assert "数字人驱动模型" in source
+    assert "/api/admin/drive-models" in _api_source()
 
 
 def test_reentry_guard_blocks_double_submit_behaviorally():
@@ -183,20 +193,23 @@ def test_avatar_upload_hint_asks_for_closed_mouth():
 def test_avatar_create_form_exposes_idle_overrides():
     # The create form surfaces the two idle-video knobs (idle_crf + idle_preset)
     # so the operator can pick per-avatar quality at upload time. Both must
-    # be appended to the FormData so the server stores them on the avatar
-    # row. No other tunables (the dropped face-crop / quality-threshold ones)
+    # be sent with the upload so the server stores them on the avatar row.
+    # No other tunables (the dropped face-crop / quality-threshold ones)
     # should be editable here.
     source = _avatars_source()
-    assert 'body.append("idle_crf"' in source, (
+    api = _api_source()
+    assert 'form.append("idle_crf"' in api, (
         "create form must submit idle_crf so the server can persist the override"
     )
-    assert 'body.append("idle_preset"' in source, (
+    assert 'form.append("idle_preset"' in api, (
         "create form must submit idle_preset so the server can persist the override"
     )
+    assert "idle_crf" in source, "the idle_crf knob must be a form field"
+    assert "idle_preset" in source, "the idle_preset knob must be a form field"
     # No tunables that the user said to drop should appear as form fields.
-    assert 'body.append("face_crop_size"' not in source
-    assert 'body.append("bbox_shift"' not in source
-    assert 'body.append("min_sharpness"' not in source
+    for dropped in ("face_crop_size", "bbox_shift", "min_sharpness"):
+        assert dropped not in source
+        assert dropped not in api
 
 
 def test_avatar_create_form_has_no_settings_link():
@@ -611,30 +624,30 @@ def _models_page_source():
     ).read_text(encoding="utf-8")
 
 
-def test_models_tab_exposes_the_digital_human_model_selector():
-    # Which digital-human model this box runs is an operator choice, so it
-    # belongs on the Models tab next to the weights it loads. The page must
-    # read the choice from the polled payload and write it back through the
-    # active-model endpoint -- not through an env var, which the console
-    # has no way to set.
+def test_models_tab_has_no_active_model_card():
+    # There is no "the model this box runs" any more: an operator runs
+    # several models at once and loads / unloads each of them from the
+    # table. A selector card would be a second, contradictory answer.
     source = _models_page_source()
-    assert "/api/admin/models/active" in source, (
-        "the Models tab must save the active model through "
-        "PUT /api/admin/models/active"
+    assert "当前数字人模型" not in source, (
+        "the Models tab must not offer a single active-model selector"
     )
-    assert "active_model" in source, (
-        "the Models tab must render the model this box is running"
+    assert "/api/admin/models/active" not in source, (
+        "the Models tab must not write an active-model choice"
     )
-    assert "available_models" in source, (
-        "the Models tab must offer the registered models to choose from"
+    assert "ActiveModelCard" not in source
+    # What replaces it: one row per drive model, each with its own
+    # load / unload buttons.
+    assert "client_runtime" in source, (
+        "the Models tab must render the client-rendered runtimes too"
     )
-    assert "重启服务后生效" in source, (
-        "the tab must say that a model change needs a restart -- the engine "
-        "is a process-wide singleton holding the weights in VRAM"
-    )
+    assert "/load" in source and "/unload" in source
 
 
-def test_types_expose_the_model_selector_payload():
+def test_types_expose_the_drive_model_payload():
     types = _types_source()
-    for field in ("active_model", "selected_model", "available_models"):
-        assert field in types, f"ModelsPayload must carry {field}"
+    assert "DriveModelInfo" in types, "the console needs the drive-model shape"
+    assert "drive_model" in types, "an avatar records the model that drives it"
+    # The process-wide choice is gone.
+    for gone in ("active_model", "selected_model", "available_models"):
+        assert gone not in types, f"{gone} no longer exists"

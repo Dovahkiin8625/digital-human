@@ -93,14 +93,20 @@ def _zip_without(filename: str) -> bytes:
 
 
 def _upload(client, name="Hiyori", prefix="", entry="", expressions="", raw=None):
+    """Register a Live2D avatar through the one console upload endpoint.
+
+    Live2D is a digital-human model like any other, so the avatar is
+    created for the ``live2d`` model and its project is built by that
+    model's pipeline.
+    """
     data = _project_zip(prefix) if raw is None else raw
-    form = {"name": name}
+    form = {"name": name, "model": "live2d"}
     if entry:
         form["entry"] = entry
     if expressions:
         form["expressions"] = expressions
     return client.post(
-        "/api/admin/live2d/avatars",
+        "/api/admin/avatars",
         data=form,
         files={"file": ("model.zip", data, "application/zip")},
     )
@@ -137,7 +143,7 @@ def _seed_live2d(client):
     try:
         db.add(Avatar(
             id=LIVE2D_ID, name="l2d", status="ready", source_image_path="",
-            kind="live2d", config_json={"model": {"entry": "model.model3.json"}},
+            drive_model="live2d", config_json={"model": {"entry": "model.model3.json"}},
         ))
         db.commit()
     finally:
@@ -167,13 +173,17 @@ def test_upload_extracts_and_validates(client):
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
     body = resp.json()
-    assert body["kind"] == "live2d"
+    # The avatar records the model that owns it.
+    assert body["drive_model"] == "live2d"
     assert body["status"] == "ready"
     # The response carries the config so the console can render the entry
     # without a second round trip.
     assert body["config"]["model"]["entry"] == "model.model3.json"
     root = client.app.state.session_manager.store.avatar_dir(avatar_id)
     assert (root / "model.moc3").read_bytes() == b"\x00" * 16
+    # The archive itself is not left in the avatar's directory: the
+    # unpacked project is the model.
+    assert not (root / "model.zip").exists()
 
 
 def test_upload_detects_an_entry_inside_a_subfolder(client):
@@ -236,7 +246,7 @@ def test_a_rejected_upload_leaves_nothing_behind(client):
     assert resp.status_code == 422
     assert names() == before
     # And no row was written.
-    assert client.get("/api/admin/avatars?kind=live2d").json() == []
+    assert client.get("/api/admin/avatars?drive_model=live2d").json() == []
 
 
 def test_upload_refuses_a_zip_slip_entry(client):
@@ -262,23 +272,30 @@ def test_upload_refuses_an_oversized_body(client, monkeypatch):
 def test_delete_removes_row_and_assets(client):
     _seed_live2d(client)
     store = client.app.state.session_manager.store
-    assert client.delete(f"/api/admin/live2d/avatars/{LIVE2D_ID}").status_code == 204
+    assert client.delete(f"/api/admin/avatars/{LIVE2D_ID}").status_code == 204
     assert client.get(f"/api/v1/avatars/{LIVE2D_ID}").status_code == 404
     assert not store.avatar_dir(LIVE2D_ID).exists()
 
 
-def test_delete_refuses_a_photoreal_avatar(client, tmp_path):
-    """The live2d delete endpoint must not become a second, differently
-    behaved way to delete a video avatar."""
+def test_one_delete_endpoint_handles_every_model(client):
+    """There is a single delete route now, so a Live2D avatar and a
+    server-driven one are removed the same way."""
     import io
 
     from PIL import Image
 
+    _seed_live2d(client)
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
     created = client.post("/api/v1/avatars", data={"name": "p"},
                           files={"file": ("p.png", buf.getvalue(), "image/png")})
-    _assert_refused(client.delete(f"/api/admin/live2d/avatars/{created.json()['avatar_id']}"))
+    photo_id = created.json()["avatar_id"]
+    assert client.delete(f"/api/admin/avatars/{photo_id}").status_code == 204
+    assert client.get(f"/api/v1/avatars/{photo_id}").status_code == 404
+
+
+def test_delete_refuses_an_unknown_avatar(client):
+    _assert_refused(client.delete(f"/api/admin/avatars/{LIVE2D_ID}"))
 
 
 # ----- model hosting ------------------------------------------------------

@@ -30,7 +30,6 @@ import {
 } from "@ant-design/icons";
 import { api } from "../api";
 import type {
-  DhModelInfo,
   GpuSnapshot,
   LlmConfigInfo,
   LlmConfigUpdate,
@@ -188,6 +187,7 @@ function typeLabel(t: string): string {
   // Map the slim server-side type to the operator-facing Chinese label.
   // New flavours stay legible without crowding the tab.
   if (t === "drive_runtime") return "驱动运行时";
+  if (t === "client_runtime") return "客户端渲染";
   if (t === "portrait_animator") return "形象动画器";
   return t;
 }
@@ -228,11 +228,6 @@ export default function Models() {
   // closed. TTS and LLM live in their own dialogs; the row's id picks
   // which one opens.
   const [openDialog, setOpenDialog] = useState<"tts" | "llm" | null>(null);
-  // The digital-human model the operator has picked but not saved yet.
-  // ``null`` means "follow the server" -- the poll refreshes it every 2 s,
-  // and a pending choice would otherwise be overwritten mid-edit.
-  const [pickedModel, setPickedModel] = useState<string | null>(null);
-  const [savingModel, setSavingModel] = useState(false);
   const { message } = AntApp.useApp();
   // A second-since-epoch ticker so "loaded_at" ages smoothly between
   // polls without re-rendering every row.
@@ -287,30 +282,6 @@ export default function Models() {
       }
     } finally {
       setActingOn(null);
-    }
-  }
-
-  async function saveActiveModel(name: string) {
-    setSavingModel(true);
-    try {
-      const resp = await api<{ selected_model: string; restart_required: boolean }>(
-        "/api/admin/models/active",
-        { method: "PUT", body: { name } },
-      );
-      message.success(
-        resp.restart_required
-          ? `已选择 ${resp.selected_model}，重启服务后生效`
-          : `当前已运行 ${resp.selected_model}`,
-      );
-      // Re-read first, then drop the pending choice: the Select falls back
-      // to the server's value, and that value has to be the new one by the
-      // time it does.
-      await refresh();
-      setPickedModel(null);
-    } catch (err) {
-      message.error(`保存失败：${(err as Error).message}`);
-    } finally {
-      setSavingModel(false);
     }
   }
 
@@ -408,13 +379,17 @@ export default function Models() {
       width: 180,
       render: (_: unknown, row) => (
         <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
-          {row.loaded ? (
+          {row.status ? (
+            // A client-rendered runtime reports what it has ("SDK 就绪" /
+            // "SDK 缺失") rather than whether weights are mounted.
+            <Tag color={row.loaded ? "success" : "warning"}>{row.status}</Tag>
+          ) : row.loaded ? (
             <Tag color="success">已加载</Tag>
           ) : (
             <Tag color="default">未加载</Tag>
           )}
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {row.loaded ? `${formatLoadedAgo(row.loaded_at, Date.now())}` : "—"}
+            {row.loaded && !row.status ? `${formatLoadedAgo(row.loaded_at, Date.now())}` : "—"}
           </Typography.Text>
         </Space>
       ),
@@ -427,6 +402,13 @@ export default function Models() {
         // The action shows only what's actually possible, mirroring the
         // server's gate so the operator never has to read a 409/400
         // error to figure out what works on the current engine.
+        if (row.kind === "client_runtime") {
+          // A model the client renders holds no weights: there is nothing
+          // to mount and nothing to release.
+          return (
+            <Typography.Text type="secondary">客户端渲染，无显存权重</Typography.Text>
+          );
+        }
         if (!row.loaded) {
           // The load button is gated on ``can_load``: True when the row
           // exposes a ``load()`` method AND isn't currently loaded.
@@ -502,18 +484,6 @@ export default function Models() {
       )}
 
       {data && (
-        <ActiveModelCard
-          activeModel={data.active_model}
-          selectedModel={data.selected_model}
-          availableModels={data.available_models}
-          picked={pickedModel}
-          saving={savingModel}
-          onPick={setPickedModel}
-          onSave={(name) => saveActiveModel(name)}
-        />
-      )}
-
-      {data && (
         <Card title="模型" size="small" styles={{ body: { padding: 0 } }}>
           <Table<ModelInfo>
             rowKey="id"
@@ -547,77 +517,6 @@ export default function Models() {
         onSaved={refresh}
       />
     </Space>
-  );
-}
-
-// ----- the digital-human model selector -------------------------------------
-
-// Which digital-human model this box runs. One model bundles the avatar
-// pipeline and the drive engine, so there is a single switch -- the two
-// have to change together or a pack written by one model would be driven
-// by another.
-//
-// The engine is a process-wide singleton holding the model's weights in
-// VRAM, so a change is applied by restarting the server. The card says so
-// rather than pretending the switch took effect immediately.
-function ActiveModelCard({
-  activeModel,
-  selectedModel,
-  availableModels,
-  picked,
-  saving,
-  onPick,
-  onSave,
-}: {
-  activeModel: DhModelInfo;
-  selectedModel: string;
-  availableModels: DhModelInfo[];
-  picked: string | null;
-  saving: boolean;
-  onPick: (name: string) => void;
-  onSave: (name: string) => void;
-}) {
-  const chosen = picked ?? selectedModel;
-  const label = (name: string) =>
-    availableModels.find((m) => m.name === name)?.label_zh ?? name;
-  const pending = chosen !== activeModel.name;
-
-  return (
-    <Card title="当前数字人模型" size="small">
-      <Space direction="vertical" size={8} style={{ width: "100%" }}>
-        <Space wrap size={24}>
-          <span>
-            运行中：<Typography.Text strong>{activeModel.label_zh}</Typography.Text>
-          </span>
-          <span>
-            已选择：<Typography.Text strong>{label(chosen)}</Typography.Text>
-          </span>
-        </Space>
-        <Space wrap>
-          <Select
-            style={{ minWidth: 240 }}
-            value={chosen}
-            onChange={onPick}
-            options={availableModels.map((m) => ({ value: m.name, label: m.label_zh }))}
-          />
-          <Button
-            type="primary"
-            loading={saving}
-            disabled={!pending}
-            onClick={() => onSave(chosen)}
-          >
-            保存
-          </Button>
-        </Space>
-        {pending && (
-          <Alert
-            type="info"
-            showIcon
-            message="数字人模型在重启服务后生效：引擎是持有显存的进程级单例，形象制作流水线必须与它一起切换。"
-          />
-        )}
-      </Space>
-    </Card>
   );
 }
 

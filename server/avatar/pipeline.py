@@ -13,6 +13,16 @@ class PipelineError(Exception):
 
 
 class AvatarPipeline(ABC):
+    """Turns an uploaded source into the pack the model drives.
+
+    ``inline_build`` says whether the build is cheap enough to finish
+    inside the upload request instead of a background job: the Live2D
+    pipeline extracts and validates a zip, while MuseTalk's runs for
+    minutes on the GPU.
+    """
+
+    inline_build: bool = False
+
     @abstractmethod
     def process(
         self,
@@ -20,17 +30,24 @@ class AvatarPipeline(ABC):
         source_path: Path,
         out_dir: Path,
         progress: Callable[[str, int], None],
+        *,
+        options: dict | None = None,
     ) -> dict:
-        ...
+        """Build the avatar's pack in ``out_dir`` and return its config.
+
+        ``options`` carries the per-model extras the operator filled in
+        on the create form (Live2D's entry point and emotion map). A
+        model that needs none ignores it.
+        """
 
 
 def create_pipeline(name: str | None = None) -> AvatarPipeline:
     """Build the avatar pipeline of a registered digital-human model.
 
-    ``name`` defaults to the model this process is running (see
-    ``server.model_registry``). The pipeline and the drive engine always
-    come from the same model, so a pack can never be written by one model
-    and driven by another.
+    ``name`` defaults to the fallback model (see
+    ``server.model_registry``). The pipeline always comes from the model
+    that owns the avatar, so a pack can never be written by one model and
+    driven by another.
 
     Raises :class:`PipelineError` for a name that is not registered.
     """
@@ -47,7 +64,11 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
     from server.db.models import Avatar, AvatarJob
 
     job = db.get(AvatarJob, job_id)
+    if job is None:
+        return
     avatar = db.get(Avatar, job.avatar_id)
+    if avatar is None:
+        return
 
     def progress(stage: str, pct: int) -> None:
         job.stage = stage
@@ -93,13 +114,21 @@ def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
     Shared by the FastAPI BackgroundTasks call sites in api/avatars.py (tenant
     upload) and api/admin.py (admin retry); both previously carried a private,
     near-identical copy of this runner.
+
+    The pipeline comes from the model that owns the avatar, so the pack is
+    always written by the model that will drive it.
     """
     from sqlalchemy.orm import sessionmaker
 
+    from server.db.models import Avatar, AvatarJob
     from server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
-        run_avatar_job(db, store, create_pipeline(), job_id)
+        job = db.get(AvatarJob, job_id)
+        avatar = db.get(Avatar, job.avatar_id) if job is not None else None
+        if avatar is None:
+            return
+        run_avatar_job(db, store, create_pipeline(avatar.drive_model), job_id)
     finally:
         db.close()

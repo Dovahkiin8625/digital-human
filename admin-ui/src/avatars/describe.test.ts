@@ -1,20 +1,31 @@
 import { describe, expect, it } from "vitest"
 import { driveLabel, parseExpressions } from "./describe"
 
-function avatar(config: Record<string, unknown>, kind = "photoreal") {
-  return { kind, config } as never
+function avatar(
+  config: Record<string, unknown>,
+  drive_model = "musetalk",
+  client_rendered = false,
+) {
+  return { drive_model, client_rendered, config } as never
 }
 
 describe("driveLabel", () => {
-  // The one cell that differs between the two kinds, so it is the one
+  // The one cell that differs between the drive models, so it is the one
   // worth testing: a wrong label here mislabels every row in the table.
-  it("names the Cubism runtime for a live2d avatar", () => {
-    expect(driveLabel(avatar({}, "live2d"))).toBe("Cubism")
+  it("names the client runtime for a client-rendered model", () => {
+    expect(driveLabel(avatar({}, "live2d", true))).toBe("客户端渲染")
   })
 
   it("names the drive mode the pipeline recorded", () => {
     expect(driveLabel(avatar({ musetalk: { mode: "video" } }))).toBe("视频驱动")
     expect(driveLabel(avatar({ musetalk: { mode: "image" } }))).toBe("图片驱动")
+  })
+
+  // The pack's config is keyed by the model name, so a model that writes
+  // its own block is read from that block.
+  it("reads the mode from the avatar's own model block", () => {
+    expect(driveLabel(avatar({ other: { mode: "video" } }, "other"))).toBe("视频驱动")
+    expect(driveLabel(avatar({ musetalk: { mode: "video" } }, "other"))).toBeNull()
   })
 
   // pack.json is written by the build; before it lands there is genuinely
@@ -24,8 +35,10 @@ describe("driveLabel", () => {
     expect(driveLabel(avatar({ musetalk: {} }))).toBeNull()
   })
 
-  it("survives a live2d row with no config block at all", () => {
-    expect(driveLabel({ kind: "live2d" } as never)).toBe("Cubism")
+  it("survives a client-rendered row with no config block at all", () => {
+    expect(driveLabel({ drive_model: "live2d", client_rendered: true } as never)).toBe(
+      "客户端渲染",
+    )
   })
 })
 

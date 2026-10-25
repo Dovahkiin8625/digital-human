@@ -168,6 +168,18 @@ def install_doubles(monkeypatch) -> None:
     ``create_pipeline`` is looked up as a module attribute at call time, so
     patching the two module attributes swaps the whole model -- engine and
     pipeline together, which is the invariant the registry exists to keep.
+
+    The Live2D model keeps its real pipeline: extracting and validating a
+    Cubism project touches neither torch nor the GPU, and the real thing
+    is what the archive guards and the project validation are for.
     """
     monkeypatch.setattr("server.engine.base.create_engine", lambda *a, **k: FakeEngine())
-    monkeypatch.setattr("server.avatar.pipeline.create_pipeline", lambda *a, **k: FakePipeline())
+
+    def _pipeline(name=None):
+        if name == "live2d":
+            from server.avatar.live2d_pipeline import Live2DAvatarPipeline
+
+            return Live2DAvatarPipeline()
+        return FakePipeline()
+
+    monkeypatch.setattr("server.avatar.pipeline.create_pipeline", _pipeline)

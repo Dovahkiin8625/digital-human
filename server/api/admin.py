@@ -20,6 +20,13 @@ from server.config import get_settings
 from server.core.errors import AppError
 from server.db.models import Avatar, AvatarJob, StreamSession
 from server.db.session import get_db
+from server.model_registry import (
+    DEFAULT_MODEL,
+    SOURCE_ARCHIVE,
+    ModelUnavailable,
+    get_model,
+    is_client_rendered,
+)
 
 
 def _artifact_kind(path: Path) -> str:
@@ -112,23 +119,43 @@ class TtsIn(BaseModel):
 
 @router.get("/system")
 def system_info() -> dict:
-    from server.main import get_session_manager
-    from server.model_registry import active
+    from server.main import get_gpu_flag, get_session_manager
+    from server.model_registry import list_models
 
-    # The shared engine, not a fresh one per request: a real engine's describe()
-    # is cheap, but constructing one per request would be a new thread pool and
-    # a new view of the model state every poll (the page polls every 2 s).
-    described = get_session_manager().engine.describe()
+    # The engines this pool already holds, not fresh ones per request: a
+    # real engine's describe() is cheap, but constructing one per request
+    # would be a new thread pool and a new view of the model state every
+    # poll (the page polls every 2 s).
+    engines = get_session_manager().engines.engines()
+    runtimes = []
+    for m in list_models():
+        engine = engines.get(m.name)
+        described: dict = {}
+        if engine is not None:
+            try:
+                described = engine.describe()
+            except Exception:  # noqa: BLE001 -- a broken engine must not 500 the page
+                described = {}
+        runtimes.append(
+            {
+                "name": m.name,
+                "label_zh": m.label_zh,
+                # A client-rendered model has no engine and no weights: the
+                # browser draws it.
+                "client_rendered": m.client_rendered,
+                "loaded": bool(described.get("loaded")),
+                "weights_present": bool(described.get("weights_present", True)),
+                "avatars_cached": described.get("avatars_cached", 0),
+                "pending": described.get("pending", 0),
+            }
+        )
+
     settings = get_settings()
     return {
-        "engine": described,
-        # The model this box runs -- one entry covers both halves (the avatar
-        # pipeline and the drive engine), so the pipeline's name is the
-        # model's name.
-        "pipeline": active().name,
+        "runtimes": runtimes,
         "version": "0.1.0",
         "data_dir": str(settings.data_dir),
-        "gpu": described.get("gpu", False),
+        "gpu": get_gpu_flag(),
         "frame_width": settings.frame_width,
         "frame_height": settings.frame_height,
         "fps": settings.fps,
@@ -910,10 +937,10 @@ def admin_list_backends() -> dict:
 
 
 @router.get("/avatars")
-def admin_list_avatars(kind: str | None = None, db=Depends(get_db)) -> list[dict]:
+def admin_list_avatars(drive_model: str | None = None, db=Depends(get_db)) -> list[dict]:
     stmt = select(Avatar)
-    if kind:
-        stmt = stmt.where(Avatar.kind == kind)
+    if drive_model:
+        stmt = stmt.where(Avatar.drive_model == drive_model)
     rows = db.execute(stmt.order_by(Avatar.created_at.desc())).scalars().all()
     return [_admin_avatar_row(db, a) for a in rows]
 
@@ -933,26 +960,112 @@ def _admin_avatar_row(db, a: Avatar) -> dict:
         "avatar_id": a.id,
         "name": a.name,
         "status": a.status,
-        # The console's Debug / Chat / Avatars pages all branch on this to
-        # decide between a WebRTC session and a Live2D canvas. It was
-        # missing here while /api/v1 carried it, which made a registered
-        # Live2D avatar invisible to every page that could select one.
-        "kind": a.kind,
+        # Which digital-human model drives this avatar. The console's
+        # Debug / Chat / Avatars pages all branch on this to decide between
+        # a WebRTC session and a client-rendered canvas. It was missing
+        # here while /api/v1 carried it, which made a registered Live2D
+        # avatar invisible to every page that could select one.
+        "drive_model": a.drive_model,
+        # Whether this avatar is drawn by the browser rather than driven by
+        # the server. The console's Debug / Chat pages need the fact on
+        # every row they can select.
+        "client_rendered": is_client_rendered(a.drive_model),
         "config": a.config_json,
         "error": job.error if a.status == "failed" and job else None,
         "created_at": a.created_at.isoformat(),
     }
 
 
+def _create_archived_avatar(db, model, name: str, file, entry: str, expressions: str) -> dict:
+    """Register an avatar whose model is built from an uploaded archive.
+
+    The build is cheap -- extract and validate, no GPU -- so it runs inside
+    the request: a rejected upload answers 422 with the reason and leaves
+    neither a row nor a directory behind. The archive itself is kept
+    outside the avatar's directory, so the unpacked project is the only
+    thing left on disk.
+    """
+    settings = get_settings()
+    size = getattr(file, "size", None)
+    if size is not None and int(size) > settings.avatar_max_upload_bytes:
+        raise AppError(
+            "file_too_large",
+            f"upload is larger than {settings.avatar_max_upload_bytes} bytes",
+            413,
+        )
+
+    avatar_id = uuid4().hex
+    store = AvatarStore(settings.data_dir)
+    archive = store.save_archive(avatar_id, file.file, _derive_suffix(file.filename))
+    target = store.avatar_dir(avatar_id)
+    target.mkdir(parents=True, exist_ok=True)
+    try:
+        # Imported here so the module attribute is resolved at call time --
+        # the test suite replaces ``create_pipeline`` with a double.
+        from server.avatar.pipeline import create_pipeline
+
+        config = create_pipeline(model.name).process(
+            avatar_id,
+            archive,
+            target,
+            lambda stage, pct: None,
+            options={"entry": entry, "expressions": expressions},
+        )
+    except Exception:
+        # A rejected build must leave nothing behind: no files, no row.
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    finally:
+        archive.unlink(missing_ok=True)
+
+    row = Avatar(
+        id=avatar_id,
+        name=name,
+        status="ready",
+        source_image_path="",
+        pack_path=None,
+        drive_model=model.name,
+        config_json=config,
+    )
+    db.add(row)
+    db.commit()
+    return {
+        "avatar_id": avatar_id,
+        "status": "ready",
+        "drive_model": model.name,
+        "config": config,
+    }
+
+
 @router.post("/avatars", status_code=201)
 def admin_create_avatar(
     background: BackgroundTasks,
-    name: str = Form(...),
+    name: str = Form(..., min_length=1, max_length=128),
     file: UploadFile = ...,
+    model: str = Form(DEFAULT_MODEL),
     idle_crf: str = Form(""),
     idle_preset: str = Form(""),
+    entry: str = Form(""),
+    expressions: str = Form(""),
     db=Depends(get_db),
 ) -> dict:
+    """Create an avatar for the named digital-human model.
+
+    The model decides how the avatar is built: a photo/video source is
+    packed by a background job (the pipeline runs for minutes on the GPU),
+    while an archive source is unpacked and validated inside this request.
+
+    ``entry`` / ``expressions`` belong to the archive models (Live2D's
+    entry point and emotion map); the other models ignore them.
+    """
+    try:
+        dh_model = get_model(model)
+    except ModelUnavailable as exc:
+        raise AppError("unknown_model", str(exc), 400, detail={"name": model}) from exc
+
+    if dh_model.source_kind == SOURCE_ARCHIVE:
+        return _create_archived_avatar(db, dh_model, name, file, entry, expressions)
+
     suffix = _derive_suffix(file.filename)
     # Cheap early refusal when the client declared an oversized body. This is
     # only an optimization: the counted copy in save_source is authoritative
@@ -1000,10 +1113,17 @@ def admin_create_avatar(
         )
 
     avatar_id, job_id = _create_avatar_rows(
-        db, name, file.file, suffix, overrides or None
+        db, name, file.file, suffix, overrides or None, dh_model.name
     )
     background.add_task(run_job_in_new_session, job_id, AvatarStore(get_settings().data_dir))
-    return {"avatar_id": avatar_id, "status": "pending"}
+    return {
+        "avatar_id": avatar_id,
+        "status": "pending",
+        "drive_model": dh_model.name,
+        # The pack is built by the background job, so there is no config
+        # to report yet.
+        "config": {},
+    }
 
 
 @router.get("/avatars/{avatar_id}")
@@ -1480,19 +1600,48 @@ def _active_session_count(db) -> int:
     )
 
 
-def _resolve_engine_slot(engine, model_id: str) -> dict | None:
-    """Look up the engine model slot by id. Returns ``None`` if missing.
+def _engine_slot(engine) -> dict:
+    """The engine's own row about the weights it holds.
 
-    Used by the load/unload routes so a typo'd id is a clean 404, not a
-    500. The lookup is read-only; the response shape matches the row in
-    ``describe()["models"]`` so the caller can use the slot's ``loaded``
-    + ``can_unload`` flags without re-reading describe().
+    ``describe()["models"]`` is the engine's report on itself: where the
+    weights live, how big they are, whether they are mounted. The Models
+    tab renders one row per digital-human *model*, but the facts in that
+    row come from the engine.
     """
-    described = engine.describe()
-    for row in described.get("models") or []:
-        if row.get("id") == model_id:
-            return row
-    return None
+    try:
+        described = engine.describe()
+    except Exception:  # noqa: BLE001 -- a broken engine must not 500 the tab
+        return {}
+    rows = described.get("models") or []
+    return rows[0] if rows else {}
+
+
+def _drive_engine_for(model_id: str, error_code: str = "no_weights_to_load"):
+    """The engine of the digital-human model named ``model_id``.
+
+    404 for a name that is not registered; ``error_code`` (400) for one
+    the *client* renders, since it has no server engine and therefore no
+    weights to mount or release.
+    """
+    from server.engine.base import EngineUnavailable
+    from server.main import get_session_manager
+    from server.model_registry import ModelUnavailable, get_model
+
+    try:
+        model = get_model(model_id)
+    except ModelUnavailable as exc:
+        raise AppError("not_found", f"model {model_id!r} not found", 404) from exc
+    if model.client_rendered:
+        raise AppError(
+            error_code,
+            f"model {model_id!r} is rendered by the client; it has no weights to mount",
+            400,
+            detail={"id": model_id},
+        )
+    try:
+        return get_session_manager().engines.engine_for(model.name)
+    except EngineUnavailable as exc:
+        raise AppError("not_found", f"model {model_id!r} not found", 404) from exc
 
 
 def _resolve_animator_model_id(model_id: str):
@@ -1790,97 +1939,149 @@ def _llm_service_row(db) -> dict:
     }
 
 
+def _dir_size(path: Path) -> int:
+    """Total size of every file under ``path``. 0 when it is not a dir."""
+    total = 0
+    try:
+        for p in path.rglob("*"):
+            if p.is_file():
+                try:
+                    total += p.stat().st_size
+                except OSError:
+                    continue
+    except OSError:
+        return 0
+    return total
+
+
+def _client_model_row(model) -> dict:
+    """The Models-tab row for a model the *client* renders (Live2D).
+
+    There is no engine and no VRAM weight here: what the operator has to
+    see is whether the Cubism SDK is staged, because without it the
+    browser cannot draw a frame. The SDK status comes from the same
+    health probe the System tab shows, so the two never disagree.
+    """
+    from server.api.live2d import live2d_health
+
+    health = live2d_health()
+    sdk_dir = Path(health["sdk_dir"])
+    staged = bool(health["core_present"] and health["shaders_present"])
+    return {
+        "id": model.name,
+        "kind": "client_runtime",
+        "type": "client_runtime",
+        "label_zh": model.label_zh,
+        "components": ["Cubism Core", "Shaders"],
+        "source": health["sdk_dir"],
+        "estimated_bytes": _dir_size(sdk_dir),
+        "loaded": staged,
+        "can_load": False,
+        "can_unload": False,
+        "loaded_at": None,
+        "status": "SDK 就绪" if staged else "SDK 缺失",
+        "description": "由客户端渲染的运行时：服务端只托管模型文件与 Cubism SDK，不产出任何像素。",
+    }
+
+
+def _drive_model_row(model, pool) -> dict:
+    """The Models-tab row for a digital-human model the server drives.
+
+    The engine describes its own weights (where they live, how big they
+    are, whether they are mounted in VRAM), but the row is addressed by
+    the *model* name: that is what an avatar records, and what the load
+    and unload buttons act on.
+    """
+    row: dict = {
+        "id": model.name,
+        "kind": "drive_runtime",
+        "type": "drive_runtime",
+        "label_zh": model.label_zh,
+        "components": [],
+        "source": None,
+        "estimated_bytes": 0,
+        "loaded": False,
+        "can_load": False,
+        "can_unload": False,
+        "loaded_at": None,
+    }
+    try:
+        described = pool.engine_for(model.name).describe()
+    except Exception:  # noqa: BLE001 -- a broken engine must not blank the tab
+        return row
+    slots = described.get("models") or []
+    if slots:
+        row.update(slots[0])
+    # The model owns the row's identity; the engine only describes the
+    # weights it holds.
+    row.update(
+        {
+            "id": model.name,
+            "kind": "drive_runtime",
+            "type": "drive_runtime",
+            "label_zh": model.label_zh,
+        }
+    )
+    return row
+
+
+@router.get("/drive-models")
+def admin_list_drive_models() -> list[dict]:
+    """The digital-human models an avatar can be created for.
+
+    The create form, the avatar detail page and the session pickers all
+    read this one list, so "which models exist" has a single answer.
+    """
+    from server.model_registry import catalog
+
+    return catalog()
+
+
 @router.get("/models")
 def admin_list_models(db=Depends(get_db)) -> dict:
-    """Surface the live drive-engine runtime state for the Models tab.
+    """Surface the runtime state for the Models tab.
 
     Single payload the page polls every 2 s. Returns:
 
-    * ``models`` -- one entry per model this server can put on the GPU:
-      the drive-engine runtime slot (``musetalk_runtime``) plus every
-      portrait animator (LivePortrait, Wan 2.2 variants). They share
-      the same flags (``loaded`` / ``can_load`` / ``can_unload``) so
-      the Models tab renders one table per kind.
-    * ``services`` -- the MiniMax TTS endpoint. Remote service, no
-      on-disk weights; ``configured`` + ``model`` etc. surface the
-      operator's "can I synthesise right now" question.
+    * ``models`` -- one entry per digital-human model this server can
+      drive (each with its own weights and its own load / unload
+      buttons) plus every portrait animator (LivePortrait, Wan 2.2
+      variants). They share the same flags (``loaded`` / ``can_load`` /
+      ``can_unload``) so the Models tab renders one table per kind.
+    * ``services`` -- the MiniMax TTS and LLM endpoints. Remote services,
+      no on-disk weights; ``configured`` surfaces the operator's "can I
+      use it right now" question.
     * ``gpu`` -- a :func:`get_vram_snapshot` dict or ``None`` when CUDA
       isn't available (the tab renders a CPU placeholder instead).
     * ``active_sessions`` -- count of currently-running StreamSession
       rows; the unload button refuses when this is non-zero.
-    * ``active_model`` / ``selected_model`` / ``available_models`` -- which
-      digital-human model this box runs, which one the operator has picked
-      in the settings table, and the full registry. The two differ after a
-      switch: the engine is a process-wide singleton, so the new model
-      takes effect on the next restart.
     """
     from server.avatar.vram import get_vram_snapshot
     from server.main import get_session_manager
-    from server.model_registry import active, catalog, read_active_model
+    from server.model_registry import list_models
 
-    engine = get_session_manager().engine
-    described = engine.describe()
-    # Drive-engine slot rows first, then portrait animators. Both shapes
-    # are unified ``ModelInfo`` (see _animator_model_row / engine describe).
-    engine_rows = described.get("models") or []
-    running = active()
+    pool = get_session_manager().engines
+    rows = [
+        _client_model_row(m) if m.client_rendered else _drive_model_row(m, pool)
+        for m in list_models()
+    ]
     return {
-        "models": [*engine_rows, *_animator_model_rows()],
+        "models": [*rows, *_animator_model_rows()],
         "services": [_tts_service_row(db=db), _llm_service_row(db=db)],
         "gpu": get_vram_snapshot(),
         "active_sessions": _active_session_count(db),
-        "active_model": {"name": running.name, "label_zh": running.label_zh},
-        "selected_model": read_active_model(db),
-        "available_models": catalog(),
-    }
-
-
-class ActiveModelIn(BaseModel):
-    """Body shape for ``PUT /api/admin/models/active``.
-
-    ``extra='forbid'`` makes Pydantic reject unknown keys at the request
-    boundary so a typo'd field name surfaces as a 400 rather than being
-    silently dropped.
-    """
-
-    model_config = {"extra": "forbid"}
-
-    name: str
-
-
-@router.put("/models/active")
-def admin_set_active_model(body: ActiveModelIn, db=Depends(get_db)) -> dict:
-    """Persist the operator's choice of digital-human model.
-
-    The choice lands in the SQLite ``settings`` table (the same place the
-    MiniMax TTS and LLM configs live -- there is deliberately no env
-    layer). The running engine is NOT swapped here: it is a process-wide
-    singleton holding the model's weights in VRAM, and the avatar pipeline
-    has to change with it or a pack could be written by one model and
-    driven by another. A restart applies the change, so the response says
-    so explicitly.
-    """
-    from server.model_registry import ModelUnavailable, active, write_active_model
-
-    try:
-        selected = write_active_model(db, body.name)
-    except ModelUnavailable as exc:
-        raise AppError("unknown_model", str(exc), 400, detail={"name": body.name})
-    return {
-        "selected_model": selected,
-        "restart_required": selected != active().name,
     }
 
 
 @router.post("/models/{model_id}/load")
 async def admin_load_model(model_id: str) -> dict:
-    """Trigger load for the named row -- engine slot or animator.
+    """Trigger load for the named row -- digital-human model or animator.
 
-    The Models tab's rows now include portrait animators under ids like
-    ``animator:liveportrait`` (moved out of services when their model
-    shape became obvious). One POST to the right dispatcher:
+    The Models tab's rows include portrait animators under ids like
+    ``animator:liveportrait`` and one row per digital-human model, named
+    after the model (``musetalk``). One POST to the right dispatcher:
 
-    * ``musetalk_runtime`` → engine slot
+    * ``musetalk`` → that model's engine
     * ``animator:<name>`` → ``ANIMATORS[name].load()``
 
     409 if already loaded, 503 if loading raises ``EngineUnavailable``
@@ -1921,12 +2122,8 @@ async def admin_load_model(model_id: str) -> dict:
             )
         return {"id": model_id, "loaded": True}
 
-    from server.main import get_session_manager
-
-    engine = get_session_manager().engine
-    slot = _resolve_engine_slot(engine, model_id)
-    if slot is None:
-        raise AppError("not_found", f"model {model_id!r} not found", 404)
+    engine = _drive_engine_for(model_id)
+    slot = _engine_slot(engine)
     if slot.get("loaded"):
         raise AppError(
             "already_loaded",
@@ -1994,12 +2191,8 @@ def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
         unloader()
         return {"id": model_id, "loaded": False}
 
-    from server.main import get_session_manager
-
-    engine = get_session_manager().engine
-    slot = _resolve_engine_slot(engine, model_id)
-    if slot is None:
-        raise AppError("not_found", f"model {model_id!r} not found", 404)
+    engine = _drive_engine_for(model_id, error_code="not_unloadable")
+    slot = _engine_slot(engine)
     if not slot.get("can_unload"):
         raise AppError(
             "not_unloadable",

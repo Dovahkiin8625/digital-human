@@ -1,23 +1,26 @@
 import type { AvatarInfo } from "../types";
 
 /** How one avatar is driven, as the list's 驱动方式 column reads it. */
-export type DriveLabel = "图片驱动" | "视频驱动" | "Cubism";
+export type DriveLabel = "图片驱动" | "视频驱动" | "客户端渲染";
 
 /**
- * The single cell that differs between the two avatar kinds.
+ * The single cell that differs between the drive models.
  *
- * A Live2D model has no source pack and no drive mode -- it is a Cubism
- * project the browser draws itself -- so it gets the runtime name. A
- * photoreal avatar's mode is only known once the pipeline has written
- * pack.json, so before that this returns null and the table renders a
- * dash rather than guessing from the file suffix.
+ * A model the client renders has no source pack and no drive mode -- it
+ * is a project the browser draws itself -- so it gets the runtime name. A
+ * server-driven avatar's mode is only known once the pipeline has written
+ * its pack, so before that this returns null and the table renders a dash
+ * rather than guessing from the file suffix.
+ *
+ * The pack's config is keyed by the model name, so the mode is read from
+ * the block the avatar's own model wrote.
  */
 export function driveLabel(
-  avatar: Pick<AvatarInfo, "kind" | "config">
+  avatar: Pick<AvatarInfo, "drive_model" | "client_rendered" | "config">
 ): DriveLabel | null {
-  if (avatar.kind === "live2d") return "Cubism";
+  if (avatar.client_rendered) return "客户端渲染";
   const cfg = avatar.config as Record<string, unknown> | null | undefined;
-  const prep = (cfg?.musetalk as Record<string, unknown> | undefined) ?? {};
+  const prep = (cfg?.[avatar.drive_model] as Record<string, unknown> | undefined) ?? {};
   const mode = prep.mode;
   if (mode === "video") return "视频驱动";
   if (mode === "image") return "图片驱动";

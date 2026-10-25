@@ -12,6 +12,7 @@ from server.config import get_settings
 from server.core.errors import AppError
 from server.db.models import Avatar, AvatarJob
 from server.db.session import get_db
+from server.model_registry import DEFAULT_MODEL
 
 router = APIRouter(prefix="/api/v1/avatars", tags=["avatars"])
 
@@ -42,11 +43,17 @@ def _derive_suffix(filename: str | None) -> str:
 
 
 def _serialize(a: Avatar, with_detail: bool = False) -> dict:
+    from server.model_registry import is_client_rendered
+
     data = {
         "avatar_id": a.id,
         "name": a.name,
         "status": a.status,
-        "kind": a.kind,
+        "drive_model": a.drive_model,
+        # Whether this avatar is drawn by the browser rather than driven by
+        # the server. The console needs the fact on every page that can
+        # select an avatar, so it rides along with the row.
+        "client_rendered": is_client_rendered(a.drive_model),
         "created_at": a.created_at.isoformat(),
     }
     # config ships on LIST rows too, not just detail. The pet builds its
@@ -66,6 +73,7 @@ def _create_avatar_rows(
     stream,
     suffix: str,
     tunable_overrides: dict | None = None,
+    drive_model: str = DEFAULT_MODEL,
 ) -> tuple[str, str]:
     """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
 
@@ -77,6 +85,10 @@ def _create_avatar_rows(
     admin create form captures (idle_crf / idle_preset). ``None`` (or ``{}``)
     means "use the global defaults"; the column is NOT NULL with a JSON
     default so a non-admin upload does not need to set anything.
+
+    ``drive_model`` names the digital-human model that will drive this
+    avatar. It is recorded on the row, so the pack this job builds and the
+    engine that later drives it always belong to the same model.
     """
     avatar_id = uuid4().hex
     store = _store()
@@ -89,6 +101,7 @@ def _create_avatar_rows(
         source_image_path=str(source_path),
         config_json={},
         tunable_overrides=tunable_overrides or {},
+        drive_model=drive_model,
     )
     job = AvatarJob(id=uuid4().hex, avatar_id=avatar_id, stage="queued")
     db.add(avatar)
@@ -121,10 +134,10 @@ def create_avatar(
 
 
 @router.get("")
-def list_avatars(kind: str | None = None, db=Depends(get_db)) -> list[dict]:
+def list_avatars(drive_model: str | None = None, db=Depends(get_db)) -> list[dict]:
     stmt = select(Avatar)
-    if kind:
-        stmt = stmt.where(Avatar.kind == kind)
+    if drive_model:
+        stmt = stmt.where(Avatar.drive_model == drive_model)
     rows = (
         db.execute(stmt.order_by(Avatar.created_at.desc()))
         .scalars()

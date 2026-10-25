@@ -29,25 +29,11 @@ class AvatarStore:
         unlinks the file and removes the now-empty avatar directory -- a
         rejected upload gets no Avatar row, so nothing else ever owns it.
         """
-        settings = get_settings()
         d = self.avatar_dir(avatar_id)
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"source{suffix or '.png'}"
         try:
-            written = 0
-            with path.open("wb") as out:
-                while True:
-                    chunk = stream.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    written += len(chunk)
-                    if written > settings.avatar_max_upload_bytes:
-                        raise AppError(
-                            "file_too_large",
-                            f"upload is larger than {settings.avatar_max_upload_bytes} bytes",
-                            413,
-                        )
-                    out.write(chunk)
+            self._copy_counted(stream, path)
             if video.is_video_suffix(suffix):
                 self._validate_video(path)
             else:
@@ -62,6 +48,49 @@ class AvatarStore:
                 pass
             raise
         return path
+
+    def save_archive(self, avatar_id: str, stream, suffix: str) -> Path:
+        """Persist an uploaded archive OUTSIDE the avatar's directory.
+
+        An archive is the source for a model that unpacks it into the
+        avatar's own directory (a Cubism project). Keeping the zip out of
+        that directory means the unpacked tree is the only thing left
+        behind, and the archive itself never shows up in the artifact
+        listing as if it were part of the model.
+        """
+        d = self.data_dir / "tmp" / "uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        path = d / f"{avatar_id}{suffix or '.zip'}"
+        try:
+            self._copy_counted(stream, path)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        return path
+
+    def _copy_counted(self, stream, path: Path) -> None:
+        """Copy ``stream`` into ``path``, refusing a body over the limit.
+
+        The copy is byte-counted rather than trusted: a body larger than
+        ``avatar_max_upload_bytes`` is aborted mid-copy with a 413, so an
+        oversized upload is never pulled fully into RAM or written fully to
+        disk before it is refused. The caller unlinks the partial file.
+        """
+        settings = get_settings()
+        written = 0
+        with path.open("wb") as out:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > settings.avatar_max_upload_bytes:
+                    raise AppError(
+                        "file_too_large",
+                        f"upload is larger than {settings.avatar_max_upload_bytes} bytes",
+                        413,
+                    )
+                out.write(chunk)
 
     @staticmethod
     def _validate_image(path: Path) -> None:

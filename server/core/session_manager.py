@@ -10,18 +10,21 @@ from server.core.errors import AppError
 from server.core.render_session import RenderSession
 from server.core.stream_sink import NullSink, StreamSink
 from server.db.models import Avatar, StreamSession
-from server.engine.base import DriveEngine
+from server.engine.pool import EnginePool
 
 
 class SessionManager:
-    def __init__(self, engine: DriveEngine, store: AvatarStore, idle_timeout: float = 60.0):
-        self.engine = engine
+    def __init__(self, engines: EnginePool, store: AvatarStore, idle_timeout: float = 60.0):
+        self.engines = engines
         self.store = store
         self.idle_timeout = idle_timeout
         self._renders: dict[str, RenderSession] = {}
         self._engine_closed = False
 
     async def create(self, db: Session, avatar: Avatar) -> StreamSession:
+        # The engine comes from the avatar's own drive model: a pack is
+        # written by one model and only that model's engine can read it.
+        engine = self.engines.engine_for(avatar.drive_model)
         row = StreamSession(avatar_id=avatar.id, status="idle")
         db.add(row)
         db.commit()
@@ -30,7 +33,7 @@ class SessionManager:
         render = RenderSession(
             row.id,
             pack,
-            self.engine,
+            engine,
             NullSink(),
             sample_rate=settings.sample_rate,
             fps=settings.fps,
@@ -70,11 +73,11 @@ class SessionManager:
         return closed
 
     async def shutdown(self) -> None:
-        """Close the shared engine once. Idempotent and safe to call repeatedly.
+        """Close every engine this pool holds, once. Idempotent.
 
-        RenderSession.close() no longer touches the engine, so this is the single
-        place the process-wide DriveEngine is torn down (wired to app lifespan
-        shutdown). A second call is a no-op.
+        RenderSession.close() does not touch the engine, so this is the
+        single place the drive engines are torn down (wired to app
+        lifespan shutdown). A second call is a no-op.
         """
         if self._engine_closed:
             return
@@ -83,4 +86,4 @@ class SessionManager:
         # keep-alive tasks would outlive the loop that owns them.
         for render in self._renders.values():
             render.stop()
-        await self.engine.close()
+        await self.engines.close_all()

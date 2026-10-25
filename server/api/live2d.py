@@ -1,34 +1,35 @@
-"""Live2D model registration and hosting.
+"""Live2D model hosting.
 
-Two surfaces:
+One surface:
 
-* ``/api/admin/live2d/*`` -- the console: register a model, delete one, ask
-  whether the SDK is present.
-* ``/api/v1/live2d/*`` -- read-only hosting for whichever client renders it
-  (today the Electron pet), gated by ``X-V1-Token`` when one is configured.
+* ``/api/v1/live2d/*`` -- read-only hosting for whichever client renders
+  it (today the Electron pet), gated by ``X-V1-Token`` when one is
+  configured.
 
-The server never renders a Cubism model. It owns three things only: the row
-that says a model exists, the files on disk, and the bytes to hand out.
+Registering a Live2D avatar is not here any more: Live2D is a
+digital-human *model* like any other (see ``server/model_registry``), so
+its avatars are created through the one console upload endpoint
+(``POST /api/admin/avatars``) and its project is built by the Live2D
+avatar pipeline (``server/avatar/live2d_pipeline.py``).
+
+The server never renders a Cubism model. It owns three things only: the
+row that says a model exists, the files on disk, and the bytes to hand
+out.
 """
 
-import json
-import shutil
 from pathlib import Path
-from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Form, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Depends
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from server.api.avatars import _require_uuid_hex, _serialize
+from server.api.avatars import _require_uuid_hex
 from server.avatar.store import AvatarStore
 from server.config import get_settings
 from server.core.auth import require_v1_token
 from server.core.errors import AppError
 from server.db.models import Avatar
 from server.db.session import get_db
-from server.live2d.archive import extract_archive, resolve_entry
-from server.live2d.registry import validate_model_dir
 
 router = APIRouter(prefix="/api", tags=["live2d"])
 
@@ -81,142 +82,19 @@ def _safe_join(root: Path, relative: str) -> Path:
     return target
 
 
-# ----- console surface ----------------------------------------------------
+def _is_client_rendered(row) -> bool:
+    """Whether this avatar is driven by a model the *client* renders.
 
-def _save_upload(dest: Path, file: UploadFile) -> None:
-    """Stream the archive to ``dest``, refusing an oversized body mid-copy.
-
-    The declared length can lie and is absent entirely on a chunked body,
-    so the copy is counted rather than trusted -- the same shape as
-    ``AvatarStore.save_source``, which is why the limit is shared too.
+    Live2D is such a model today: the browser draws the Cubism project, so
+    the server only hosts its files. A model that is no longer registered
+    is not client-rendered either -- it has no files to serve.
     """
-    limit = get_settings().avatar_max_upload_bytes
-    written = 0
-    with dest.open("wb") as out:
-        while True:
-            chunk = file.file.read(1024 * 1024)
-            if not chunk:
-                break
-            written += len(chunk)
-            if written > limit:
-                raise AppError("file_too_large", f"upload is larger than {limit} bytes", 413)
-            out.write(chunk)
+    from server.model_registry import ModelUnavailable, get_model
 
-
-def _parse_expressions(raw: str) -> dict:
-    """Parse the operator's ``{"smile": 0}`` map, or refuse it.
-
-    The console rejects a malformed map before submitting, so a failure
-    here means a hand-rolled client -- but it must still fail loudly
-    rather than register a model whose emotion map silently does nothing.
-    """
-    raw = (raw or "").strip()
-    if not raw:
-        return {}
     try:
-        parsed = json.loads(raw)
-    except ValueError as exc:
-        raise AppError(
-            "live2d_invalid_config", f"expressions is not valid JSON: {exc}", 422
-        ) from exc
-    if not isinstance(parsed, dict) or not all(
-        isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool)
-        for k, v in parsed.items()
-    ):
-        raise AppError(
-            "live2d_invalid_config",
-            'expressions must be an object of {"tag": index}',
-            422,
-        )
-    return parsed
-
-
-@router.post("/admin/live2d/avatars", status_code=201)
-def upload_live2d_avatar(
-    name: str = Form(..., min_length=1, max_length=128),
-    file: UploadFile = ...,
-    entry: str = Form(""),
-    expressions: str = Form(""),
-    db=Depends(get_db),
-) -> dict:
-    """Register a Live2D avatar from an uploaded Cubism project archive.
-
-    The archive is extracted into the avatar's own directory, checked with
-    the same ``validate_model_dir`` the server-side registration used, and
-    only then written to the database -- so a rejected upload leaves no row
-    and no files behind, and the shape that IS served is the shape that was
-    validated.
-
-    ``entry`` may be blank: the usual way an operator produces a zip is to
-    right-click the exported folder, which puts it at
-    ``Hiyori/model.model3.json``, so auto-detection is what makes the common
-    upload work without the operator retyping a path they never knew.
-    """
-    settings = get_settings()
-    # Cheap early refusal when the client declared an oversized body. The
-    # counted copy below is authoritative (a declared length can lie), but
-    # refusing here saves spooling the whole thing to disk first.
-    size = getattr(file, "size", None)
-    if size is not None and int(size) > settings.avatar_max_upload_bytes:
-        raise AppError(
-            "file_too_large",
-            f"upload is larger than {settings.avatar_max_upload_bytes} bytes",
-            413,
-        )
-
-    config: dict = {"expressions": _parse_expressions(expressions)}
-
-    avatar_id = uuid4().hex
-    store = _store()
-    target = store.avatar_dir(avatar_id)
-    scratch = Path(settings.data_dir) / "tmp" / "live2d_upload"
-    scratch.mkdir(parents=True, exist_ok=True)
-    archive = scratch / f"{avatar_id}.zip"
-
-    target.mkdir(parents=True, exist_ok=True)
-    try:
-        _save_upload(archive, file)
-        extract_archive(
-            archive,
-            target,
-            max_entries=settings.live2d_max_archive_entries,
-            max_unpacked_bytes=settings.live2d_max_unpacked_bytes,
-            max_entry_bytes=settings.live2d_max_entry_bytes,
-        )
-        config["model"] = {"entry": resolve_entry(target, entry.strip() or None)}
-        validate_model_dir(target, config)
-    except Exception:
-        shutil.rmtree(target, ignore_errors=True)
-        raise
-    finally:
-        archive.unlink(missing_ok=True)
-
-    row = Avatar(
-        id=avatar_id,
-        name=name,
-        status="ready",
-        source_image_path="",
-        pack_path=None,
-        kind="live2d",
-        config_json=config,
-    )
-    db.add(row)
-    db.commit()
-    return _serialize(row, with_detail=True)
-
-
-@router.delete("/admin/live2d/avatars/{avatar_id}")
-def delete_live2d_avatar(avatar_id: str, db=Depends(get_db)) -> Response:
-    _require_uuid_hex(avatar_id)
-    row = db.get(Avatar, avatar_id)
-    # Refuse rather than delete: this endpoint must not become a second,
-    # differently behaved way to delete a video avatar.
-    if row is None or row.kind != "live2d":
-        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
-    _store().delete_assets(avatar_id)
-    db.delete(row)
-    db.commit()
-    return Response(status_code=204)
+        return get_model(row.drive_model).client_rendered
+    except ModelUnavailable:
+        return False
 
 
 @router.get("/admin/live2d/health")
@@ -224,7 +102,7 @@ def live2d_health() -> dict:
     """Report whether the SDK is staged.
 
     Never raises: the System tab shows this, and an SDK that is missing is
-    something to display, not an exception to propagate.
+    something to display, not to throw on.
     """
     settings = get_settings()
     sdk = Path(settings.live2d_sdk_dir)
@@ -243,6 +121,7 @@ def live2d_health() -> dict:
 
 # ----- client surface -----------------------------------------------------
 
+
 @router.get("/v1/live2d/avatars/{avatar_id}/model/{path:path}")
 def get_model_file(
     avatar_id: str,
@@ -252,9 +131,10 @@ def get_model_file(
 ):
     _require_uuid_hex(avatar_id)
     row = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
-    # A photoreal avatar has no model directory to serve. Same 404 as a
-    # missing avatar, so this cannot be used to probe which ids exist.
-    if row is None or row.kind != "live2d":
+    # An avatar the server drives has no model directory to serve. Same
+    # 404 as a missing avatar, so this cannot be used to probe which ids
+    # exist.
+    if row is None or not _is_client_rendered(row):
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     target = _safe_join(_store().avatar_dir(avatar_id), path)
     # Only the model formats are served. Everything else an archive

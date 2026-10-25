@@ -38,6 +38,23 @@ async def create_session(body: dict, db=Depends(get_db)) -> dict:
     ).scalar_one_or_none()
     if avatar is None or avatar.status != "ready":
         raise AppError("avatar_not_ready", f"avatar {avatar_id} is not ready", 409)
+    # The avatar names the model that drives it. A model the client
+    # renders (Live2D) has no server engine, so there is no session to
+    # create -- say so plainly instead of letting the engine fail later
+    # with a message about a missing pack.
+    from server.model_registry import ModelUnavailable, get_model
+
+    try:
+        model = get_model(avatar.drive_model)
+    except ModelUnavailable as exc:
+        raise AppError("unknown_model", str(exc), 409) from exc
+    if model.client_rendered:
+        raise AppError(
+            "avatar_not_server_driven",
+            f"该形象由客户端渲染的 {model.label_zh} 驱动，不支持服务端会话",
+            409,
+            detail={"drive_model": model.name},
+        )
     row = await _manager().create(db, avatar)
     return {
         "session_id": row.id,

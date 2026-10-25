@@ -109,12 +109,13 @@ class DriveEngine(ABC):
 def create_engine(name: str | None = None) -> DriveEngine:
     """Build the drive engine of a registered digital-human model.
 
-    ``name`` defaults to the model this process is running (see
+    ``name`` defaults to the fallback model (see
     ``server.model_registry``). The engine and the avatar pipeline always
     come from the same model, so a pack can never be written by one model
     and driven by another.
 
-    Raises :class:`EngineUnavailable` for a name that is not registered.
+    Raises :class:`EngineUnavailable` for a name that is not registered,
+    and for a model the *client* renders -- it has no server engine.
     """
     from server.model_registry import ModelUnavailable, get_model
 
@@ -122,4 +123,9 @@ def create_engine(name: str | None = None) -> DriveEngine:
         model = get_model(name)
     except ModelUnavailable as exc:
         raise EngineUnavailable(str(exc)) from exc
+    if model.engine_factory is None:
+        raise EngineUnavailable(
+            f"model {model.name!r} is rendered by the client; "
+            "it has no server drive engine"
+        )
     return model.engine_factory()

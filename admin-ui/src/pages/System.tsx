@@ -19,28 +19,7 @@ import { api, getConsoleToken, live2dHealth, setConsoleToken } from "../api";
 import LivePortraits from "./LivePortraits";
 import Models from "./Models";
 import StatusTag from "../components/StatusTag";
-import type { Live2DHealth, SessionInfo } from "../types";
-
-interface EngineInfo {
-  name: string;
-  gpu: boolean;
-  // Only an engine with weights on disk reports these.
-  models_dir?: string;
-  weights_present?: boolean;
-  loaded?: boolean;
-  avatars_cached?: number;
-  pending?: number;
-}
-
-interface SystemInfo {
-  engine: EngineInfo;
-  // The digital-human model this box runs. One model bundles the avatar
-  // pipeline and the drive engine, so the pipeline's name is the model's.
-  pipeline: string;
-  version: string;
-  data_dir: string;
-  gpu: boolean;
-}
+import type { Live2DHealth, SessionInfo, SystemInfo } from "../types";
 
 interface JobInfo {
   job_id: string;
@@ -174,22 +153,38 @@ export default function System() {
             children: (
               <Space direction="vertical" size={16} style={{ width: "100%" }}>
                 {sys && (
-                  <Card title="引擎信息">
+                  <Card title="运行时">
                     <Space direction="vertical" size={8} style={{ width: "100%" }}>
                       <Space wrap size={24}>
                         <span>
-                          引擎：<Typography.Text strong>{sys.engine.name}</Typography.Text>
-                        </span>
-                        <span>
-                          流水线：<Typography.Text strong>{sys.pipeline}</Typography.Text>
-                        </span>
-                        <span>
                           设备：{boolTag(sys.gpu, "GPU", "CPU")}
                         </span>
-                        <span>
-                          权重：{boolTag(sys.engine.weights_present ?? false, "已加载", "缺失")}
-                        </span>
                       </Space>
+                      {/* Several digital-human models may be resident at
+                          once; each says whether its weights are mounted. */}
+                      {sys.runtimes.map((r) => (
+                        <Space key={r.name} wrap size={24}>
+                          <span>
+                            运行时：<Typography.Text strong>{r.label_zh}</Typography.Text>
+                          </span>
+                          <span>
+                            状态：
+                            {r.client_rendered ? (
+                              <Tag>客户端渲染</Tag>
+                            ) : r.loaded ? (
+                              <Tag color="success">已加载</Tag>
+                            ) : (
+                              <Tag>未加载</Tag>
+                            )}
+                          </span>
+                          <span>
+                            权重：
+                            {r.client_rendered
+                              ? "—"
+                              : boolTag(r.weights_present, "已就绪", "缺失")}
+                          </span>
+                        </Space>
+                      ))}
                       <Typography.Text type="secondary">
                         数据目录：<code>{sys.data_dir || "—"}</code>　·　版本：{sys.version}
                       </Typography.Text>

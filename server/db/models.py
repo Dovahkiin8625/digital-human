@@ -23,11 +23,12 @@ class Avatar(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(16), default="pending")
-    #: Which renderer this avatar is for. ``photoreal`` rows go through the
-    #: MuseTalk / LivePortrait / Wan pack pipeline; ``live2d`` rows are a
-    #: Cubism project the client renders itself. A third renderer means a
-    #: third value here, not a second table.
-    kind: Mapped[str] = mapped_column(String(16), default="photoreal", nullable=False)
+    #: Which digital-human model drives this avatar. The model's pipeline
+    #: wrote the pack and only the matching engine can read it, so the
+    #: pairing is recorded here rather than inferred from whatever happened
+    #: to be running when the pack was built. A client-rendered model
+    #: (``live2d``) registers a pipeline but no engine.
+    drive_model: Mapped[str] = mapped_column(String(32), default="musetalk", nullable=False)
     source_image_path: Mapped[str] = mapped_column(String(512))
     pack_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)

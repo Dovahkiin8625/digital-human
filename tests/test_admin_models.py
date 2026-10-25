@@ -9,6 +9,18 @@ needing a GPU.
 from __future__ import annotations
 
 
+def _musetalk_engine():
+    """The engine the pool holds for the ``musetalk`` model.
+
+    The pool builds one engine per digital-human model on demand, so the
+    tests that stub an engine's methods reach it through the pool rather
+    than through a single process-wide engine.
+    """
+    from server.main import _app
+
+    return _app.state.session_manager.engines.engine_for("musetalk")
+
+
 # ----- GET /api/admin/models ----------------------------------------------
 
 
@@ -35,14 +47,17 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
         }
     assert body["active_sessions"] == 0
 
-    # The drive engine surfaces exactly one drive_runtime row; portrait
-    # animators are merged in too (test env registers LivePortrait + Wan
-    # 2.2 via side-effect imports). The operator sees one row per
-    # thing-that-can-go-on-the-GPU in the Models tab.
+    # One row per digital-human model: the server-driven one and the
+    # client-rendered one. Portrait animators are merged in too (test env
+    # registers LivePortrait + Wan 2.2 via side-effect imports). The
+    # operator sees one row per thing-that-can-go-on-the-GPU in the
+    # Models tab.
     engine_rows = [m for m in body["models"] if m["kind"] == "drive_runtime"]
     assert len(engine_rows) == 1
     m = engine_rows[0]
-    assert m["id"] == "fake_drive"
+    # The row is addressed by the MODEL name -- that is what an avatar
+    # records and what the load / unload buttons act on.
+    assert m["id"] == "musetalk"
     assert set(m) >= {
         "id",
         "type",
@@ -54,6 +69,16 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
         "loaded_at",
     }
 
+    client_rows = [m for m in body["models"] if m["kind"] == "client_runtime"]
+    assert len(client_rows) == 1
+    l2d = client_rows[0]
+    assert l2d["id"] == "live2d"
+    # A client-rendered model has no weights to mount, so it offers no
+    # load / unload button at all.
+    assert l2d["can_load"] is False
+    assert l2d["can_unload"] is False
+    assert l2d["status"] in {"SDK 就绪", "SDK 缺失"}
+
 
 # ----- POST /api/admin/models/{id}/load ----------------------------------
 
@@ -64,10 +89,17 @@ def test_load_refuses_to_load_an_engine_slot_without_weights(client):
     # 400 "no weights" or 409 "already loaded" -- is a valid answer; the
     # point of this test is that the endpoint must NOT silently 200 an
     # empty action.
-    resp = client.post("/api/admin/models/fake_drive/load")
+    resp = client.post("/api/admin/models/musetalk/load")
     assert resp.status_code in (400, 409)
     code = resp.json()["error"]["code"]
     assert code in {"no_weights_to_load", "already_loaded"}
+
+
+def test_load_refuses_a_client_rendered_model(client):
+    """A model the client renders has no weights to mount."""
+    resp = client.post("/api/admin/models/live2d/load")
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "no_weights_to_load"
 
 
 def test_load_unknown_model_returns_404(client):
@@ -79,9 +111,7 @@ def test_load_calls_engine_when_supported(client, monkeypatch):
     # When the engine exposes a ``load`` method, the endpoint must call it.
     # Stubs the engine on the session manager so the dispatch is exercised
     # without GPU weights.
-    from server.main import _app
-
-    engine = _app.state.session_manager.engine
+    engine = _musetalk_engine()
 
     calls = {"n": 0}
 
@@ -97,7 +127,7 @@ def test_load_calls_engine_when_supported(client, monkeypatch):
             "gpu": False,
             "models": [
                 {
-                    "id": "stub_runtime",
+                    "id": "musetalk",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -110,7 +140,7 @@ def test_load_calls_engine_when_supported(client, monkeypatch):
         }
 
     monkeypatch.setattr(engine, "describe", fake_describe)
-    resp = client.post("/api/admin/models/stub_runtime/load")
+    resp = client.post("/api/admin/models/musetalk/load")
     assert resp.status_code == 200
     assert calls["n"] == 1
 
@@ -119,9 +149,7 @@ def test_load_409_when_already_loaded(client, monkeypatch):
     # Re-loading a live runtime is a 409; the engine's own warmup() would
     # short-circuit on _runtime is not None, but the HTTP layer must short
     # BEFORE calling the engine so the operator sees a clear status.
-    from server.main import _app
-
-    engine = _app.state.session_manager.engine
+    engine = _musetalk_engine()
 
     def fake_describe():
         return {
@@ -129,7 +157,7 @@ def test_load_409_when_already_loaded(client, monkeypatch):
             "gpu": False,
             "models": [
                 {
-                    "id": "stub_runtime",
+                    "id": "musetalk",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -142,7 +170,7 @@ def test_load_409_when_already_loaded(client, monkeypatch):
         }
 
     monkeypatch.setattr(engine, "describe", fake_describe)
-    resp = client.post("/api/admin/models/stub_runtime/load")
+    resp = client.post("/api/admin/models/musetalk/load")
     assert resp.status_code == 409
 
 
@@ -153,9 +181,7 @@ def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypat
     # The double has nothing to unload either; the operator gets the same
     # clear refusal rather than a 200-no-op. The engine's describe reports
     # can_unload=False; the endpoint uses that as the gate.
-    from server.main import _app
-
-    engine = _app.state.session_manager.engine
+    engine = _musetalk_engine()
 
     def fake_describe():
         return {
@@ -163,7 +189,7 @@ def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypat
             "gpu": False,
             "models": [
                 {
-                    "id": "fake_drive",
+                    "id": "musetalk",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -176,7 +202,7 @@ def test_unload_returns_400_when_engine_has_no_runtime_to_free(client, monkeypat
         }
 
     monkeypatch.setattr(engine, "describe", fake_describe)
-    resp = client.post("/api/admin/models/fake_drive/unload")
+    resp = client.post("/api/admin/models/musetalk/unload")
     assert resp.status_code == 400
 
 
@@ -191,9 +217,7 @@ def test_unload_409_when_active_sessions_exist(client, monkeypatch):
 
     from server.db.models import StreamSession
     from server.db.session import get_engine
-    from server.main import _app
-
-    engine = _app.state.session_manager.engine
+    engine = _musetalk_engine()
 
     def fake_describe():
         return {
@@ -201,7 +225,7 @@ def test_unload_409_when_active_sessions_exist(client, monkeypatch):
             "gpu": False,
             "models": [
                 {
-                    "id": "stub_runtime",
+                    "id": "musetalk",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -229,7 +253,7 @@ def test_unload_409_when_active_sessions_exist(client, monkeypatch):
         db.close()
 
     try:
-        resp = client.post("/api/admin/models/stub_runtime/unload")
+        resp = client.post("/api/admin/models/musetalk/unload")
         assert resp.status_code == 409
         body = resp.json()
         assert body["error"]["code"] == "engine_busy"
@@ -250,9 +274,7 @@ def test_unload_calls_engine_when_supported(client, monkeypatch):
     # When the engine exposes an ``unload`` method AND reports itself
     # loadable via describe, and no active sessions exist, the route must
     # call the engine's unload and return 200.
-    from server.main import _app
-
-    engine = _app.state.session_manager.engine
+    engine = _musetalk_engine()
 
     calls = {"n": 0}
 
@@ -267,7 +289,7 @@ def test_unload_calls_engine_when_supported(client, monkeypatch):
             "gpu": False,
             "models": [
                 {
-                    "id": "stub_runtime",
+                    "id": "musetalk",
                     "type": "drive_runtime",
                     "components": [],
                     "source": None,
@@ -280,7 +302,7 @@ def test_unload_calls_engine_when_supported(client, monkeypatch):
         }
 
     monkeypatch.setattr(engine, "describe", fake_describe)
-    resp = client.post("/api/admin/models/stub_runtime/unload")
+    resp = client.post("/api/admin/models/musetalk/unload")
     assert resp.status_code == 200
     assert calls["n"] == 1
 
@@ -960,45 +982,33 @@ def test_list_services_llm_configured_flips_with_keys(client, monkeypatch):
 # ----- the digital-human model selector -----------------------------------
 
 
-def test_list_models_reports_the_active_model_and_the_registry(client):
-    """The Models tab renders the model selector from this payload.
+def test_drive_models_endpoint_lists_every_model(client):
+    """The list the avatar create form and the session pickers read.
 
-    ``active_model`` is what the process is running right now;
-    ``selected_model`` is what the operator has picked in the settings
-    table (they differ after a switch -- the engine is a process-wide
-    singleton, so the new model takes effect on the next restart).
+    There is no "selected" model any more: an avatar names the model that
+    drives it, and every registered model is available.
     """
+    body = client.get("/api/admin/drive-models").json()
+
+    by_name = {m["name"]: m for m in body}
+    assert set(by_name) == {"musetalk", "live2d"}
+    assert all(m["label_zh"] for m in body)
+    assert by_name["musetalk"]["client_rendered"] is False
+    assert by_name["musetalk"]["source_kind"] == "image_video"
+    assert by_name["live2d"]["client_rendered"] is True
+    assert by_name["live2d"]["source_kind"] == "archive"
+
+
+def test_the_models_payload_has_no_active_model(client):
+    """The process-wide choice is gone: several models may be resident at
+    once, so there is nothing to select."""
     body = client.get("/api/admin/models").json()
-
-    assert body["active_model"]["name"] == "musetalk"
-    assert body["active_model"]["label_zh"]
-    assert body["selected_model"] == "musetalk"
-    assert {m["name"] for m in body["available_models"]} == {"musetalk"}
-    assert all(m["label_zh"] for m in body["available_models"])
+    assert "active_model" not in body
+    assert "selected_model" not in body
+    assert "available_models" not in body
 
 
-def test_set_active_model_persists_the_choice(client):
+def test_there_is_no_active_model_endpoint(client):
+    """The route is gone, not merely unused: a PUT to it is a 404."""
     resp = client.put("/api/admin/models/active", json={"name": "musetalk"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["selected_model"] == "musetalk"
-    # Already running -> no restart needed.
-    assert body["restart_required"] is False
-
-    body = client.get("/api/admin/models").json()
-    assert body["selected_model"] == "musetalk"
-
-
-def test_set_active_model_refuses_an_unregistered_name(client):
-    resp = client.put("/api/admin/models/active", json={"name": "nope"})
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "unknown_model"
-
-    # The rejected name never landed.
-    body = client.get("/api/admin/models").json()
-    assert body["selected_model"] == "musetalk"
-
-
-def test_set_active_model_rejects_an_unknown_field(client):
-    resp = client.put("/api/admin/models/active", json={"name": "musetalk", "engine": "x"})
-    assert resp.status_code == 422
+    assert resp.status_code == 404

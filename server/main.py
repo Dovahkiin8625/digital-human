@@ -52,13 +52,22 @@ async def _sweep_loop(manager, interval: float, session_factory) -> None:
             logger.exception("session sweep tick failed")
 
 
-async def _warmup(engine) -> None:
-    """Load the engine's weights off the request path (cold start is ~34 s).
+async def _warmup(manager) -> None:
+    """Load the default model's weights off the request path (cold start ~34 s).
 
+    Only the *default* model is warmed: an operator may run several models
+    at once, and the Models tab is where the others are loaded on demand.
     Failure is logged, not fatal: a box without a GPU -- or one that has not
     fetched the weights yet -- must still boot, and the first session will
     surface the real error through its own prepare().
     """
+    from server.engine.base import EngineUnavailable
+    from server.model_registry import DEFAULT_MODEL
+
+    try:
+        engine = manager.engines.engine_for(DEFAULT_MODEL)
+    except EngineUnavailable:  # pragma: no cover -- the default is always registered
+        return
     try:
         await engine.warmup()
         logger.info("engine %s warmup complete", engine.name)
@@ -70,29 +79,6 @@ async def _warmup(engine) -> None:
             engine.name,
             exc_info=True,
         )
-
-
-def _resolve_active_model() -> str:
-    """Read the operator's chosen digital-human model and freeze it.
-
-    The choice lives in the SQLite ``settings`` table (see
-    ``server/model_registry``); the DB is already initialised by the time
-    this runs. A missing row, a malformed value, or a name that is no
-    longer registered all fall back to the default model rather than
-    stopping the server from booting.
-    """
-    from sqlalchemy.orm import sessionmaker
-
-    from server.db.session import get_engine
-    from server.model_registry import activate, read_active_model
-
-    db = sessionmaker(bind=get_engine())()
-    try:
-        name = read_active_model(db)
-    finally:
-        db.close()
-    activate(name)
-    return name
 
 
 def create_app() -> FastAPI:
@@ -117,7 +103,7 @@ def create_app() -> FastAPI:
             _sweep_loop(app.state.session_manager, settings.session_sweep_interval, session_factory)
         )
         app.state.sweep_task = sweep_task
-        warmup_task = asyncio.create_task(_warmup(app.state.session_manager.engine))
+        warmup_task = asyncio.create_task(_warmup(app.state.session_manager))
         app.state.warmup_task = warmup_task
         try:
             yield
@@ -141,14 +127,30 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> dict:
-        from server.model_registry import active
+        from server.model_registry import list_models
 
-        model = active()
+        engines = app.state.session_manager.engines.engines()
+        models = []
+        for m in list_models():
+            engine = engines.get(m.name)
+            loaded = False
+            if engine is not None:
+                try:
+                    loaded = bool(engine.describe().get("loaded"))
+                except Exception:  # noqa: BLE001 -- a broken engine must not fail healthz
+                    loaded = False
+            models.append(
+                {
+                    "name": m.name,
+                    "label_zh": m.label_zh,
+                    "loaded": loaded,
+                    "client_rendered": m.client_rendered,
+                }
+            )
         return {
             "status": "ok",
-            "engine": model.name,
-            "pipeline": model.name,
             "gpu": app.state.gpu,
+            "models": models,
         }
 
     from server.api.admin import router as admin_router
@@ -158,7 +160,7 @@ def create_app() -> FastAPI:
     from server.avatar.store import AvatarStore
     from server.core.errors import register_handlers
     from server.core.session_manager import SessionManager
-    from server.engine.base import create_engine
+    from server.engine.pool import EnginePool
 
     register_handlers(app)
     app.include_router(admin_router)
@@ -166,17 +168,12 @@ def create_app() -> FastAPI:
     app.include_router(sessions_router)
     app.include_router(live2d_router)
 
-    # Which digital-human model this box runs is the operator's choice, and
-    # it lives in the SQLite ``settings`` table (see server/model_registry).
-    # It is resolved once, here: the drive engine is a process-wide singleton
-    # holding the model's weights in VRAM, so a change is applied by a
-    # restart. The engine and the avatar pipeline are then built from the
-    # same model -- a pack written by one model must never be driven by
-    # another.
-    _resolve_active_model()
-
+    # Several digital-human models may be resident at once -- one engine
+    # each, holding that model's weights in VRAM. Which engine drives an
+    # avatar is decided by the avatar's own ``drive_model``, so a pack is
+    # never written by one model and driven by another.
     app.state.session_manager = SessionManager(
-        create_engine(), AvatarStore(settings.data_dir), settings.session_idle_timeout
+        EnginePool(), AvatarStore(settings.data_dir), settings.session_idle_timeout
     )
 
     from pathlib import Path
@@ -191,3 +188,12 @@ def create_app() -> FastAPI:
 
 def get_session_manager():
     return _app.state.session_manager
+
+
+def get_gpu_flag() -> bool:
+    """Whether a CUDA device is usable, as probed once at startup.
+
+    Probing again would import torch, which is the expensive part; the
+    answer cannot change without a restart.
+    """
+    return bool(_app.state.gpu) if _app is not None else False

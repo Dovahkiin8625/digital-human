@@ -38,9 +38,12 @@ _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "ALTER TABLE avatars ADD COLUMN tunable_overrides JSON NOT NULL DEFAULT '{}'",
     ),
     (
+        # Which digital-human model drives the avatar. Replaces the old
+        # ``kind`` column, whose two values ("photoreal" / "live2d") were
+        # really two drive models wearing a different name.
         "avatars",
-        "kind",
-        "ALTER TABLE avatars ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'photoreal'",
+        "drive_model",
+        "ALTER TABLE avatars ADD COLUMN drive_model VARCHAR(32) NOT NULL DEFAULT 'musetalk'",
     ),
 )
 
@@ -104,8 +107,32 @@ def _rebuild_table_without_columns(
         conn.execute(text("PRAGMA foreign_keys = ON"))
 
 
-def _drop_abandoned_tenant_schema(engine) -> None:
-    """Remove the multi-tenant leftovers from pre-refactor DBs.
+def _backfill_drive_model(engine) -> None:
+    """Carry the old ``kind`` column over into ``drive_model``.
+
+    Before the drive-model binding, an avatar's ``kind`` said which
+    renderer it used: ``photoreal`` (a MuseTalk pack) or ``live2d`` (a
+    Cubism project). Those two values are really two *drive models*, so
+    the rename is a straight mapping for every row that exists.
+
+    Runs once, before the column is dropped. A database created with the
+    current schema has no ``kind`` column and is left alone.
+    """
+    inspector = inspect(engine)
+    cols = {c["name"] for c in inspector.get_columns("avatars")}
+    if "kind" not in cols or "drive_model" not in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE avatars SET drive_model = 'live2d' "
+                "WHERE kind = 'live2d' AND drive_model <> 'live2d'"
+            )
+        )
+
+
+def _drop_abandoned_columns(engine) -> None:
+    """Remove columns the current models no longer carry.
 
     The original service was multi-tenant: a ``tenants`` table plus
     ``tenant_id`` NOT NULL columns on ``avatars`` and ``sessions``. A
@@ -116,7 +143,12 @@ def _drop_abandoned_tenant_schema(engine) -> None:
     sessions.tenant_id`` because the new model no longer populates that
     column.
 
-    This brings the DB in line with the current (no-tenant) model.
+    The same thing happened to ``avatars.kind`` when the drive-model
+    binding replaced it with ``avatars.drive_model``: SQLite cannot
+    ``ALTER TABLE ... DROP COLUMN`` a column that a foreign key refers
+    to, so the table is rebuilt from a whitelist instead.
+
+    This brings the DB in line with the current models.
     Idempotent: each step is gated by the target's presence, so re-runs
     and fresh DBs are no-ops.
     """
@@ -124,14 +156,14 @@ def _drop_abandoned_tenant_schema(engine) -> None:
     avatars_cols = {c["name"]: c["type"].compile() for c in inspector.get_columns("avatars")}
     sessions_cols = {c["name"]: c["type"].compile() for c in inspector.get_columns("sessions")}
 
-    if "tenant_id" in avatars_cols:
+    if "tenant_id" in avatars_cols or "kind" in avatars_cols:
         # Mirror the current Avatar model's column types so the rebuilt
         # table matches what ``Base.metadata.create_all`` would produce.
         keep = {name: avatars_cols[name] for name in (
             "id", "name", "status", "source_image_path", "pack_path",
-            "config_json", "tunable_overrides", "kind", "created_at",
+            "config_json", "tunable_overrides", "drive_model", "created_at",
         )}
-        _rebuild_table_without_columns(engine, "avatars", {"tenant_id"}, keep)
+        _rebuild_table_without_columns(engine, "avatars", {"tenant_id", "kind"}, keep)
         inspector = inspect(engine)
     if "tenant_id" in {c["name"] for c in inspector.get_columns("sessions")}:
         keep = {name: sessions_cols[name] for name in (
@@ -147,7 +179,10 @@ def _drop_abandoned_tenant_schema(engine) -> None:
 def init_db(engine) -> None:
     Base.metadata.create_all(engine)
     _apply_migrations(engine)
-    _drop_abandoned_tenant_schema(engine)
+    # The backfill reads the column the rebuild is about to drop, so it
+    # has to run in between.
+    _backfill_drive_model(engine)
+    _drop_abandoned_columns(engine)
 
 
 def get_db() -> Iterator[Session]:

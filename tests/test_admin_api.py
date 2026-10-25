@@ -46,8 +46,12 @@ def _set_status(avatar_id, status):
 
 def test_system_info(client):
     body = client.get("/api/admin/system").json()
-    assert body["engine"]["name"] == "fake"
-    assert body["pipeline"] == "musetalk"
+    # Several models may be resident at once, so the page is told about
+    # each of them rather than about one "the" engine.
+    by_name = {r["name"]: r for r in body["runtimes"]}
+    assert set(by_name) == {"musetalk", "live2d"}
+    assert by_name["musetalk"]["client_rendered"] is False
+    assert by_name["live2d"]["client_rendered"] is True
     assert body["gpu"] is False
 
 
@@ -191,10 +195,11 @@ def test_admin_get_avatar_detail_and_error(client):
         "avatar_id",
         "name",
         "status",
-        # The console's Debug / Chat / Avatars pages branch on this to pick a
-        # renderer; it was missing from the admin serialiser while /api/v1
-        # carried it, which made a Live2D avatar unselectable.
-        "kind",
+        # The console's Debug / Chat / Avatars pages branch on these to pick a
+        # renderer; the first was missing from the admin serialiser while
+        # /api/v1 carried it, which made a Live2D avatar unselectable.
+        "drive_model",
+        "client_rendered",
         "config",
         "error",
         "created_at",

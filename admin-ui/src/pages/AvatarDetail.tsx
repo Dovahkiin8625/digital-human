@@ -30,7 +30,8 @@ import {
 } from "@ant-design/icons";
 import { api, downloadWithToken } from "../api";
 import StatusTag from "../components/StatusTag";
-import KindTag from "../avatars/KindTag";
+import DriveModelTag from "../avatars/DriveModelTag";
+import { useDriveModels } from "../avatars/driveModels";
 import { formatBytes } from "../format";
 import Live2dAvatarDetail from "./Live2dAvatarDetail";
 import type { ArtifactInfo, AvatarInfo, JobInfo, PipelineTimeline } from "../types";
@@ -93,6 +94,7 @@ function stageToIndex(s: string | null | undefined): number {
 
 export default function AvatarDetail() {
   const { id } = useParams();
+  const driveModels = useDriveModels();
   const [info, setInfo] = useState<AvatarInfo | null>(null);
   const [preview, setPreview] = useState("");
   const [previewKind, setPreviewKind] = useState<PreviewKind>("video");
@@ -152,8 +154,8 @@ export default function AvatarDetail() {
         if (signal.ignored) return;
         // A Live2D avatar has no build pipeline, so there is no timeline to
         // read and no job to poll -- both requests would only 404. The
-        // artifact listing IS shared and is fetched for both kinds.
-        if (data?.kind === "live2d") return;
+        // artifact listing IS shared and is fetched for every model.
+        if (data?.client_rendered) return;
         void loadTimeline();
         void loadJob();
       })
@@ -212,10 +214,10 @@ export default function AvatarDetail() {
   }
 
   useEffect(() => {
-    // Waits for `info` so the kind is known. A Live2D avatar has no
-    // idle.mp4 and no normalized.png -- Live2dAvatarDetail mounts its own
-    // canvas instead -- and fetching those two would just 404 twice.
-    if (!info || info.kind === "live2d") return;
+    // Waits for `info` so the drive model is known. A client-rendered
+    // avatar has no idle.mp4 and no normalized.png -- Live2dAvatarDetail
+    // mounts its own canvas instead -- and fetching those two would 404.
+    if (!info || info.client_rendered) return;
     const signal = { ignored: false };
     void loadPreview(signal);
     return () => {
@@ -223,7 +225,7 @@ export default function AvatarDetail() {
       if (previewRef.current) URL.revokeObjectURL(previewRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, info?.kind]);
+  }, [id, info?.client_rendered]);
 
   async function retry() {
     if (!id) return;
@@ -282,10 +284,10 @@ export default function AvatarDetail() {
     );
   }
 
-  // The two avatar kinds share this page: the header, the artifact list,
+  // The drive models share this page: the header, the artifact list,
   // the error handling. What differs is the body -- a photoreal avatar
   // has a build pipeline and an idle clip, a Live2D one has a canvas.
-  const isLive2d = info.kind === "live2d";
+  const isClientRendered = info.client_rendered;
 
   const artifactColumns: ColumnsType<ArtifactInfo> = [
     {
@@ -356,10 +358,10 @@ export default function AvatarDetail() {
           {info.name}
         </Typography.Title>
         <StatusTag status={info.status} />
-        <KindTag kind={info.kind} />
+        <DriveModelTag model={info.drive_model} models={driveModels} />
         {/* A Live2D avatar has no build job to re-run: the model is served
             as-is and there is no pipeline to repeat. */}
-        {!isLive2d && (
+        {!isClientRendered && (
           <Button icon={<ReloadOutlined />} onClick={() => void retry()} type="primary" ghost>
             按当前设置重建
           </Button>
@@ -372,7 +374,7 @@ export default function AvatarDetail() {
         size="small"
         items={[
           { key: "id", label: "形象 ID", children: info.avatar_id },
-          { key: "kind", label: "类型", children: <KindTag kind={info.kind} /> },
+          { key: "drive_model", label: "驱动模型", children: <DriveModelTag model={info.drive_model} models={driveModels} /> },
           {
             key: "created",
             label: "创建时间",
@@ -396,7 +398,7 @@ export default function AvatarDetail() {
       )}
       {error && <Alert type="error" showIcon message={error} />}
 
-      {isLive2d ? (
+      {isClientRendered ? (
         <Live2dAvatarDetail info={info} artifacts={artifacts} />
       ) : (
         <>
@@ -543,9 +545,9 @@ export default function AvatarDetail() {
         </>
       )}
 
-      <Card title={isLive2d ? "模型文件" : "素材与产物"}>
+      <Card title={isClientRendered ? "模型文件" : "素材与产物"}>
         {artifacts.length === 0 ? (
-          <Empty description={isLive2d ? "暂无模型文件" : "暂无产物；可在构建完成后下载"} />
+          <Empty description={isClientRendered ? "暂无模型文件" : "暂无产物；可在构建完成后下载"} />
         ) : (
           <Table
             rowKey="path"
@@ -558,7 +560,7 @@ export default function AvatarDetail() {
         )}
       </Card>
 
-      {!isLive2d && (
+      {!isClientRendered && (
         <Card title="底层配置">
           <Descriptions
             size="small"

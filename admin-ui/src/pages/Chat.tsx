@@ -35,6 +35,7 @@ import {
 import { api, live2dModelUrl } from "../api";
 import StatusTag from "../components/StatusTag";
 import Live2DStage from "../live2d/Live2DStage";
+import { useDriveModels } from "../avatars/driveModels";
 import { expressionIndex } from "../live2d/render/expressions";
 import type { AvatarInfo, Live2DModelConfig, SessionInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
@@ -104,6 +105,7 @@ export default function Chat() {
   // worker has held it long enough to read.
   const [caption, setCaption] = useState<string>("");
   // Avatar picker + session lifecycle.
+  const driveModels = useDriveModels();
   const [avatars, setAvatars] = useState<AvatarInfo[]>([]);
   const [avatarId, setAvatarId] = useState("");
   // Live2D mode. The server never creates a session for a live2d avatar,
@@ -144,7 +146,7 @@ export default function Chat() {
     // A live2d avatar has no pack and therefore no session. Branch HERE,
     // before the POST: branching after it would 409 and leave an empty
     // video box where the canvas should be.
-    if (selectedAvatar?.kind === "live2d") {
+    if (selectedAvatar?.client_rendered) {
       setLive2d(true);
       setStatus("active");
       setError("");
@@ -444,12 +446,12 @@ export default function Chat() {
   // which registration already validated against the model, so stripping
   // can be restricted to these and leave a bracketed word the user typed.
   const expressionMap = useMemo<Record<string, number>>(() => {
-    if (selectedAvatar?.kind !== "live2d") return {};
+    if (!selectedAvatar?.client_rendered) return {};
     return (selectedAvatar.config as Live2DModelConfig)?.expressions ?? {};
   }, [selectedAvatar]);
   const expressionTags = useMemo(() => Object.keys(expressionMap), [expressionMap]);
   const l2dUrl =
-    selectedAvatar?.kind === "live2d"
+    selectedAvatar?.client_rendered
       ? live2dModelUrl(
           selectedAvatar.avatar_id,
           (selectedAvatar.config as Live2DModelConfig)?.model?.entry ?? "model.model3.json",
@@ -470,16 +472,17 @@ export default function Chat() {
             value={avatarId || undefined}
             placeholder="选择形象…"
             onChange={setAvatarId}
-            options={[
-              { label: "真人视频", isL2d: false },
-              { label: "Live2D", isL2d: true },
-            ]
-              .map((g) => ({
-                label: g.label,
+            options={driveModels
+              // One group per drive model: an avatar belongs to the model
+              // that drives it, so the groups are the models.
+              .map((m) => ({
+                label: m.label_zh,
                 options: avatars
-                  .filter((a) => (g.isL2d ? a.kind === "live2d" : a.kind !== "live2d"))
+                  .filter((a) => a.drive_model === m.name)
                   .map((a) => ({ value: a.avatar_id, label: a.name })),
               }))
+              // Drop a group that has no avatars rather than rendering an
+              // empty heading above the list.
               .filter((g) => g.options.length > 0)}
             notFoundContent="没有已就绪的形象"
             disabled={!!sessionId}

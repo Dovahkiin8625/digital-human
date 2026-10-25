@@ -1,13 +1,13 @@
 # 数字人服务 (Digital Human Service)
 
-商用实时交互数字人服务：接收**音频 + 形象 ID**，输出**实时数字人视频流**（WebRTC）。
+实时交互数字人服务：接收**音频 + 形象 ID**，输出**实时数字人视频流**（WebRTC）。
 附带 React 后台管理台（形象管理 / 会话调试 / 数字人对话 / 系统监控）。
 
-支持**两种并存**的数字人形态，由 `avatars.kind` 区分：
+支持**两种并存**的数字人形态，由形象所属的**数字人模型**（`avatars.drive_model`）区分：
 
-| 形态 | 渲染位置 | 驱动方式 |
+| 模型 | 渲染位置 | 驱动方式 |
 |---|---|---|
-| `photoreal` | 服务端（GPU） | MuseTalk / LivePortrait / Wan 2.2，WebRTC 视频流 |
+| `musetalk` | 服务端（GPU） | MuseTalk 1.5，WebRTC 视频流 |
 | `live2d` | 客户端（WebGL） | Cubism SDK；服务端只托管模型文件，**不产出任何像素** |
 
 Live2D 的口型在客户端由**正在播放的那个 AudioBuffer** 离线预算出的包络驱动，因此嘴与声音
@@ -15,26 +15,8 @@ Live2D 的口型在客户端由**正在播放的那个 AudioBuffer** 离线预�
 
 生产路径是**真实 MuseTalk 1.5**：上传一张照片，服务端跑人脸检测 → 对齐裁剪 → 解析遮罩 →
 VAE 编码，产出一份形象包；会话中每个 100ms 音频块驱动一次 UNet，解出下半脸再融合回原图。
-这是 MuseTalk 的固有形态 —— 它是「视频配音」模型，单张照片时头部静止、只有嘴与下颌区域动。
-若日后要头部摆动，那是 LivePortrait 一类模型的活，不在当前范围内。
-
-服务端只实现**一个数字人模型**（MuseTalk 1.5）。模型 = 一条形象制作流水线 + 一个驱动引擎，
-两者成对绑定：流水线产出的形象包只有配套引擎读得懂。模型清单是代码里的注册表
-（`server/model_registry.py`），当前用哪个模型存在 SQLite `settings` 表里，在管理台
-「模型」页切换 —— 切换在**重启服务后**生效（引擎是持有显存的进程级单例）。
-无 GPU 的机器仍可跑全部单测：测试用替身住在 `tests/doubles.py`，不进入服务端。
 
 技术栈：Python 3.11+ / FastAPI / aiortc / SQLAlchemy + SQLite；React + Vite + TS + vitest。
-
-## 关于鉴权（重要）
-
-多租户与 API Key 鉴权已在一次重构中删除，**当前所有端点均无鉴权**：
-`/api/v1/*` 与 `/api/admin/*` 全部公开，假设部署在单机操作者控制的机器上。
-本 README 早期版本描述的 `X-API-Key` / `X-Admin-Token` 已不存在，相关代码已删除。
-
-新增的 Live2D 模型托管端点例外：它们接受可选的 `X-V1-Token`（见 `DH_V1_API_TOKEN`）。
-该令牌默认留空（不校验），供桌面宠物连接远程部署时使用。**给整个管理面补鉴权是另一件
-独立的事**，本项目未处理。
 
 ## 架构
 
@@ -57,7 +39,8 @@ flowchart LR
   真引擎把同步 CUDA 工作放到单工作线程池，事件循环不被阻塞；跨会话在 GPU 上串行。
 - **AvatarPipeline**：上传照片/视频 → 形象包的抽象；实现 `musetalk`（真实制作）。
 - **数字人模型注册表**（`server/model_registry.py`）：一个模型 = 一条流水线 + 一个引擎，
-  成对注册。当前只有 MuseTalk；新增模型 = 实现两个抽象基类 + 注册一条。
+  成对注册。当前有 MuseTalk（服务端驱动）与 Live2D（客户端渲染，没有引擎）；
+  新增模型 = 实现两个抽象基类 + 注册一条。
 - **AvatarStore**：形象包管理（SQLite 元数据 + 磁盘资产）。
 - **音频双通道**：RTP audio track 为主，WS 音频分片为备，进入同一 `AudioIngest`，引擎无感知。
 - **会话短生命周期**：显式 DELETE 或 `DH_SESSION_IDLE_TIMEOUT` 秒无音频自动回收。
@@ -91,25 +74,22 @@ cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR / DH_V1
 ```bash
 ./scripts/setup_musetalk.sh             # 建 .venv-musetalk 并装依赖
 ./scripts/fetch_musetalk_weights.sh     # 拉权重（约数 GB）
-./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
+python -m uvicorn --factory server.main:create_app \
   --host 0.0.0.0 --port 8000
 ```
 
 打开 <http://127.0.0.1:8000/admin> 进入管理台（无登录步骤，见「关于鉴权」）。
 
-> **必须使用 `--factory` 形式**：`server/main.py` 只暴露 `create_app()` 工厂，没有模块级 `app`，
-> 因此 `uvicorn server.main:app` 会失败。`uvicorn --factory server.main:create_app` 等价可用。
-
 健康检查：
 
 ```bash
 curl http://127.0.0.1:8000/healthz
-# {"status":"ok","engine":"musetalk","pipeline":"musetalk","gpu":true}
+# {"status":"ok","gpu":true,"models":[{"name":"musetalk","label_zh":"MuseTalk 1.5","loaded":true,"client_rendered":false},{"name":"live2d","label_zh":"Live2D","loaded":false,"client_rendered":true}]}
 ```
 
 `gpu` 在启动时探测一次（导入 torch 是昂贵的那一步，而结论不会在运行中改变）。
-`engine` 与 `pipeline` 是**当前生效的数字人模型名**，不是探测结果 —— 一个模型 = 一条
-形象制作流水线 + 一个驱动引擎，两半同名。模型在管理台「模型」页切换，重启后生效。
+`models` 列出**全部注册的数字人模型**及各自的驻留状态 —— 多个模型可以同时驻留，
+不需要「切到某个模型」这一步。
 
 开发时前端可 `cd admin-ui && npm run dev`（Vite 已把 `/api` 代理到 `127.0.0.1:8000`）。
 
@@ -147,48 +127,17 @@ curl http://127.0.0.1:8000/healthz
 > 上切换 provider，也避免泄漏的 `DH_MINIMAX_*` / `DH_LLM_*` 在没显式 opt-in 时
 > 打开合成或 chat 端点。
 >
-> **数字人模型的选择同样不走环境变量**。用哪个模型（今天只有 MuseTalk）写在
-> `settings` 表的 `dh_active_model` 行里，在 Models 页的「当前数字人模型」卡片切换。
-> 模型 = 流水线 + 引擎，成对绑定，所以只有一个开关而不是两个必须保持一致的变量。
+> **数字人模型的选择同样不走环境变量**，而且现在**没有「选择」这一步**。
+> 每个**形象**记录自己的模型（`avatars.drive_model`），服务端按这个模型取引擎；
+> 多个模型可以同时驻留，在 Models 页逐个加载 / 卸载。
 >
 > 从旧版本（`.env` 里带 `DH_MINIMAX_*`）升级的机器可以跑一次迁移脚本把现有值
 > 搬进 `settings` 表：`python scripts/migrate_minimax_env_to_db.py`。
 
 > **已移除的变量**：`DH_ADMIN_PASSWORD`、`DH_ADMIN_TOKEN`（登录鉴权随多租户重构删除）、
 > `DH_MINIMAX_*`（改由 Models 页配置）与 `DH_DRIVE_ENGINE` / `DH_AVATAR_PIPELINE`
-> （改由 Models 页选数字人模型）都已不再是 `Settings` 字段。旧 `.env` 里留着
+> （改由每个形象自带模型）都已不再是 `Settings` 字段。旧 `.env` 里留着
 > 它们不会报错 —— 服务端对未知 `DH_*` 变量一律忽略 —— 但也不会有任何作用，可以直接删掉。
-
-## 数字人模型（可插拔）
-
-服务端把「形象制作流水线」与「驱动引擎」成对绑成一个**数字人模型**：流水线产出的形象包
-（`pack.json` + sidecar）只有配套引擎读得懂，所以两者必须一起换，不能各选各的。
-
-注册表在 `server/model_registry.py`，当前只有 MuseTalk 一条：
-
-```python
-register_model(
-    DigitalHumanModel(
-        name="mymodel",
-        label_zh="我的模型",
-        engine_factory=MyEngine,        # 实现 server.engine.base.DriveEngine
-        pipeline_factory=MyPipeline,    # 实现 server.avatar.pipeline.AvatarPipeline
-    )
-)
-```
-
-新增一个模型要做的全部事情：
-
-1. 实现 `DriveEngine`（`drive()` 是唯一必须实现的方法）与 `AvatarPipeline`（`process()`）。
-2. 在注册表里注册一条。
-3. 若它有独立权重，加一个 fetch 脚本，并在 Models 页的「模型」表格里暴露一行。
-
-不需要碰配置面：`.env` 里没有任何与模型相关的变量。
-
-**当前用哪个模型**存在 SQLite `settings` 表的 `dh_active_model` 行里，在管理台
-「模型」页的「当前数字人模型」卡片切换（`PUT /api/admin/models/active`）。
-切换**在重启服务后生效** —— 引擎是持有显存的进程级单例，形象制作流水线必须与它
-一起切换，否则会产出「一个模型产的包、另一个模型驱动」的错配。
 
 ## 对外 API
 
@@ -199,7 +148,7 @@ register_model(
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动；空闲时循环播放源视频画面，录制时请保持闭嘴、不说话 |
-| GET | `/api/v1/avatars` | 形象列表。可选 `?kind=live2d` 只列 Live2D 形象 |
+| GET | `/api/v1/avatars` | 形象列表。可选 `?drive_model=live2d` 只列 Live2D 形象 |
 | GET | `/api/v1/live2d/avatars/{id}/model/{path}` | 模型目录内的单个文件。`DH_V1_API_TOKEN` 非空时需 `X-V1-Token` |
 | GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。URL 命名空间固定，服务端负责把 `Shaders/` 映射到 SDK 里的 `Framework/Shaders/`（5-r.5 的 GLSL 不与 `Core/` 并列）。**不鉴权**：core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两棵子树内，`..` 无法越界 |
 | GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
@@ -254,17 +203,18 @@ register_model(
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/api/admin/login` | JSON `{"password"}` → `{"token"}`。**已失效**，登录鉴权随多租户重构删除，保留仅为不打断旧调用 |
-| POST | `/api/admin/live2d/avatars` | multipart `name` + `file`(整个 Cubism 工程的 zip) + `entry`(可选) + `expressions`(可选 JSON) → 解压并校验后建 `kind=live2d` 行，返回值含解析后的 `config.model.entry`。`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到）。校验失败 422 并清理已解压文件，消息指出具体缺失文件 |
-| DELETE | `/api/admin/live2d/avatars/{id}` | 删除 Live2D 形象及其模型文件（204）。对 `photoreal` 形象返回 404 |
+| POST | `/api/admin/live2d/avatars` | **已移除** —— Live2D 现在是一个数字人模型，上传走统一的 `POST /api/admin/avatars`（带 `model=live2d`） |
+| DELETE | `/api/admin/live2d/avatars/{id}` | **已移除** —— 删除走统一的 `DELETE /api/admin/avatars/{id}` |
 | GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
-| GET | `/api/admin/system` | 引擎描述 / 当前数字人模型名 / GPU / 版本 / 数据目录 |
-| GET | `/api/admin/models` | Models 页的轮询载荷：权重行、服务行、GPU 快照，以及 `active_model` / `selected_model` / `available_models` |
-| PUT | `/api/admin/models/active` | JSON `{"name"}` → 写入 `settings` 表的 `dh_active_model`；**重启服务后**生效。未注册的名字 400 |
+| GET | `/api/admin/system` | 各运行时状态（`runtimes`）/ GPU / 版本 / 数据目录 |
+| GET | `/api/admin/models` | Models 页的轮询载荷：每个数字人模型一行（外加形象动画器）、服务行、GPU 快照 |
+| GET | `/api/admin/drive-models` | 已注册的数字人模型清单：`name` / `label_zh` / `source_kind` / `client_rendered`。形象创建表单与选择器共用 |
+| POST | `/api/admin/models/{model}/load` / `unload` | 按**模型名**加载 / 卸载该模型的权重。`animator:<name>` 行仍走各自的派发 |
 | GET | `/api/admin/tenants` | 租户列表 |
 | POST | `/api/admin/tenants` | JSON `{"name"}` → `{tenant_id, name, api_key}`（`api_key` 仅此一次返回） |
 | POST | `/api/admin/tenants/{tenant_id}/api-key` | 轮换并返回新 API Key（旧 key 立即失效） |
-| GET | `/api/admin/avatars` | 形象列表（可选 `?tenant_id=` 过滤） |
-| POST | `/api/admin/avatars` | multipart `name` + `file`（可选 `tenant_id`）创建形象 |
+| GET | `/api/admin/avatars` | 形象列表（可选 `?drive_model=` 过滤） |
+| POST | `/api/admin/avatars` | multipart `name` + `model`（数字人模型名）+ `file` 创建形象。`model=live2d` 时 `file` 是整个 Cubism 工程的 zip，另可带 `entry`(可选) 与 `expressions`(可选 JSON)；`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到），校验失败 422 且不留行、不留文件 |
 | GET | `/api/admin/avatars/{avatar_id}` | 形象详情 |
 | DELETE | `/api/admin/avatars/{avatar_id}` | 删除形象（204） |
 | POST | `/api/admin/avatars/{avatar_id}/retry` | 重试制作（202） |
@@ -281,150 +231,3 @@ register_model(
 | GET | `/api/admin/jobs` | 制作任务（AvatarJob）列表 |
 | GET | `/api/admin/sessions` | 会话列表（含实时指标） |
 | POST | `/api/admin/sessions/sweep` | 手动触发空闲会话回收 |
-
-## MuseTalk 环境准备
-
-真实路径需要一个独立解释器，理由有三：本项目的 `.venv` 是 Python 3.14，而 PyPI 上没有
-cp314 的 torch 轮子；把 torch 挡在 `.venv` 之外，默认 `pytest` 才能保持 torch-free 且十秒内跑完；
-两套环境的体积也差一个数量级（带权重约 6 GB vs 几十 MB）。
-
-### 一条命令
-
-```bash
-bash scripts/setup_musetalk.sh
-```
-
-脚本做五件事，每一步都幂等，重跑只补缺失的部分：
-
-1. `uv venv --python 3.11 .venv-musetalk`（本机没有 3.11 时 uv 自己下载）
-2. 从 **cu128** 索引装 `torch` + `torchvision`
-3. `uv pip install -e ".[musetalk,dev]"` —— **不是** MuseTalk 自己的 `requirements.txt`
-4. `git clone` MuseTalk 到 `vendor/MuseTalk` 并 `checkout` 到钉死的 commit
-5. 拉取权重到 `data/models/musetalk/`
-
-跳过 4.4 GB 权重下载：`bash scripts/setup_musetalk.sh --no-weights`。
-
-第 4 步按 `github.com` → `ghproxy.net` → `gh-proxy.com` → `ghfast.top` 的顺序重试。本网络上
-github.com 会解析、也会回 curl，但 git 的 HTTPS 连接会被重置，因此必须有这个回退；三个代理都
-服务同一个仓库与同一个 commit（`0a89dec4`），当前也正是上游默认分支的 HEAD。
-
-### 为什么是 cu128，为什么不是上游的 requirements.txt
-
-**torch 必须走 cu128 索引。** cu126 及更早的轮子不含 sm_120 kernel；在 RTX 50 系上它能装能 import、
-也能报告设备，但第一次 kernel launch 就报 `no kernel image is available for execution`。
-`scripts/setup_musetalk.sh` 末尾的校验就是跑一次 1024² 矩阵乘来堵这个坑。
-
-**不装上游 `requirements.txt`。** 那个文件把 `numpy` 钉在 1.23.5，还拖进 `tensorflow==2.12.0`、
-`gradio`、`tensorboard` 与 SyncNet 权重 —— 全是训练与演示脚本用的，推理路径一个都不 import，
-而那几个钉版正是它在 cp311+ 上解析失败的原因。实际需要的运行时子集声明在 `pyproject.toml`
-的 `[project.optional-dependencies] musetalk` 里。
-
-### 用 mediapipe 顶掉 DWPose
-
-MuseTalk 用 DWPose 出人脸框与关键点，而 DWPose 要 OpenMMLab 全家桶（mmcv/mmdet/mmpose/mmengine），
-其中 mmcv 需要 MSVC 源码编译。但我们的输入是**单张静止照片** —— 不需要视频逐帧的全身姿态跟踪，
-只需要从一张图里取一组框和关键点。`server/avatar/musetalk_pipeline.py` 因此改用 pip 可装的
-mediapipe FaceLandmarker，把整条最难的依赖链删掉。人脸解析（mask）仍用 MuseTalk 自带的
-face-parse-bisent，那是纯 PyTorch。
-
-### 权重清单
-
-`data/models/musetalk/` 下必须齐备（缺失即抛 `PipelineError` / `EngineUnavailable`，
-并在消息里点出缺了哪些）：
-
-```
-data/models/musetalk/
-├─ face_landmarker.task              # mediapipe，3.6 MB（替代 DWPose）
-├─ face-parse-bisent/
-│  ├─ 79999_iter.pth                 # biSeNet 人脸解析
-│  └─ resnet18-5c106cde.pth          # 它的 backbone，来自 download.pytorch.org
-├─ musetalkV15/
-│  ├─ unet.pth                       # MuseTalk 1.5 UNet，3.17 GB
-│  └─ musetalk.json
-├─ sd-vae/                           # stabilityai/sd-vae-ft-mse
-│  ├─ config.json
-│  └─ diffusion_pytorch_model.bin
-└─ whisper/                          # openai/whisper-tiny（音频编码器）
-   ├─ config.json
-   ├─ pytorch_model.bin
-   ├─ preprocessor_config.json
-   └─ …（tokenizer / vocab / merges 等）
-```
-
-权重来源与网络：**huggingface.co 在本网络不可达**，`scripts/fetch_musetalk_weights.sh` 因此走
-**ModelScope**（`modelscope.cn/api/v1/models`，可达且快）；mediapipe 的 `.task` 与 resnet18 来自
-Google / PyTorch 官方 CDN。若换到能直连 HF 的网络，可改用 `HF_ENDPOINT=https://hf-mirror.com`。
-`vendor/` 与 `data/` 都已 gitignore，权重不入库。
-
-### GPU 要求
-
-| 项 | 要求 |
-|---|---|
-| 显存 | 单会话约 4.5 GB，双会话实测约 6 GB；建议 ≥ 8 GB，16 GB 充裕 |
-| 算力 | 需 sm_75 以上；RTX 50 系（sm_120）**必须** cu128 轮子 |
-| 实测 | RTX 5070 Ti 16GB：单会话 ~31 fps，双会话并发各 ~21 fps，p95 块延迟 ~87 ms |
-
-渲染的瓶颈是 VAE 解码（约占双会话渲染时间的 58%），已确认是算力下限而非 launch 开销 ——
-批处理、分块、`channels_last`、`torch.compile`、CUDA graph 都试过，没有收益。
-
-### 启动
-
-```bash
-./.venv-musetalk/Scripts/python.exe -m uvicorn --factory server.main:create_app \
-  --host 0.0.0.0 --port 8000
-```
-
-启动时后台任务会预热权重（4.4 GB），避免第一个 `POST /sessions` 付这笔代价；预热失败不致命，
-服务照常起来，只是真引擎不可用。
-
- ## 目录结构
-
-
-```
-digital-human/
-├─ server/                  # Python 包
-│  ├─ main.py               # FastAPI app 工厂 create_app()
-│  ├─ config.py             # DH_* 配置
-│  ├─ api/                  # REST + WS：avatars, sessions, admin, deps
-│  ├─ core/                 # session_manager, render_session, audio_ingest, stream_sink, webrtc
-│  ├─ engine/               # base(接口), musetalk_engine(生产)
-│  ├─ avatar/               # store, pipeline, musetalk_pipeline
-│  ├─ model_registry.py     # 数字人模型注册表（流水线 + 引擎成对绑定）
-│  └─ db/                   # models, session
-├─ admin-ui/                # React + Vite 调试台（构建产物挂载到 /admin）
-├─ scripts/
-│  ├─ setup_musetalk.sh     # 一条命令复现真实环境
-│  └─ fetch_musetalk_weights.sh
-├─ vendor/MuseTalk/         # 上游源码，clone 到钉死的 commit（gitignore）
-├─ data/                    # 运行时资产与模型权重（gitignore）
-├─ tests/
-└─ pyproject.toml
-```
-
-## 测试
-
-默认套件跑在 `.venv`（Python 3.14，无 torch），十秒内完成：
-
-```bash
-python -m pytest -q                     # 全量单测 + 集成（含 tests/test_e2e_smoke.py 全链路）
-cd admin-ui && npm run build            # 前端类型检查 + 构建
-```
-
-`gpu` 与 `musetalk` 两个 marker 默认被 `addopts` 排除。需要真设备与真权重的测试跑在
-`.venv-musetalk`：
-
-```bash
-./.venv-musetalk/Scripts/python.exe -m pytest -q -m 'gpu or musetalk'
-```
-
-`tests/conftest.py` 把整个数字人模型换成测试替身（`tests/doubles.py`）——
-否则所有走上传路径的测试（`test_e2e_smoke` / `test_sessions_api` / `test_ws_audio` /
-`test_signal_ws` / `test_admin_api`）会去加载真权重。替身只在测试树里，服务端一行不留。
-带 torch 的文件另有 `pytest.importorskip("torch")` 兜底，在错误的解释器里会干净地 skip 而不是报错。
-
-## 错误处理
-
-统一错误信封：`{"error": {"code", "message", "detail"}}`。形象制作失败置 `status=failed` 并落库 error，
-支持重试；引擎运行时异常令会话置错并推 WS 事件，不拖垮进程；会话空闲自动回收防资源泄漏。
-
-上传环节错误码：`invalid_video`（视频无法解码，422）、`video_too_long`（时长或帧数超限，422）、`file_too_large`（413）、`idle_video_unavailable`（空闲视频生成失败，503）。

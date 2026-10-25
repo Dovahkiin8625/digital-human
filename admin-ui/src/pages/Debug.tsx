@@ -25,6 +25,7 @@ import { api, live2dModelUrl } from "../api";
 import StatusTag from "../components/StatusTag";
 import LatencyHistogram from "../components/LatencyHistogram";
 import Live2DStage from "../live2d/Live2DStage";
+import { useDriveModels } from "../avatars/driveModels";
 import type { AvatarInfo, Live2DModelConfig, SessionInfo, SystemInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
 
@@ -59,6 +60,7 @@ export default function Debug() {
   // registered once and must not capture stale React state.
   const recorderRef = useRef<MediaRecorder | null>(null)
   const recordedChunksRef = useRef<Blob[]>([])
+  const driveModels = useDriveModels();
   const [avatars, setAvatars] = useState<AvatarInfo[]>([])
   const [avatarId, setAvatarId] = useState("")
   // Live2D mode. The server never creates a session for a live2d avatar
@@ -153,7 +155,7 @@ export default function Debug() {
     // POST: branching after it would 409 on the server and show an empty
     // video box instead of a canvas.
     const picked = avatars.find((a) => a.avatar_id === avatarId)
-    if (picked?.kind === "live2d") {
+    if (picked?.client_rendered) {
       setLive2d(true)
       setStatus("active")
       setError("")
@@ -322,7 +324,7 @@ export default function Debug() {
     [avatars, avatarId],
   )
   const l2dUrl =
-    selectedAvatar?.kind === "live2d"
+    selectedAvatar?.client_rendered
       ? live2dModelUrl(
           selectedAvatar.avatar_id,
           (selectedAvatar.config as Live2DModelConfig)?.model?.entry ?? "model.model3.json",
@@ -345,10 +347,10 @@ export default function Debug() {
             size="small"
             column={{ xs: 2, sm: 3, md: 4 }}
             items={[
-              { key: "engine", label: "引擎", children: sys.engine.name },
+              { key: "engine", label: "运行时", children: sys.runtimes.map((r) => r.label_zh).join(" · ") },
               { key: "gpu", label: "GPU", children: sys.gpu ? "可用" : "不可用" },
-              { key: "queue", label: "队列深度", children: sys.engine.pending ?? "—" },
-              { key: "cached", label: "已缓存形象", children: sys.engine.avatars_cached ?? "—" },
+              { key: "queue", label: "队列深度", children: sys.runtimes.reduce((n, r) => n + r.pending, 0) },
+              { key: "cached", label: "已缓存形象", children: sys.runtimes.reduce((n, r) => n + r.avatars_cached, 0) },
               { key: "size", label: "帧尺寸", children: `${frameW} × ${frameH}` },
               { key: "fps", label: "FPS", children: String(fps) },
               { key: "sr", label: "采样率 Hz", children: String(sr) },
@@ -368,14 +370,13 @@ export default function Debug() {
             value={avatarId || undefined}
             placeholder="选择形象…"
             onChange={setAvatarId}
-            options={[
-              { label: "真人视频", kind: "photoreal" },
-              { label: "Live2D", kind: "live2d" },
-            ]
-              .map((g) => ({
-                label: g.label,
+            options={driveModels
+              // One group per drive model: an avatar belongs to the model
+              // that drives it, so the groups are the models.
+              .map((m) => ({
+                label: m.label_zh,
                 options: avatars
-                  .filter((a) => (g.kind === "live2d" ? a.kind === "live2d" : a.kind !== "live2d"))
+                  .filter((a) => a.drive_model === m.name)
                   .map((a) => ({ value: a.avatar_id, label: a.name })),
               }))
               // Drop a group that has no avatars rather than rendering an

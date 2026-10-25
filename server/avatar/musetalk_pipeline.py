@@ -296,6 +296,8 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         source_path: Path,
         out_dir: Path,
         progress: Callable[[str, int], None],
+        *,
+        options: dict | None = None,
     ) -> dict:
         settings = get_settings()
         source_path = Path(source_path)

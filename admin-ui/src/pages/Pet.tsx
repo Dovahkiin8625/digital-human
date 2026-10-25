@@ -68,7 +68,7 @@ export default function Pet() {
     // there blank with no explanation.
     const headers: Record<string, string> = { "X-V1-Token": cfg.token };
     try {
-      const resp = await fetch(`${base}/api/v1/avatars?kind=live2d`, { headers });
+      const resp = await fetch(`${base}/api/v1/avatars?drive_model=live2d`, { headers });
       if (!resp.ok) throw new Error(`列出 Live2D 形象失败：${resp.status}`);
       const rows = (await resp.json()) as AvatarInfo[];
       setAvatars(rows.filter((a) => a.status === "ready"));

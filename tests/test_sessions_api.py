@@ -111,17 +111,19 @@ class _CloseTrackingEngine(FakeEngine):
         self.close_calls += 1
 
 
-def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path):
+def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path, monkeypatch):
     from server.avatar.store import AvatarStore
     from server.core.render_session import RenderSession
     from server.core.session_manager import SessionManager
     from server.core.stream_sink import NullSink
     from server.engine.base import AvatarPack
+    from server.engine.pool import EnginePool
 
     img = tmp_path / "src.png"
     Image.new("RGB", (64, 64), (10, 20, 30)).save(img)
     pack = AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img, config={})
     engine = _CloseTrackingEngine()
+    monkeypatch.setattr("server.engine.base.create_engine", lambda *a, **k: engine)
 
     # A RenderSession close must NOT tear down the shared engine.
     render = RenderSession("s1", pack, engine, NullSink())
@@ -129,8 +131,11 @@ def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path):
     asyncio.run(render.close())
     assert engine.close_calls == 0
 
-    # SessionManager owns the engine; shutdown closes it exactly once (idempotent).
-    manager = SessionManager(engine, AvatarStore(tmp_path), idle_timeout=60.0)
+    # The pool owns the engines (one per digital-human model); shutdown
+    # closes them exactly once (idempotent).
+    pool = EnginePool()
+    assert pool.engine_for("musetalk") is engine
+    manager = SessionManager(pool, AvatarStore(tmp_path), idle_timeout=60.0)
     asyncio.run(manager.shutdown())
     asyncio.run(manager.shutdown())
     assert engine.close_calls == 1

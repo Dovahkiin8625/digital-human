@@ -12,7 +12,6 @@ import {
   Input,
   InputNumber,
   Popconfirm,
-  Segmented,
   Select,
   Space,
   Table,
@@ -23,12 +22,13 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import type { RcFile, UploadFile } from "antd/es/upload/interface";
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
-import { api, deleteLive2dAvatar, uploadLive2dAvatar } from "../api";
+import { api, createAvatar, deleteAvatar } from "../api";
 import StatusTag from "../components/StatusTag";
-import KindTag from "../avatars/KindTag";
+import DriveModelTag from "../avatars/DriveModelTag";
 import UploadField from "../avatars/UploadField";
 import { driveLabel, parseExpressions } from "../avatars/describe";
-import type { AvatarInfo, AvatarKind, TunableParams } from "../types";
+import { useDriveModels } from "../avatars/driveModels";
+import type { AvatarInfo, TunableParams } from "../types";
 import { createReentryGuard } from "./reentryGuard";
 
 const ACTIVE = new Set(["pending", "processing"]);
@@ -154,12 +154,19 @@ export default function Avatars() {
   const [form] = Form.useForm<FormValues>();
   const [nameQuery, setNameQuery] = useState("");
   // Both avatar kinds are the same feature with different inputs, so the
-  // page has ONE create form and ONE list. `kind` is the only thing that
-  // selects the endpoint, the drop zone, and the extra fields.
-  const [kind, setKind] = useState<AvatarKind>("photoreal");
-  // Two independent selections, not one: switching the Segmented control
-  // must not carry a selected zip into the photo branch (or the reverse),
-  // where it would be submitted to the wrong endpoint as a wrong file.
+  // page has ONE create form and ONE list. The drive model the operator
+  // picks is what selects the drop zone and the extra fields.
+  const driveModels = useDriveModels();
+  // The model the operator picked for the new avatar; empty means "the
+  // first registered model" until they choose one.
+  const [pickedModel, setPickedModel] = useState<string>("");
+  const selected =
+    driveModels.find((m) => m.name === pickedModel) ?? driveModels[0] ?? null;
+  // "image_video" (a photo or a clip) or "archive" (a zipped project).
+  const sourceKind = selected?.source_kind ?? "image_video";
+  // Two independent selections, not one: switching the model must not
+  // carry a selected zip into the photo branch (or the reverse), where it
+  // would be submitted as the wrong kind of file.
   const [zipFiles, setZipFiles] = useState<UploadFile[]>([]);
   // Live-effective values for the idle knobs -- used to default the form so
   // an operator who doesn't touch the Advanced section still gets the
@@ -223,15 +230,32 @@ export default function Avatars() {
     return items.filter((a) => a.name.toLowerCase().includes(q));
   }, [items, nameQuery]);
 
-  async function submitPhotoreal(values: FormValues) {
-    const file = photoFiles[0]?.originFileObj;
+  async function submit(values: FormValues) {
+    const model = selected;
+    if (!model) {
+      message.warning("请先选择数字人驱动模型");
+      return;
+    }
+    // The model decides what the upload is: a photo / clip, or a zipped
+    // project. Both go to the same endpoint.
+    const isArchive = model.source_kind === "archive";
+    const file = isArchive
+      ? zipFiles[0]?.originFileObj
+      : photoFiles[0]?.originFileObj;
     if (!file) {
-      message.warning("请先选择图片或视频");
+      message.warning(isArchive ? "请先选择 Live2D 模型压缩包" : "请先选择图片或视频");
+      return;
+    }
+    // The emotion map is checked here, so a typo is caught before the
+    // upload rather than becoming an expressionIndex the stage cannot use.
+    const parsed = isArchive ? parseExpressions(values.expressions ?? "") : null;
+    if (parsed && !parsed.ok) {
+      message.error(parsed.error);
       return;
     }
     setCreating(true);
     try {
-      if (file.type.startsWith("video/")) {
+      if (!isArchive && file.type.startsWith("video/")) {
         try {
           const seconds = await videoSeconds(file);
           if (seconds > 15) {
@@ -239,63 +263,31 @@ export default function Avatars() {
             return;
           }
         } catch {
-          // Duration is only a convenience; the server is authoritative.
+          /* Duration is only a convenience; the server is authoritative. */
         }
       }
-      const body = new FormData();
-      body.append("name", values.name.trim());
-      body.append("file", file);
-      // Per-avatar idle-video overrides. Empty fields fall through to the
-      // server-side defaults (the column is JSON NOT NULL DEFAULT '{}');
-      // the server validates against tunables.ParamSpec bounds.
-      if (typeof values.idle_crf === "number") body.append("idle_crf", String(values.idle_crf));
-      if (typeof values.idle_preset === "string" && values.idle_preset !== "") {
-        body.append("idle_preset", values.idle_preset);
-      }
-      // No per-knob override / animate flag here: image-to-video generation
-      // now lives on its own tab ("/video-gen") instead of being inlined in
-      // this upload form. The endpoint accepts only name + file + (server
-      // side) animate; the latter defaults to false and the operator opts
-      // in by visiting the new tab.
-      await api("/api/admin/avatars", { method: "POST", form: body });
+      await createAvatar({
+        name: values.name.trim(),
+        model: model.name,
+        file,
+        entry: isArchive ? (values.entry ?? "").trim() : undefined,
+        expressions: parsed && parsed.ok ? parsed.value : undefined,
+        // Per-avatar idle-video overrides. Empty fields fall through to the
+        // server-side defaults (the column is JSON NOT NULL DEFAULT '{}');
+        // the server validates against tunables.ParamSpec bounds.
+        idle_crf:
+          !isArchive && typeof values.idle_crf === "number" ? values.idle_crf : undefined,
+        idle_preset: !isArchive ? values.idle_preset : undefined,
+      });
       message.success("已提交，正在生成");
       form.resetFields();
       setPhotoFiles([]);
-      await refresh();
-    } catch (err) {
-      message.error((err as Error).message);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function submitLive2d(values: FormValues) {
-    const file = zipFiles[0]?.originFileObj;
-    if (!file) {
-      message.warning("请先选择 Live2D 模型压缩包");
-      return;
-    }
-    const parsed = parseExpressions(values.expressions ?? "");
-    if (!parsed.ok) {
-      message.error(parsed.error);
-      return;
-    }
-    setCreating(true);
-    try {
-      await uploadLive2dAvatar({
-        name: values.name.trim(),
-        file,
-        entry: (values.entry ?? "").trim(),
-        expressions: parsed.value,
-      });
-      message.success("已注册");
-      form.resetFields();
       setZipFiles([]);
       await refresh();
     } catch (err) {
-      // Shown verbatim: the server's message names the specific missing
-      // file ("missing moc: model.moc3"), which is exactly what tells the
-      // operator what to fix. A generic "注册失败" would not.
+      // Shown verbatim: the server's message names the specific problem
+      // ("missing moc: model.moc3"), which is exactly what tells the
+      // operator what to fix. A generic "上传失败" would not.
       message.error((err as Error).message);
     } finally {
       setCreating(false);
@@ -310,21 +302,16 @@ export default function Avatars() {
     // takes the lock synchronously before its task reaches its first await,
     // so the probe-await window is covered; the over-15s early return and
     // probe failure settle the task and release the lock via `finally`.
-    // One guard covers both kinds: both cost the operator real work to redo.
-    const { ran } = await creatingGuard.run(() =>
-      kind === "live2d" ? submitLive2d(values) : submitPhotoreal(values),
-    );
+    // One guard covers every model: each costs the operator real work to
+    // redo.
+    const { ran } = await creatingGuard.run(() => submit(values));
     if (!ran) return;
   }
 
-  async function onDelete(id: string, avatarKind: AvatarKind) {
+  async function onDelete(id: string) {
     try {
-      // Two delete routes for one feature: the live2d one refuses a
-      // photoreal id outright rather than deleting it. Merging the table
-      // does not merge that guard, so the row's kind picks the route.
-      await (avatarKind === "live2d"
-        ? deleteLive2dAvatar(id)
-        : api(`/api/admin/avatars/${id}`, { method: "DELETE" }));
+      // One delete route for every avatar, whichever model drives it.
+      await deleteAvatar(id);
       message.success("已删除");
       await refresh();
     } catch (err) {
@@ -349,10 +336,10 @@ export default function Avatars() {
       ),
     },
     {
-      title: "类型",
-      dataIndex: "kind",
-      width: 100,
-      render: (k: AvatarKind) => <KindTag kind={k} />,
+      title: "驱动模型",
+      dataIndex: "drive_model",
+      width: 130,
+      render: (_, a) => <DriveModelTag model={a.drive_model} models={driveModels} />,
     },
     {
       title: "驱动方式",
@@ -361,7 +348,7 @@ export default function Avatars() {
         const label = driveLabel(a);
         if (!label) return <Tag>—</Tag>;
         const color =
-          a.kind === "live2d" ? "purple" : label === "视频驱动" ? "cyan" : "geekblue";
+          a.client_rendered ? "purple" : label === "视频驱动" ? "cyan" : "geekblue";
         return <Tag color={color}>{label}</Tag>;
       },
     },
@@ -369,10 +356,10 @@ export default function Avatars() {
       title: "警告",
       width: 90,
       render: (_, a) => {
-        // Live2D has no source pack, so there is no source-quality
-        // assessment to report. A dash reads truer than "无" on a row that
-        // was never assessed.
-        if (a.kind === "live2d") {
+        // A client-rendered model has no source pack, so there is no
+        // source-quality assessment to report. A dash reads truer than
+        // "无" on a row that was never assessed.
+        if (a.client_rendered) {
           return <Typography.Text type="secondary">—</Typography.Text>;
         }
         const warnings = a.config.warnings ?? [];
@@ -408,14 +395,14 @@ export default function Avatars() {
           <Popconfirm
             title="删除该形象？"
             description={
-              a.kind === "live2d"
+              a.client_rendered
                 ? "删除后不可恢复，模型文件也会一并移除。"
                 : "删除后不可恢复。"
             }
             okText="删除"
             cancelText="取消"
             okButtonProps={{ danger: true }}
-            onConfirm={() => onDelete(a.avatar_id, a.kind)}
+            onConfirm={() => onDelete(a.avatar_id)}
           >
             <Button danger size="small">
               删除
@@ -433,15 +420,6 @@ export default function Avatars() {
       </Typography.Title>
 
       <Card title="新建形象">
-        <Segmented
-          value={kind}
-          onChange={(v) => setKind(v as AvatarKind)}
-          options={[
-            { label: "真人视频", value: "photoreal" },
-            { label: "Live2D", value: "live2d" },
-          ]}
-          style={{ marginBottom: 16 }}
-        />
         <Form
           form={form}
           layout="vertical"
@@ -459,15 +437,27 @@ export default function Avatars() {
             idle_preset: idleDefaults?.idle_preset ?? IDLE_PRESET_DEFAULT,
           }}
         >
+          {/* Which digital-human model drives the new avatar. The model
+              decides what the upload is (a photo / clip, or a zipped
+              project), so it picks the drop zone and the extra fields. */}
+          <Form.Item label="数字人驱动模型" style={{ maxWidth: 320 }}>
+            <Select
+              value={selected?.name}
+              onChange={setPickedModel}
+              options={driveModels.map((m) => ({ value: m.name, label: m.label_zh }))}
+              placeholder="选择驱动模型"
+            />
+          </Form.Item>
+
           <Form.Item
             name="name"
             label="名称"
             rules={[{ required: true, message: "请输入名称" }]}
           >
-            <Input placeholder={kind === "live2d" ? "例如：Hiyori" : "例如：小美"} />
+            <Input placeholder={sourceKind === "archive" ? "例如：Hiyori" : "例如：小美"} />
           </Form.Item>
 
-          {kind === "photoreal" ? (
+          {sourceKind === "image_video" ? (
             <>
               <Form.Item label="驱动图片或视频" required>
                 <UploadField

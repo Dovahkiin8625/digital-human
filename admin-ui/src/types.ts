@@ -1,14 +1,31 @@
-// Which renderer an avatar uses. ``photoreal`` goes through the
-// MuseTalk / LivePortrait / Wan pack pipeline and is driven over WebRTC;
-// ``live2d`` is a Cubism project the browser renders itself. The two share
-// one table and one list endpoint -- they differ only in ``kind``.
-export type AvatarKind = "photoreal" | "live2d";
+// Which digital-human model drives an avatar. The set is open: every model
+// the server registers is one of these, and an avatar records the one that
+// owns its pack. A model bundles an avatar pipeline with the drive engine
+// that renders it, so the two can never be picked apart.
+export type DriveModelId = string;
+
+// One registered digital-human model, as the server lists it.
+export interface DriveModelInfo {
+  name: DriveModelId;
+  label_zh: string;
+  // What the operator uploads for this model: a photo / clip
+  // ("image_video") or a zipped project ("archive").
+  source_kind: "image_video" | "archive" | string;
+  // True when the browser draws the avatar itself -- there is no server
+  // session for it.
+  client_rendered: boolean;
+}
 
 export interface AvatarInfo {
   avatar_id: string;
   name: string;
   status: "pending" | "processing" | "ready" | "failed";
-  kind: AvatarKind;
+  // The digital-human model that drives this avatar.
+  drive_model: DriveModelId;
+  // Whether that model is rendered by the client. It rides along with the
+  // row so every page that can select an avatar can tell a server-driven
+  // avatar from a client-rendered one without a second lookup.
+  client_rendered: boolean;
   // The pipeline's pack.json: the MuseTalk block plus, for new packs, a
   // top-level `warnings` list of non-blocking source-quality findings.
   config: {
@@ -56,23 +73,23 @@ export interface JobInfo {
   created_at: string;
 }
 
-// Engine description returned inside SystemInfo.engine. An engine without
-// weights to load reports a subset.
-export interface EngineInfo {
+// One runtime as /api/admin/system reports it. Several digital-human
+// models may be resident at once, so the page is told about each of them
+// rather than about one "the" engine.
+export interface RuntimeInfo {
   name: string;
-  gpu: boolean;
-  // Only an engine with weights on disk reports these.
-  models_dir?: string;
-  weights_present?: boolean;
-  loaded?: boolean;
-  avatars_cached?: number;
-  pending?: number;
+  label_zh: string;
+  // A model the browser renders has no engine and no weights.
+  client_rendered: boolean;
+  loaded: boolean;
+  weights_present: boolean;
+  avatars_cached: number;
+  pending: number;
 }
 
 // System-wide info from /api/admin/system.
 export interface SystemInfo {
-  engine: EngineInfo;
-  pipeline: string;
+  runtimes: RuntimeInfo[];
   version: string;
   data_dir: string;
   gpu: boolean;
@@ -140,21 +157,22 @@ export interface ArtifactInfo {
   kind: "image" | "json" | "tensor" | "mask" | "video" | "binary" | string;
 }
 
-// One slot from /api/admin/models. Today there is always exactly one
-// (the singleton drive-engine runtime), but the shape is a list so
-// adding more slots in future is non-breaking.
+// One slot from /api/admin/models. One row per thing the operator can
+// put on the GPU, plus one row per digital-human model.
 //
 // One row per thing the operator can put on the GPU. The Models tab
-// renders engine slots (``drive_runtime``) and portrait animators
-// (``portrait_animator``) in the same table; the optional fields are
-// populated by whichever kind produces the row, and the UI falls back
-// to ``—`` when a field is null. TTS lives in a separate ``services``
-// table because it has no on-GPU weights.
+// renders drive runtimes (``drive_runtime``), client-rendered runtimes
+// (``client_runtime``) and portrait animators (``portrait_animator``)
+// in the same table; the optional fields are populated by whichever kind
+// produces the row, and the UI falls back to ``—`` when a field is null.
+// TTS lives in a separate ``services`` table because it has no on-GPU
+// weights.
 export interface ModelInfo {
   id: string;
-  // Drives the 类型 badge + the row grouping. Engine rows report
-  // "drive_runtime"; animator rows report "portrait_animator".
-  kind: "drive_runtime" | "portrait_animator";
+  // Drives the 类型 badge + the row grouping. Drive-runtime rows report
+  // "drive_runtime"; a model the client renders reports "client_runtime";
+  // animator rows report "portrait_animator".
+  kind: "drive_runtime" | "client_runtime" | "portrait_animator";
   // Operator-facing label (animator ``meta().label_zh``, or the
   // engine's hardcoded Chinese name). The id column falls back to ``id``
   // when this is absent.
@@ -202,14 +220,10 @@ export interface ModelInfo {
   // "已加载 3 分钟前". Animator rows are always null (animators don't
   // track this).
   loaded_at: string | null;
-}
-
-// One digital-human model: the avatar-preparation pipeline plus the drive
-// engine that renders its pack. The two are bound together server-side, so
-// the console picks a model, not a pipeline and an engine separately.
-export interface DhModelInfo {
-  name: string;
-  label_zh: string;
+  // Pre-baked label for the status cell. A client-rendered runtime says
+  // "SDK 就绪" / "SDK 缺失" rather than 已加载 / 未加载; rows without a
+  // label fall back to the loaded flag.
+  status?: string;
 }
 
 // Top-level shape the Models tab polls. gpu is null on a CPU-only
@@ -219,15 +233,6 @@ export interface ModelsPayload {
   services: ServiceInfo[];
   gpu: GpuSnapshot | null;
   active_sessions: number;
-  // The model this box is running right now.
-  active_model: DhModelInfo;
-  // The model the operator has picked in the settings table. It differs
-  // from active_model after a switch: the engine is a process-wide
-  // singleton holding the weights in VRAM, so a new model takes effect on
-  // the next restart.
-  selected_model: string;
-  // Every model the server ships.
-  available_models: DhModelInfo[];
 }
 
 // MiniMax TTS configuration surfaced by ``GET /api/admin/tts/config`` and

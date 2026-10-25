@@ -49,16 +49,22 @@ function EngineStatusChip() {
     };
   }, []);
   if (!info) {
-    return <span style={{ fontSize: 12, color: "#999" }}>引擎…</span>;
+    return <span style={{ fontSize: 12, color: "#999" }}>运行时…</span>;
   }
-  const gpu = info.engine.gpu ? "GPU" : "CPU";
+  const gpu = info.gpu ? "GPU" : "CPU";
   const dir = info.data_dir || "";
   const version = info.version || "";
-  // One-line tooltip: engine name, execution device, data dir, build version.
-  // Each piece is a separate line so multi-segment paths stay readable.
+  // Several models may be resident at once, so the chip names the ones
+  // that are loaded and lists every runtime in its tooltip.
+  const loaded = info.runtimes.filter((r) => r.loaded);
+  const missingWeights = info.runtimes.some((r) => !r.weights_present);
   const title = (
     <div style={{ lineHeight: 1.6 }}>
-      <div>引擎：{info.engine.name}</div>
+      {info.runtimes.map((r) => (
+        <div key={r.name}>
+          {r.label_zh}：{r.client_rendered ? "客户端渲染" : r.loaded ? "已加载" : "未加载"}
+        </div>
+      ))}
       <div>设备：{gpu}</div>
       <div>数据目录：{dir}</div>
       <div>版本：{version}</div>
@@ -71,13 +77,13 @@ function EngineStatusChip() {
           fontSize: 12,
           padding: "2px 10px",
           borderRadius: 12,
-          background: info.engine.weights_present === false ? "#faad1455" : "#52c41a33",
-          color: info.engine.weights_present === false ? "#faad14" : "#52c41a",
+          background: missingWeights ? "#faad1455" : "#52c41a33",
+          color: missingWeights ? "#faad14" : "#52c41a",
           cursor: "default",
           whiteSpace: "nowrap",
         }}
       >
-        {info.engine.name} · {gpu}
+        {loaded.length > 0 ? loaded.map((r) => r.label_zh).join(" · ") : "未加载"} · {gpu}
       </span>
     </Tooltip>
   );

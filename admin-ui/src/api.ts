@@ -1,4 +1,4 @@
-import type { AvatarInfo, Live2DHealth } from "./types";
+import type { DriveModelInfo, Live2DHealth } from "./types";
 import { modelFileUrl } from "./live2d/cubism/core";
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
@@ -72,39 +72,63 @@ export async function downloadWithToken(path: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// ----- Live2D -------------------------------------------------------------
-
-export interface Live2DUploadIn {
-  name: string;
-  /** The whole Cubism project, zipped. */
-  file: File;
-  /** model3.json's path inside the archive. Blank lets the server detect
-   *  it, which is what makes a zip of the exported folder work. */
-  entry?: string;
-  /** Emotion tag -> index into the model's own expression list. */
-  expressions?: Record<string, number>;
-}
+// ----- avatars --------------------------------------------------------------
 
 /**
- * Register a Live2D avatar from an uploaded project archive.
+ * The digital-human models this server can drive an avatar with.
  *
- * Replaces the old server-path registration: an operator used to have to
- * SCP the project onto the box and type an absolute path, which is not a
- * thing a browser can do.
+ * One list, shared by the create form and the session pickers: an avatar
+ * records the model that owns it, so "which models exist" has a single
+ * answer.
  */
-export function uploadLive2dAvatar(body: Live2DUploadIn): Promise<AvatarInfo> {
+export function listDriveModels(): Promise<DriveModelInfo[]> {
+  return api<DriveModelInfo[]>("/api/admin/drive-models");
+}
+
+export interface CreateAvatarIn {
+  name: string;
+  /** The digital-human model that will drive this avatar. */
+  model: string;
+  /** The source material: a photo, a clip, or a zipped project. */
+  file: File;
+  /** Live2D: model3.json's path inside the archive. Blank lets the server
+   *  detect it, which is what makes a zip of the exported folder work. */
+  entry?: string;
+  /** Live2D: emotion tag -> index into the model's own expression list. */
+  expressions?: Record<string, number>;
+  /** Idle-video knobs, for the models that produce an idle clip. */
+  idle_crf?: number;
+  idle_preset?: string;
+}
+
+
+/**
+ * Create an avatar for a digital-human model.
+ *
+ * One endpoint for every model: the model decides what the upload is (a
+ * photo / clip, or a zipped project) and which extra fields apply.
+ */
+export function createAvatar(body: CreateAvatarIn): Promise<{
+  avatar_id: string;
+  status: string;
+  drive_model: string;
+}> {
   const form = new FormData();
   form.append("name", body.name);
+  form.append("model", body.model);
   form.append("file", body.file);
   if (body.entry) form.append("entry", body.entry);
   if (body.expressions && Object.keys(body.expressions).length > 0) {
     form.append("expressions", JSON.stringify(body.expressions));
   }
-  return api<AvatarInfo>("/api/admin/live2d/avatars", { method: "POST", form });
+  if (typeof body.idle_crf === "number") form.append("idle_crf", String(body.idle_crf));
+  if (body.idle_preset) form.append("idle_preset", body.idle_preset);
+  return api("/api/admin/avatars", { method: "POST", form });
 }
 
-export function deleteLive2dAvatar(avatarId: string): Promise<void> {
-  return api<void>(`/api/admin/live2d/avatars/${avatarId}`, { method: "DELETE" });
+/** Delete an avatar and everything it owns, whichever model drives it. */
+export function deleteAvatar(avatarId: string): Promise<void> {
+  return api<void>(`/api/admin/avatars/${avatarId}`, { method: "DELETE" });
 }
 
 export function live2dHealth(): Promise<Live2DHealth> {
