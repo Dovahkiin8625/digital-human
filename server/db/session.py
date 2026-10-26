@@ -26,10 +26,10 @@ def reset_engine() -> None:
 
 
 #: Additive ALTER TABLE statements run on every init_db(). SQLite doesn't
-#: support ``IF NOT EXISTS`` on ADD COLUMN, so each statement has to be
-#: issued inside an idempotency guard (the ``has_column`` check below).
-#: Removing entries from this list is fine; the column is then simply
-#: left in place on upgraded databases.
+#: support ``IF NOT EXISTS`` on ADD COLUMN, so each statement is issued
+#: inside an idempotency guard (the column check in ``_apply_migrations``).
+#: A column that is not listed here is never added to an existing
+#: database -- ``create_all`` only gives it to a fresh one.
 _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # (table, column, ddl-fragment-for-existing-table)
     (
@@ -38,9 +38,7 @@ _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "ALTER TABLE avatars ADD COLUMN tunable_overrides JSON NOT NULL DEFAULT '{}'",
     ),
     (
-        # Which digital-human model drives the avatar. Replaces the old
-        # ``kind`` column, whose two values ("photoreal" / "live2d") were
-        # really two drive models wearing a different name.
+        # The registered model name from ``server.model_registry``.
         "avatars",
         "drive_model",
         "ALTER TABLE avatars ADD COLUMN drive_model VARCHAR(32) NOT NULL DEFAULT 'musetalk'",
@@ -88,8 +86,8 @@ def _rebuild_table_without_columns(
     FK checks must be off for the duration or the DROP of the old
     table violates the FKs that the new table is about to lose.
 
-    ``keep`` maps the destination column name to its SQL type (used to
-    build the ``CREATE TABLE`` statement). ``drop`` lists columns from
+    ``keep`` maps the destination column name to its SQL type, used to
+    build the ``CREATE TABLE`` statement. ``drop`` lists columns from
     the source schema that should not be carried over.
     """
     inspector = inspect(engine)
@@ -115,15 +113,15 @@ def _rebuild_table_without_columns(
 
 
 def _backfill_drive_model(engine) -> None:
-    """Carry the old ``kind`` column over into ``drive_model``.
+    """Copy a legacy ``kind`` value into ``drive_model``.
 
-    Before the drive-model binding, an avatar's ``kind`` said which
-    renderer it used: ``photoreal`` (a MuseTalk pack) or ``live2d`` (a
-    Cubism project). Those two values are really two *drive models*, so
-    the rename is a straight mapping for every row that exists.
+    A database created before the drive-model binding carries a ``kind``
+    column whose values ("photoreal" / "live2d") named the renderer the
+    avatar used -- two drive models under another name. "live2d" maps
+    across verbatim; any other value stays on the default drive model.
 
-    Runs once, before the column is dropped. A database created with the
-    current schema has no ``kind`` column and is left alone.
+    Runs before the column is dropped. A database created with the current
+    schema has no ``kind`` column and is left alone.
     """
     inspector = inspect(engine)
     cols = {c["name"] for c in inspector.get_columns("avatars")}
@@ -139,23 +137,19 @@ def _backfill_drive_model(engine) -> None:
 
 
 def _drop_abandoned_columns(engine) -> None:
-    """Remove columns the current models no longer carry.
+    """Remove the columns and the table the current models no longer carry.
 
-    The original service was multi-tenant: a ``tenants`` table plus
-    ``tenant_id`` NOT NULL columns on ``avatars`` and ``sessions``. A
-    later refactor dropped the ``Tenant`` model and its columns from
-    ``server.db.models`` but not from existing DBs — SQLite's
-    ``create_all`` only adds tables, so the stale schema stayed. Inserts
-    into ``sessions`` then failed with ``NOT NULL constraint failed:
-    sessions.tenant_id`` because the new model no longer populates that
-    column.
+    A database created under the multi-tenant schema carries a ``tenants``
+    table plus NOT NULL ``tenant_id`` columns on ``avatars`` and
+    ``sessions``. SQLite's ``create_all`` only adds tables, so those stay
+    behind and inserts into ``sessions`` fail with ``NOT NULL constraint
+    failed: sessions.tenant_id`` — the current model does not populate
+    that column. A database may also still carry the older
+    ``avatars.kind`` column.
 
-    The same thing happened to ``avatars.kind`` when the drive-model
-    binding replaced it with ``avatars.drive_model``: SQLite cannot
-    ``ALTER TABLE ... DROP COLUMN`` a column that a foreign key refers
-    to, so the table is rebuilt from a whitelist instead.
+    SQLite cannot ``ALTER TABLE ... DROP COLUMN`` a column a foreign key
+    refers to, so ``avatars`` is rebuilt from a column whitelist instead.
 
-    This brings the DB in line with the current models.
     Idempotent: each step is gated by the target's presence, so re-runs
     and fresh DBs are no-ops.
     """

@@ -3,7 +3,7 @@ import { Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import type { UploadFile } from "antd/es/upload/interface";
 
-export interface UploadFieldProps {
+interface UploadFieldProps {
   /** The `accept` filter, e.g. "image/*,video/*" or ".zip,application/zip". */
   accept: string;
   dragText: ReactNode;

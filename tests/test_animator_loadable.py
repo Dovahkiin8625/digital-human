@@ -1,10 +1,8 @@
 """Per-animator load/unload lifecycle for the Models tab.
 
-The 形象活化 tab used to lazy-load each backend's pipeline on first
-``animate()`` call, paying ~30 s on a cold cache. The Models tab now
-owns a *separate* lifecycle: each animator has ``load()`` /
-``unload()`` / ``is_loaded`` so the operator can pre-allocate (or
-release) before kicking off a generation. ``animate()`` on a backend
+The Models tab owns the lifecycle of each backend: every animator has
+``load()`` / ``unload()`` / ``is_loaded`` so the operator can pre-allocate
+(or release) before kicking off a generation. ``animate()`` on a backend
 that wasn't loaded first raises a clear ``AnimatorError`` so the
 dispatcher surfaces a 503 with a hint at the Models tab -- not a silent
 mid-frame crash.
@@ -22,6 +20,11 @@ classes -- the heavy pipeline construction itself stays behind
 ``_load_pipeline`` (overridable in tests).
 """
 from __future__ import annotations
+
+import pytest
+
+# The default .venv has no torch, so the test that patches ``torch.cuda``
+# skips there instead of failing (``pytest.importorskip``).
 
 
 # ----- LivePortrait --------------------------------------------------------
@@ -92,9 +95,9 @@ def test_liveportrait_unload_drops_pipeline_and_cache(monkeypatch):
 
 
 def test_liveportrait_animate_raises_when_not_loaded(monkeypatch, tmp_path):
-    # The whole point of this refactor: when the operator hasn't loaded
-    # the backend, the dispatch surface must error with a hint at the
-    # Models tab -- NOT silently pay the 30 s cold-load + produce output.
+    # When the operator hasn't loaded the backend, the dispatch surface must
+    # error with a hint at the Models tab -- NOT silently pay the cold-load
+    # + produce output.
     from server.avatar.animators import AnimatorError
     from server.avatar.liveportrait import LivePortraitAnimator
 
@@ -134,7 +137,7 @@ def test_wan22_load_flips_flag_and_calls_load_pipeline(monkeypatch, tmp_path):
 
 
 def test_wan22_unload_drops_pipeline(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
 
     from server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
 
@@ -160,14 +163,3 @@ def test_wan22_animate_raises_when_not_loaded(monkeypatch, tmp_path):
     with pytest.raises(AnimatorError) as ei:
         a.animate(src, prompt="", num_frames=17, steps=20, out_dir=tmp_path / "out")
     assert "not_loaded" in str(ei.value)
-
-
-# ----- helpers ------------------------------------------------------------
-
-
-import pytest  # noqa: E402  -- pytest fixtures must come at module scope anyway
-
-
-# Force the import order to match real usage: torch / mediapipe / etc. may
-# surface as imports in the modules above; we keep them lazy so the
-# default suite still runs.

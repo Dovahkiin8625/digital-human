@@ -5,11 +5,9 @@
 // type into the chat, and the digital human streams the LLM reply while
 // typing a subtitle on the video.
 //
-// The TTS worker, sentence splitter, and SSE streaming live here in
-// the same shape they used to sit inside the Debug page. The only
-// thing that's new is the page boundary -- the implementation moves
-// verbatim, except for the WebRTC session ownership which now lives
-// in this page alone (Debug can run its own session in parallel).
+// The TTS worker, sentence splitter, and SSE streaming live here. The
+// WebRTC session ownership belongs to this page alone -- Debug runs its
+// own session in parallel.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -227,8 +225,7 @@ export default function Chat() {
     try {
       if (!voiceId) {
         // No voice selected: just flash each sentence as a caption in
-        // turn -- no audio, no TTS fetch to pipeline. Old behaviour
-        // for an edge case the UI already disables upstream.
+        // turn -- no audio, no TTS fetch to pipeline.
         while (queue.length > 0) {
           const s = queue.shift()!;
           setCaption(s);
@@ -296,8 +293,7 @@ export default function Chat() {
         }
         // Caption appears here, in lock-step with the audio that's
         // about to start. Replacing the previous caption (not clearing
-        // + setting) avoids the blank moment the old implementation
-        // had between sentences.
+        // + setting) avoids the blank moment between sentences.
         setCaption(result.sentence);
         try {
           if (live2d) {
@@ -387,11 +383,10 @@ export default function Chat() {
         // folded chip below the bubble text.
         const out = stripper.feed(chunk);
         // ``drainSentences`` owns the buffer-trim contract: ``newTail``
-        // is the un-flushed remainder to feed back next delta.
-        // Pre-fix the chat panel used to mutate a string buffer directly
-        // and never trim, so every delta re-split (and re-flushed) the
-        // entire accumulated text -- the avatar ended up speaking each
-        // sentence multiple times.
+        // is the un-flushed remainder to feed back next delta. Without
+        // the trim, every delta would re-split (and re-flush) the entire
+        // accumulated text and the avatar would speak each sentence
+        // multiple times.
         const step = drainSentences(llmBufferRef.current, out.visibleText);
         llmBufferRef.current = { tail: step.newTail };
         setMessages((cur) => {
@@ -810,7 +805,7 @@ function LlmChatCard({
                 // didn't speak -- rendered as a folded chip below.
                 thoughts={m.thoughts}
                 // The trailing assistant bubble is "streaming" while
-                // busy; everything else is historical.
+                // busy; the earlier bubbles are finished.
                 streaming={busy && i === messages.length - 1 && m.role === "assistant"}
               />
             ))

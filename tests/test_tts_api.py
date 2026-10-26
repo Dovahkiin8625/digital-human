@@ -12,8 +12,8 @@ ADMIN = {"X-Admin-Token": "dev-admin-token"}
 def tts_db(tmp_path, monkeypatch):
     """A DB session the tests can drive, with the MiniMax config seeded.
 
-    The env layer is gone -- the ``settings`` table is the only place the
-    MiniMax config lives -- so the fixture seeds it directly, the same way
+    The ``settings`` table is the only place the MiniMax config lives --
+    there is no env layer -- so the fixture seeds it directly, the same way
     the console's Models-tab dialog does.
     """
     from tests.env import apply_env

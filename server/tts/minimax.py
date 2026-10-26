@@ -71,9 +71,8 @@ async def synthesize(text: str, voice_id: str, *, db, client: httpx.AsyncClient 
     ``client`` is injectable so tests can drive the real parse path through an
     httpx.MockTransport instead of the network. ``db`` is the FastAPI request
     session; it is required, because the SQLite ``settings`` table is the
-    only place the MiniMax config lives -- the ``DH_MINIMAX_*`` env layer is
-    gone. Reading it per call keeps a console edit effective on the very
-    next request without a server restart.
+    only place the MiniMax config lives. Reading it per call keeps a console
+    edit effective on the very next request without a server restart.
     """
     if not voice_id or not voice_id.strip():
         raise AppError(

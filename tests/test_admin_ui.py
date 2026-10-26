@@ -194,8 +194,7 @@ def test_avatar_create_form_exposes_idle_overrides():
     # The create form surfaces the two idle-video knobs (idle_crf + idle_preset)
     # so the operator can pick per-avatar quality at upload time. Both must
     # be sent with the upload so the server stores them on the avatar row.
-    # No other tunables (the dropped face-crop / quality-threshold ones)
-    # should be editable here.
+    # No other tunables should be editable here.
     source = _avatars_source()
     api = _api_source()
     assert 'form.append("idle_crf"' in api, (
@@ -213,17 +212,17 @@ def test_avatar_create_form_exposes_idle_overrides():
 
 
 def test_avatar_create_form_has_no_settings_link():
-    # The Settings tab is gone. The upload card must not link to it, and the
-    # read-only "高级参数" summary that pointed operators there is removed.
+    # There is no Settings tab. The upload card must not link to one, and the
+    # read-only "高级参数" summary that pointed operators there must be gone.
     source = _avatars_source()
     assert 'navigate("/settings")' not in source
     assert "调整参数（设置 → 制作）" not in source
 
 
 def test_avatar_upload_drops_animate_toggle():
-    # The "先把照片动起来" toggle has moved off the avatar upload form onto
-    # its own "/activate-portrait" tab. Lock that removal so a future
-    # "let me put it back here" cannot quietly undo the move.
+    # The "先把照片动起来" toggle lives on its own "/activate-portrait" tab,
+    # not on the avatar upload form. Lock that so a future "let me put it
+    # back here" cannot quietly undo the move.
     source = _avatars_source()
     assert "先把照片动起来" not in source, (
         "animate checkbox must live on /activate-portrait, not on the avatar upload card"
@@ -328,12 +327,10 @@ def test_activate_portrait_drawer_exposes_view_delete_download_and_use_as_avatar
 
 
 def test_activate_portrait_drops_right_pane_preview_card():
-    # The old design rendered the current result in a right-side Card next
-    # to the form. That surface was redundant once the records list +
-    # 查看 drawer cover the same need; dropping it brings the page in line
-    # with 形象管理's stack (form-on-top, list-below) layout. The
-    # identifying structure was the <Row gutter> + two <Col xs={24} md={12}>
-    # columns; the form card on the left alone does not need them.
+    # The page stacks the form on top and the records list below, in line
+    # with 形象管理's layout. The records list + 查看 drawer cover the
+    # current-result surface, so there is no right-side preview card, no
+    # duplicated params summary, and no two-column <Row gutter> layout.
     source = _activate_portrait_source()
     assert '<Card title="生成结果">' not in source, (
         "The right-pane '生成结果' Card must be removed; the record drawer covers it"
@@ -362,23 +359,14 @@ def test_activate_portrait_inserts_submitted_task_into_records_list():
     )
 
 
-def test_app_nav_renames_i2v_tab_to_image_to_video():
-    # The '形象活化' label was too abstract; it now reads 图生视频. Lock the
-    # rename so a future revert is caught. The URL stays at /activate-portrait
-    # to avoid gratuitous churn.
-    app = _app_source()
-    assert "图生视频" in app, "App.tsx must show 图生视频 as the i2v tab label"
-    assert "形象活化" not in app, "Old abstract label must be gone"
-
-
 def test_app_nav_drops_tasks_tab():
-    # The 任务 tab has been merged into the 图生视频 page (records list lives
+    # The 任务 tab is merged into the 图生视频 page (records list lives
     # under /activate-portrait). Lock the removal so a future revert cannot
     # silently split the surface in two.
     app = _app_source()
     assert "/tasks" not in app, "App.tsx must not register a /tasks route"
     assert "import Tasks" not in app, "App.tsx must not import the Tasks page"
-    assert "任务" not in app, "App.tsx nav must not show 任务 anymore"
+    assert "任务" not in app, "App.tsx nav must not show 任务"
 
 
 def test_tasks_page_file_is_removed():
@@ -422,25 +410,23 @@ def test_avatars_declares_prefilled_ref_before_use_state():
 
 
 def test_avatars_wraps_prefilled_file_without_assign():
-    # Regression guard for two consecutive browser-side crashes on /avatars
-    # after the i2v handoff:
+    # Regression guard for browser-side crashes on /avatars after the i2v
+    # handoff. Two constraints the seeded File must respect:
     #
-    # 1) ``Object.assign(seeded, { ..., lastModifiedDate: ... })`` threw
-    #    ``TypeError: Cannot set property lastModifiedDate of #<File>``
-    #    because ``File.prototype.lastModifiedDate`` is a legacy read-only
-    #    getter on modern browsers.
-    # 2) A first attempted fix wrapped the File via ``Object.create`` and
-    #    used ``Object.defineProperty`` to add the extra fields. That
-    #    satisfied RcFile's shape but stripped the ``[[Blob]]`` internal
-    #    slot, so ``URL.createObjectURL``/``FileReader``/``File.slice``
-    #    later threw ``TypeError: Illegal invocation`` when AntD's preview
-    #    pipeline and our own ``videoSeconds`` helper reached for them.
+    # 1) ``File.prototype.lastModifiedDate`` is a read-only getter on modern
+    #    browsers, so nothing may write to it.
+    # 2) The File must stay the original object: a wrapper built with
+    #    ``Object.create`` satisfies RcFile's shape but strips the
+    #    ``[[Blob]]`` internal slot, so ``URL.createObjectURL`` /
+    #    ``FileReader`` / ``File.slice`` throw ``TypeError: Illegal
+    #    invocation`` when AntD's preview pipeline and our own
+    #    ``videoSeconds`` helper reach for them.
     #
-    # The correct fix uses the original File as-is (so the [[Blob]] slot
-    # is intact) and only writes ``uid`` -- a plain string property whose
-    # assignment is unconstrained. ``lastModifiedDate`` is intentionally
-    # NEVER set; AntD v5's runtime never reads it (rc-upload v4 only
-    # touches ``uid``/``name``/``type``/``size``/``lastModified``).
+    # So the code uses the original File as-is and only writes ``uid`` --
+    # a plain string property whose assignment is unconstrained.
+    # ``lastModifiedDate`` is never set: AntD v5's runtime does not read it
+    # (rc-upload v4 only touches ``uid``/``name``/``type``/``size``/
+    # ``lastModified``).
     source = _avatars_source()
     assert "Object.assign(seeded" not in source, (
         "Avatars.tsx must not Object.assign onto a File: "
@@ -452,17 +438,17 @@ def test_avatars_wraps_prefilled_file_without_assign():
         "internal slot, so URL.createObjectURL / FormData.append throw "
         "'TypeError: Illegal invocation' on the wrapper."
     )
-    # We deliberately never write to ``.lastModifiedDate``: it's a read-only
-    # legacy getter on modern browsers, and AntD v5's runtime (rc-upload v4)
-    # doesn't read it. The exact write patterns we forbid are: assignment via
-    # ``Object.assign`` (above) or ``Object.create`` wrapper (above); the
+    # We deliberately never write to ``.lastModifiedDate``: it is a read-only
+    # getter on modern browsers, and AntD v5's runtime (rc-upload v4) does not
+    # read it. The forbidden shapes are the two write attempts: assignment via
+    # ``Object.assign`` (above) and the ``Object.create`` wrapper (above); the
     # current code path uses the seed File as-is and only writes ``uid``.
     # Match the two *write-attempt* shapes, not the bare identifier -- the
-    # identifier appears in this test's own comments to document why it's
-    # avoided.
+    # identifier also shows up in the page's own comments, which the helper
+    # strips before scanning.
     assert not _writes_last_modified_date(source), (
         "Avatars.tsx must not assign to .lastModifiedDate on a File: the field is "
-        "a read-only legacy getter in modern browsers and AntD v5's runtime never "
+        "a read-only getter in modern browsers and AntD v5's runtime never "
         "reads it."
     )
     assert "rcFile.uid" in source or "originFileObj.uid" in source, (
@@ -507,8 +493,9 @@ def test_activate_portrait_greys_out_backends_that_dont_fit_current_gpu():
 
 
 def test_activate_portrait_is_first_tab():
-    # The user-facing requirement is that "形象活化" is the first menu entry;
-    # a regression that re-sorts the nav back to "形象管理" first must fail.
+    # The user-facing requirement is that the i2v tab is the first menu
+    # entry; a regression that re-sorts the nav back to "形象管理" first
+    # must fail.
     app_source = (
         pathlib.Path(__file__).resolve().parent.parent
         / "admin-ui" / "src" / "App.tsx"
@@ -517,7 +504,7 @@ def test_activate_portrait_is_first_tab():
     activate_idx = app_source.find('"/activate-portrait"')
     avatars_idx = app_source.find('"/avatars"')
     assert 0 <= activate_idx < avatars_idx, (
-        "形象活化 (key /activate-portrait) must be the first nav entry, before /avatars"
+        "the i2v tab (key /activate-portrait) must be the first nav entry, before /avatars"
     )
     # The Routes block also lists /activate-portrait before /avatars.
     routes_idx = app_source.find('path="/activate-portrait"')
@@ -528,18 +515,16 @@ def test_activate_portrait_is_first_tab():
 
 
 def test_nav_label_is_图生视频_not_形象活化():
-    # The tab was renamed from 形象活化 (too abstract) to 图生视频 (concrete:
-    # describes what the button does). Lock both directions so a future revert
-    # of either label is caught.
-    app_source = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "App.tsx"
-    ).read_text(encoding="utf-8")
+    # The tab reads 图生视频 (concrete: describes what the button does),
+    # not 形象活化 (too abstract). Lock both directions so a future revert
+    # of either label is caught. The URL stays at /activate-portrait
+    # to avoid gratuitous churn.
+    app_source = _app_source()
     assert "图生视频" in app_source, (
         "the page must be labelled 图生视频"
     )
     assert "形象活化" not in app_source, (
-        "the old abstract label must not appear anywhere in the nav"
+        "the abstract label must not appear anywhere in the nav"
     )
 
 
@@ -558,7 +543,7 @@ def _types_source():
 
 
 def test_settings_page_is_gone():
-    # The Settings tab was removed: the page file must be deleted (so TS
+    # There is no Settings tab: the page file must be deleted (so TS
     # doesn't keep an orphan surface around) and App.tsx must not import or
     # route it. The nav entry must also be gone so the tab doesn't render
     # as an empty row.
@@ -576,10 +561,9 @@ def test_settings_page_is_gone():
 def test_types_drops_non_idle_tunables():
     # The TunableParams surface is what the create form talks to. The user-
     # visible knobs on the create form are idle_crf + idle_preset; everything
-    # else has moved off the UI. The old ten-knob surface stays in the
-    # backend's GET /api/admin/settings for audit-row completeness, but the
-    # TypeScript shape that drives the form should reflect only what the
-    # form actually edits. Drop the others from the type.
+    # else is off the UI. The ten-knob surface stays in the backend's
+    # GET /api/admin/settings for audit-row completeness, but the TypeScript
+    # shape that drives the form must reflect only what the form edits.
     source = _types_source()
     # Lock the dropped keys out of the UI-side TunableParams surface.
     assert "face_crop_size" not in source, "face_crop_size is inert -- drop from UI surface"
@@ -625,9 +609,9 @@ def _models_page_source():
 
 
 def test_models_tab_has_no_active_model_card():
-    # There is no "the model this box runs" any more: an operator runs
-    # several models at once and loads / unloads each of them from the
-    # table. A selector card would be a second, contradictory answer.
+    # There is no "the model this box runs": an operator runs several models
+    # at once and loads / unloads each of them from the table. A selector
+    # card would be a second, contradictory answer.
     source = _models_page_source()
     assert "当前数字人模型" not in source, (
         "the Models tab must not offer a single active-model selector"
@@ -636,8 +620,7 @@ def test_models_tab_has_no_active_model_card():
         "the Models tab must not write an active-model choice"
     )
     assert "ActiveModelCard" not in source
-    # What replaces it: one row per drive model, each with its own
-    # load / unload buttons.
+    # One row per drive model, each with its own load / unload buttons.
     assert "client_runtime" in source, (
         "the Models tab must render the client-rendered runtimes too"
     )
@@ -648,6 +631,6 @@ def test_types_expose_the_drive_model_payload():
     types = _types_source()
     assert "DriveModelInfo" in types, "the console needs the drive-model shape"
     assert "drive_model" in types, "an avatar records the model that drives it"
-    # The process-wide choice is gone.
+    # There is no process-wide model choice.
     for gone in ("active_model", "selected_model", "available_models"):
-        assert gone not in types, f"{gone} no longer exists"
+        assert gone not in types, f"{gone} is not part of the payload"

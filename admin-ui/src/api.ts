@@ -30,21 +30,10 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   return (await resp.json()) as T;
 }
 
-export async function apiRaw(path: string, opts: { method?: string; body?: unknown } = {}): Promise<Response> {
-  const headers: Record<string, string> = {};
-  let body: BodyInit | undefined;
-  if (opts.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    body = JSON.stringify(opts.body);
-  }
-  return fetch(path, { method: opts.method ?? "GET", headers, body });
-}
-
 export async function downloadWithToken(path: string): Promise<void> {
-  // No auth/token needed after the no-tenant refactor: the browser just fetches
-  // and saves the blob. The filename comes from Content-Disposition when
-  // present; falls back to the last path segment so the user gets a sensible
-  // save name either way.
+  // No auth token is needed: the browser just fetches and saves the blob.
+  // The filename comes from Content-Disposition when present; falls back to
+  // the last path segment so the user gets a sensible save name either way.
   const resp = await fetch(path);
   if (!resp.ok) {
     let msg = resp.statusText;
@@ -85,7 +74,7 @@ export function listDriveModels(): Promise<DriveModelInfo[]> {
   return api<DriveModelInfo[]>("/api/admin/drive-models");
 }
 
-export interface CreateAvatarIn {
+interface CreateAvatarIn {
   name: string;
   /** The digital-human model that will drive this avatar. */
   model: string;
@@ -151,16 +140,14 @@ export function live2dModelUrl(avatarId: string, entry: string): string {
   return modelFileUrl(avatarId, entry);
 }
 
-/** Base URL of the SDK's Core and Shaders. Not token-gated -- see core.ts. */
-export const LIVE2D_RUNTIME_BASE = "/api/v1/live2d/runtime";
 /**
  * The business-plane token, as held by the CONSOLE.
  *
- * The admin plane has had no auth since the multi-tenant refactor, so the
- * console has no credential of its own to present. The one exception is the
- * Live2D model host, which is token-gated for the Electron pet's sake -- and
- * which therefore 401s the console too on a deployment that sets one. This
- * is how an operator hands the console the same token the pet uses.
+ * The admin plane has no auth, so the console has no credential of its own
+ * to present. The one exception is the Live2D model host, which is
+ * token-gated for the Electron pet's sake -- and which therefore 401s the
+ * console too on a deployment that sets one. This is how an operator hands
+ * the console the same token the pet uses.
  */
 const CONSOLE_TOKEN_KEY = "dhV1Token";
 

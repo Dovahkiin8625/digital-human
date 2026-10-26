@@ -6,7 +6,7 @@ model and drive it with another.
 
 Several models may be registered at once: an operator runs more than one
 runtime on the same box, and the Models tab loads and unloads each of
-them independently. There is no "the active model" any more -- an avatar
+them independently. There is no "the active model" -- an avatar
 records the model that owns it.
 """
 import pytest
@@ -158,7 +158,7 @@ def test_the_pool_caches_one_engine_per_model():
 
 
 def test_the_registry_has_no_active_model():
-    """The process-wide "active model" is gone: nothing to freeze, and no
+    """There is no process-wide "active model": nothing to freeze, and no
     settings row to write."""
     import server.model_registry as registry
 

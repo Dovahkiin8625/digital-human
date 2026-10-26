@@ -1,14 +1,14 @@
-"""Test doubles for the digital-human model.
+"""Test doubles for the digital-human models.
 
-The server ships exactly one model (MuseTalk). These doubles stand in for
-it so the whole test suite can run in the torch-free ``.venv``: no GPU, no
-weights, no torch.
+The server ships three models: MuseTalk, the lite CPU engine, and the
+client-rendered Live2D one. These doubles stand in for the two
+server-driven ones so the whole test suite can run in the torch-free
+``.venv``: no GPU, no weights, no torch.
 
 They live here rather than in ``server/`` on purpose. A second
 implementation in the production package would be a second deployment mode
 nobody asked for -- and the server would have to carry a switch to choose
-between them, which is exactly what the retired ``DH_DRIVE_ENGINE`` /
-``DH_AVATAR_PIPELINE`` env vars were.
+between them.
 
 The behaviour of both doubles is frozen: the suite asserts on their exact
 frame arithmetic (``round(duration * fps)`` per 100 ms block), on the pack
@@ -59,8 +59,8 @@ class FakeEngine(DriveEngine):
                     "id": "fake_drive",
                     # Unified ModelInfo shape: ``kind`` lets the Models tab
                     # render engine rows alongside portrait-animator rows
-                    # in one table (the row's `type` column still uses the
-                    # historical "drive_runtime" string for backward compat).
+                    # in one table. The row also carries ``type``, the
+                    # field the console still reads for its label.
                     "kind": "drive_runtime",
                     "label_zh": "Fake 驱动运行时",
                     "type": "drive_runtime",
@@ -167,10 +167,11 @@ class FakePipeline(AvatarPipeline):
 def install_doubles(monkeypatch) -> None:
     """Point the server's model factories at the doubles.
 
-    ``server.main`` imports ``create_engine`` inside ``create_app`` and
-    ``create_pipeline`` is looked up as a module attribute at call time, so
-    patching the two module attributes swaps the whole model -- engine and
-    pipeline together, which is the invariant the registry exists to keep.
+    ``server.engine.pool`` looks ``create_engine`` up on the module at call
+    time and ``create_pipeline`` is looked up as a module attribute at call
+    time too, so patching the two module attributes swaps the whole model --
+    engine and pipeline together, which is the invariant the registry exists
+    to keep.
 
     The Live2D model keeps its real pipeline: extracting and validating a
     Cubism project touches neither torch nor the GPU, and the real thing

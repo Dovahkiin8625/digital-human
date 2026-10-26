@@ -23,8 +23,6 @@ def causal_fill(window):
     them, in the same interleaved order the serving path produces -- token
     *pairs*, not one token repeated nine times over.
     """
-    import torch
-
     out = window.clone()
     current = out[..., CURRENT_TOKEN_START : CURRENT_TOKEN_START + 2, :]
     repeats = (AUDIO_TOKENS - FUTURE_TOKEN_START) // current.shape[0]

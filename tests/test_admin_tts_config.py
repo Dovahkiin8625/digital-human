@@ -26,14 +26,14 @@ def test_get_returns_masked_api_key(client):
 def test_get_includes_public_config_fields(client):
     """The GET response carries every operator-facing field. The
     ``model`` / ``sample_rate`` / ``group_id`` / ``base_url`` values come
-    from the built-in defaults when the DB has no rows. ``voice_id``
-    used to live here -- the operator now picks it per session in the
-    debug page, so it isn't a server-wide setting anymore.
+    from the built-in defaults when the DB has no rows. ``voice_id`` is
+    not a server-wide setting: the operator picks it per session in the
+    debug page.
     """
     body = client.get("/api/admin/tts/config").json()
     for field in ("model", "sample_rate", "group_id", "base_url"):
         assert field in body
-    # ``voice_id`` is gone from the GET shape.
+    # ``voice_id`` is not part of the GET shape.
     assert "voice_id" not in body
     # Built-in defaults.
     assert body["model"] == "speech-02-hd"
@@ -59,7 +59,7 @@ def test_put_updates_db_and_subsequent_get_reflects(client):
     assert body["api_key_masked"] == "****7890"
     # Raw api_key stays out of the response -- only the masked form leaks.
     assert "api_key" not in body
-    # ``voice_id`` is gone from the response shape.
+    # ``voice_id`` is not part of the response shape.
     assert "voice_id" not in body
 
     # And the next GET agrees.
@@ -69,7 +69,7 @@ def test_put_updates_db_and_subsequent_get_reflects(client):
 
 
 def test_put_rejects_voice_id_field(client):
-    """``voice_id`` used to be a configurable field -- it isn't anymore.
+    """``voice_id`` is not a configurable field.
     Pydantic's ``extra='forbid'`` rejects it at the request boundary so a
     stale client sending voice_id gets a 422 with the field name in the
     error rather than a silently dropped key.

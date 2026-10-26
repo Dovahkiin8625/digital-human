@@ -41,9 +41,9 @@ type PreviewKind = "video" | "image";
 async function fetchObjectUrl(
   path: string
 ): Promise<{ url: string }> {
-  // No auth/token needed after the no-tenant refactor: a plain <video>/<img>
-  // can fetch directly. The server returns the raw bytes either way; we
-  // wrap them in a blob URL so the element sees a same-origin source.
+  // No auth token is needed: a plain <video>/<img> can fetch directly. The
+  // server returns the raw bytes either way; we wrap them in a blob URL so
+  // the element sees a same-origin source.
   const resp = await fetch(path);
   if (!resp.ok) {
     const err = new Error(`request failed: ${resp.status}`) as Error & {
@@ -244,8 +244,7 @@ export default function AvatarDetail() {
     }
   }
 
-  // Effective params could come from pack.json's _effective_params (set by the
-  // pipeline at build time) or, when absent, fall back to /api/admin/settings.
+  // The effective params the pipeline recorded in pack.json at build time.
   // Memo avoids re-reading in render cycles that don't change the underlying
   // avatar.
   const effectiveParams = useMemo(() => {
@@ -604,7 +603,7 @@ export default function AvatarDetail() {
             ]}
           />
           <Typography.Text type="secondary" style={{ display: "block", marginTop: 8 }}>
-            调整「参数设置」中的全局值后，下次重建即生效。
+            创建形象时填写的单项覆盖优先于服务端全局配置；改动全局配置后需重建形象才生效。
           </Typography.Text>
         </Card>
       )}

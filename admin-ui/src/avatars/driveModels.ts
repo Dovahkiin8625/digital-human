@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
-import type { DriveModelId, DriveModelInfo } from "../types";
+import { listDriveModels } from "../api";
+import type { DriveModelInfo } from "../types";
 
 /**
  * The registered digital-human models, fetched once and shared.
@@ -13,10 +13,10 @@ import type { DriveModelId, DriveModelInfo } from "../types";
 let cached: DriveModelInfo[] | null = null;
 let inflight: Promise<DriveModelInfo[]> | null = null;
 
-export function fetchDriveModels(): Promise<DriveModelInfo[]> {
+function fetchDriveModels(): Promise<DriveModelInfo[]> {
   if (cached) return Promise.resolve(cached);
   if (!inflight) {
-    inflight = api<DriveModelInfo[]>("/api/admin/drive-models")
+    inflight = listDriveModels()
       .then((rows) => {
         cached = rows;
         return rows;
@@ -45,20 +45,4 @@ export function useDriveModels(): DriveModelInfo[] {
     };
   }, []);
   return models;
-}
-
-/** The operator-facing label of a drive model, or the raw id as a fallback. */
-export function driveModelLabel(models: DriveModelInfo[], id: DriveModelId): string {
-  return models.find((m) => m.name === id)?.label_zh ?? id;
-}
-
-/**
- * Whether a drive model is rendered by the client.
- *
- * Unknown ids answer false: the row then behaves like a server-driven
- * one, and the server refuses the session with a clear message rather
- * than the console guessing wrong.
- */
-export function isClientRendered(models: DriveModelInfo[], id: DriveModelId): boolean {
-  return models.find((m) => m.name === id)?.client_rendered ?? false;
 }

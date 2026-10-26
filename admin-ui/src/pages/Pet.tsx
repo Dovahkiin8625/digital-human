@@ -17,7 +17,7 @@ import type { AvatarInfo, Live2DHealth, Live2DModelConfig } from "../types";
  * call goes through ``baseUrl`` rather than the console's same-origin
  * relative paths.
  */
-export interface PetConfig {
+interface PetConfig {
   serverUrl: string;
   token: string;
 }

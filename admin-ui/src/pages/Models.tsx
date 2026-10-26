@@ -40,8 +40,7 @@ import type {
   TtsConfigUpdate,
 } from "../types";
 
-// Same value the rest of the System page polls at (概览, 任务, 会话). The
-// GPU counter moves on a sub-second timescale, but the operator's eye
+// The GPU counter moves on a sub-second timescale, but the operator's eye
 // doesn't; 2 s is dense enough to feel live without flooding the server.
 const POLL_MS = 2000;
 
@@ -413,7 +412,8 @@ export default function Models() {
           // The load button is gated on ``can_load``: True when the row
           // exposes a ``load()`` method AND isn't currently loaded.
           // ``can_unload`` is the wrong flag here -- it stays False after
-          // an unload cycle, which left the button permanently disabled.
+          // an unload cycle, so gating on it would leave the button
+          // permanently disabled.
           return (
             <Tooltip
               title={
@@ -535,11 +535,11 @@ function ServicesCard({
   // dialog lifecycle so the click feels like a one-shot modal.
   onOpenSettings: (kind: "tts" | "llm") => void;
 }) {
-  // The wider net: every other model this server uses (portrait animators
-  // + TTS). These can't be loaded / unloaded in-place like the drive
-  // engine can -- they're either on-disk ready or not -- so the table
-  // surfaces configuration + readiness + the operator's next action (a
-  // fetch script invocation) and skips load/unload buttons entirely.
+  // The wider net: every other model this server uses (portrait
+  // animators, TTS, LLM). The table surfaces each one's configuration,
+  // its readiness, and the operator's next action -- a load button, a
+  // fetch script invocation, or the settings dialog for the cloud
+  // services.
 
   // Sort so the most-frequently-relevant rows surface first: ready
   // backends up top, then by kind, then alphabetically. A freshly
@@ -612,8 +612,8 @@ function ServicesCard({
         if (row.kind === "tts_service") {
           // TTS rows show the operator what they've configured so they
           // can verify the model + sample rate without dropping into a
-          // settings tab. voice_id is per-session in the debug page now,
-          // so it doesn't live here.
+          // settings tab. voice_id is per-session in the debug page, so
+          // it doesn't live here.
           return (
             <Space direction="vertical" size={2} style={{ lineHeight: 1.4 }}>
               <Typography.Text type="secondary">
@@ -794,7 +794,7 @@ function ServicesCard({
   );
 }
 
-// ----- MiniMax TTS configuration (now a dialog, not a card) -----------------
+// ----- MiniMax TTS configuration dialog -------------------------------------
 
 const MINIMAX_MODEL_OPTIONS = [
   { value: "speech-02-hd", label: "speech-02-hd (默认)" },
@@ -819,13 +819,13 @@ function MiniMaxConfigDialog({
   onSaved: () => Promise<void> | void;
 }) {
   // The Models tab opens this from the MiniMax TTS row's "设置" action.
-  // It's a thinner form than the old inline card: ``voice_id`` is gone
-  // (the operator picks it per session in the debug page), and the
-  // remaining fields -- API key, base URL, group ID, model, sample rate
-  // -- are the same. "测试" still POSTs to /api/admin/tts to verify the
-  // round-trip end to end; it uses a hardcoded preset voice_id because
-  // the dialog is config-only and shouldn't require the operator to
-  // jump to the debug page to test their save.
+  // The form edits the server-wide TTS settings: API key, base URL, group
+  // ID, model and sample rate. The voice itself is not a server-wide
+  // setting -- the operator picks it per session in the debug page.
+  // "测试" POSTs to /api/admin/tts to verify the round-trip end to end; it
+  // uses a hardcoded preset voice_id because the dialog is config-only and
+  // shouldn't require the operator to jump to the debug page to test their
+  // save.
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [savedMasked, setSavedMasked] = useState<string>("");
@@ -884,10 +884,10 @@ function MiniMaxConfigDialog({
       const resp = await fetch("/api/admin/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // The synthesise endpoint requires voice_id now; the dialog
-        // doesn't carry one (that's the debug page's job), so the test
-        // uses a known preset. Operators can swap to a different preset
-        // via the debug page once they confirm the round-trip works.
+        // The synthesise endpoint requires a voice_id; the dialog doesn't
+        // carry one (that's the debug page's job), so the test uses a
+        // known preset. Operators can swap to a different preset via the
+        // debug page once they confirm the round-trip works.
         body: JSON.stringify({ text: "测试", voice_id: "male-qn-qingse" }),
       });
       if (!resp.ok) {

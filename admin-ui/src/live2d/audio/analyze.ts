@@ -33,7 +33,7 @@ export interface MouthAnalysis {
   form: Float32Array
 }
 
-export interface AnalyzeOptions {
+interface AnalyzeOptions {
   pointsPerSecond?: number
 }
 

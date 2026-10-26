@@ -5,8 +5,7 @@ needs. A photo is the N=1 case of a frame cycle, so both modes write the same
 layout:
 
     <avatar_dir>/normalized.png          720x1280 base frame, taken from the first
-                                         kept frame (idle keepalive, preview, and
-                                         the shape the old single-frame packs had)
+                                         kept frame (idle keepalive and preview)
     <avatar_dir>/pack.json               small scalars/paths only (no tensors)
     <avatar_dir>/musetalk/
         latents.pt      [N,8,32,32]      VAE latents, one row per kept frame
@@ -63,9 +62,9 @@ IMPORT_LOCK = threading.Lock()
 #: UNet and its config, the SD-VAE (config + weights) and whisper-tiny (config,
 #: weights and feature-extractor config). Shared with the engine so one list
 #: decides "are the weights present" for both `describe()`/`warmup()` and this
-#: pipeline's own check. When the two lists drifted, describe() reported
-#: weights_present: True and then failed inside `_Runtime` on a file the list
-#: never mentioned -- the point of the check is to fail before that.
+#: pipeline's own check. The list has to be complete: a weight missing from it
+#: fails inside `_Runtime` rather than here, and the point of the check is to
+#: fail before that.
 RUNTIME_WEIGHTS = (
     "musetalkV15/unet.pth",
     "musetalkV15/musetalk.json",
@@ -305,9 +304,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         # video endpoint. It is purely a function of the source file: video
         # uploads use ``mode="video"`` (engine cycles through the decoded
         # frames), still photos use ``mode="image"`` (engine reads one frame
-        # and loops). There is no longer an "animate first" branch -- that
-        # responsibility moved to the standalone "/i2v" endpoint under the
-        # "形象活化" tab.
+        # and loops).
         is_video_upload = is_video_suffix(source_path.suffix)
         mode = "video" if is_video_upload else "image"
 
@@ -356,7 +353,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
             Image.fromarray(mask).save(masks_dir / f"{i:08d}.png")
 
         progress("normalize", 70)
-        # Frame 0 of the *kept* frames: the resting canvas, preview and back-compat.
+        # Frame 0 of the *kept* frames: the resting canvas and the preview.
         Image.fromarray(frames[kept[0]][:, :, ::-1]).save(out_dir / "normalized.png")
 
         progress("build_pack", 100)

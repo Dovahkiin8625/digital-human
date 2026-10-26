@@ -1,11 +1,10 @@
 """Cleanup of the abandoned multi-tenant DB schema.
 
-The original service was multi-tenant (Avatar.tenant_id, StreamSession.tenant_id,
-a ``tenants`` table). A later refactor dropped the Tenant model from
-``server.db.models`` but did not migrate the DB: SQLite's ``create_all``
-only adds new tables, so existing tenant columns stuck around. New
-``INSERT INTO sessions`` then failed with ``NOT NULL constraint failed:
-sessions.tenant_id`` because the model no longer populated that column.
+A database can still carry the tenant columns of an earlier schema
+(Avatar.tenant_id, StreamSession.tenant_id, a ``tenants`` table) that the
+current model no longer populates. SQLite's ``create_all`` only adds new
+tables, so those columns stick around, and a new ``INSERT INTO sessions``
+then fails with ``NOT NULL constraint failed: sessions.tenant_id``.
 
 ``init_db`` must clean those artifacts up so the model and the schema
 agree. The cleanup is idempotent so re-running on a fresh DB or after a

@@ -1,9 +1,9 @@
 """Tunables for the idle-video H.264 encoder.
 
-``video._encode_h264`` and ``build_idle_video`` previously baked ``crf=18`` and
-``preset="veryfast"``. Both are now overrides: real gains live at lower crf and
-slower presets at the cost of file size and CPU, and operators should be able
-to pick them without a code change.
+``video._encode_h264`` and ``build_idle_video`` take ``crf`` and ``preset`` as
+overrides, defaulting to ``crf=18`` and ``preset="veryfast"``. Real gains live
+at lower crf and slower presets at the cost of file size and CPU, and
+operators should be able to pick them without a code change.
 """
 import json
 import types

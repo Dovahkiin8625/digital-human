@@ -6,12 +6,9 @@ The MiniMax settings live in the existing ``settings`` table (one row per
 call so a console edit takes effect on the very next request without a
 server restart.
 
-There is deliberately **no env layer**: the ``DH_MINIMAX_*`` vars are
-gone, and the Models tab's dialog is the single entry point -- the same
-shape the LLM uses (see ``server/llm/config.py``). Two persistence
-layers for one credential meant the Models tab's "已配置" badge tracked
-the env copy while the synthesise path used the DB copy, so an operator
-who saved a key in the console still saw the service as unconfigured.
+There is deliberately **no env layer**: the Models tab's dialog is the
+single entry point -- the same shape the LLM uses (see
+``server/llm/config.py``).
 """
 from __future__ import annotations
 
@@ -22,9 +19,9 @@ from typing import Any
 #: ``group_id`` is optional (newer MiniMax accounts skip it);
 #: ``base_url`` lets an operator point at a self-hosted or staging
 #: proxy; ``model`` is the speech synthesis model id; ``sample_rate``
-#: is the output PCM rate (MiniMax caps at 44100 Hz). ``voice_id``
-#: used to live here too -- the operator now picks it per session in
-#: the debug page, so it isn't a server-wide setting anymore.
+#: is the output PCM rate (MiniMax caps at 44100 Hz). ``voice_id`` is
+#: not a server-wide setting: the operator picks it per session in the
+#: debug page.
 KEYS: tuple[str, ...] = (
     "minimax_api_key",
     "minimax_group_id",

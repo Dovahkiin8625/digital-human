@@ -142,7 +142,7 @@ def test_load_pack_exposes_prep_block(tmp_path):
 
 
 def test_create_pipeline_builds_the_registered_model(tmp_path, monkeypatch):
-    # There is no env layer any more: the pipeline comes from the registered
+    # There is no env layer: the pipeline comes from the registered
     # digital-human model, and an unregistered name is refused.
     assert isinstance(create_pipeline("musetalk"), MuseTalkAvatarPipeline)
     with pytest.raises(PipelineError):

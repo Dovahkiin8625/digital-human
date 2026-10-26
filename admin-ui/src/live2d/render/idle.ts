@@ -21,7 +21,7 @@ export interface IdlePose {
   eyeBallY: number
 }
 
-export interface IdleOptions {
+interface IdleOptions {
   /** 0..1 multiplier on breathing and sway amplitude. Lowered while speaking
    *  so the motion stops competing with the mouth. */
   breathScale?: number

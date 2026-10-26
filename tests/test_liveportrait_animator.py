@@ -47,12 +47,14 @@ def fake_lp(monkeypatch, tmp_path):
     bytes that decode cleanly. Anything downstream of ``_run_pipeline``
     still runs, which keeps the test honest about the wire format.
 
-    New (since load/unload lifecycle): the fixture flips ``_loaded``
-    to True so tests that don't care about the load state can keep
-    calling ``animate()`` without first wiring the Models tab
-    lifecycle. Tests that DO exercise the lifecycle leave the flag
-    alone.
+    The fixture flips ``_loaded`` to True so tests that don't care about
+    the load state can keep calling ``animate()`` without first wiring
+    the Models tab lifecycle. Tests that DO exercise the lifecycle leave
+    the flag alone.
     """
+    # The animator's is_ready / animate() path imports torch; every test
+    # that uses this fixture needs it, so the skip lives here.
+    pytest.importorskip("torch")
     # Place a real (tiny) driving clip where the animator looks for it.
     # The bundled asset dir lives under data_dir/liveportrait_drivers in
     # production; the fixture points the constant at ``tmp_path`` instead.
@@ -173,10 +175,9 @@ def test_animate_raises_animator_error_when_not_ready(tmp_path):
     empty = tmp_path / "no-drivers"
     empty.mkdir()
     a = liveportrait.LivePortraitAnimator.__new__(liveportrait.LivePortraitAnimator)
-    # Bypass the Models-tab load gate (the lifecycle added in this
-    # iteration): the existing "not ready" surface must still fire for
-    # a backend that was *loaded* but is missing the on-disk drivers
-    # it depends on.
+    # Bypass the Models-tab load gate: the "not ready" surface must still
+    # fire for a backend that was *loaded* but is missing the on-disk
+    # drivers it depends on.
     a._loaded = True
     a._pipeline = object()
     liveportrait.LivePortraitAnimator.LIVE_PORTRAIT_DRIVERS_DIR = empty
@@ -230,8 +231,8 @@ def test_list_drivers_reports_canonical_and_extras(tmp_path, monkeypatch):
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", tmp_path, raising=False)
     # Two canonical drivers (one mp4-only, one with a cached pkl) and
     # one user-uploaded extra that is NOT in the canonical registry.
-    # ``motion_a`` is canonical; we drop a .pkl so it acts as the
-    # pkl-only slot the test used to cover with ``laugh``.
+    # ``motion_a`` is canonical and gets a .pkl only, so the pkl-only
+    # listing path is covered.
     _tiny_driver_mp4(tmp_path / "subtle.mp4", frames=12)
     _pickle_driver(tmp_path, "motion_a", n_frames=8)
     _tiny_driver_mp4(tmp_path / "my_custom.mp4", frames=4)

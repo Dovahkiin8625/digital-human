@@ -9,7 +9,6 @@ every write is validated against the destination root, and every bomb
 metric is counted as it goes.
 """
 
-import shutil
 import stat
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath

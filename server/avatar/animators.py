@@ -2,7 +2,7 @@
 
 A portrait animator takes a static portrait photo, possibly a textual prompt,
 and a few generation knobs, and writes an mp4 file ``<out_dir>/out.mp4``. Each
-backend (LivePortrait / Wan 2.2 I2V variants / MuseTalk silent / ...) keeps its
+backend (LivePortrait / Wan 2.2 I2V variants / ...) keeps its
 own constructor + dependencies + per-knob constraints; the registry gives the
 admin endpoint and the UI a single dispatch point that hides those details.
 
@@ -45,7 +45,7 @@ class PortraitAnimator(Protocol):
 
     #: True when the backend's weights + runtime are usable. Calling
     #: ``animate()`` when False must raise ``AnimatorError`` with a hint at
-    #: which fetch script to run, mirroring the legacy behaviour.
+    #: which fetch script to run.
     @property
     def is_ready(self) -> bool: ...
 

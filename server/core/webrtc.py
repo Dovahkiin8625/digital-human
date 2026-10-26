@@ -41,10 +41,9 @@ class EngineVideoTrack(VideoStreamTrack):
         pts, image = await self._queue.get()
         # Hand out the oldest surviving frame, not the freshest. push() already
         # bounds the queue and drops the oldest on overflow, so staleness is
-        # capped by maxsize; draining the backlog here as well meant a consumer
-        # that was keeping up still lost every frame but the last of each burst.
-        # The engine emits a block's 2-3 frames at once, so that turned a 25 fps
-        # session into ~8 fps of delivered video.
+        # capped by maxsize. The engine emits a block's 2-3 frames at once, so
+        # draining the backlog here as well would turn a 25 fps session into
+        # ~8 fps of delivered video.
         frame = VideoFrame.from_ndarray(image, format="rgb24")
         frame.pts = int(pts * VIDEO_CLOCK_RATE)
         frame.time_base = Fraction(1, VIDEO_CLOCK_RATE)
@@ -100,7 +99,7 @@ class WebRTCSink(StreamSink):
         self.video_track = video_track
         self.audio_track = audio_track
         # Flipped off by the signaling handler when the answer negotiated no
-        # outbound audio (an old sendonly console): nothing would drain the
+        # outbound audio (a sendonly console): nothing would drain the
         # audio queue then, so it must not be fed.
         self.wants_audio = True
         self.closed = False
@@ -212,8 +211,8 @@ async def handle_signal_websocket(websocket: WebSocket, manager, session_id: str
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
                 # Only feed the audio track when the answer actually SENDS audio
-                # (console offered audio recvonly/sendrecv). A legacy sendonly
-                # console yields a recvonly answer: its sender never runs and
+                # (console offered audio recvonly/sendrecv). A sendonly console
+                # yields a recvonly answer: its sender never runs and
                 # would leave every pushed frame queued forever.
                 for transceiver in pc.getTransceivers():
                     if transceiver.kind == "audio":

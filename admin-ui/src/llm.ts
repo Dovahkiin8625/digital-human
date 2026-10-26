@@ -20,14 +20,15 @@
 // dual-language detection) can come later if real replies prove this
 // too coarse.
 
-export type Role = "user" | "assistant" | "system";
+type Role = "user" | "assistant" | "system";
 
 export interface ChatMessage {
   role: Role;
   content: string;
   // Captured reasoning blocks (``<think>…</think>``) for this turn.
   // Surfaced as a folded chip in the chat panel; never sent to TTS or
-  // the avatar. Absent on user / system turns and on legacy replies.
+  // the avatar. Absent on user / system turns and on turns that produced
+  // no reasoning.
   // Crucially: UI-only state. The wire shape for the LLM endpoint is
   // strictly ``{role, content}`` -- ``thoughts`` would trip the
   // backend's ``extra='forbid'`` Pydantic config and produce a 422.
@@ -48,19 +49,19 @@ export function toLlmMessages(
 // Frames the chat-stream endpoint emits. Kept loose (``unknown`` is
 // allowed) so an upstream with an extra field doesn't 500 the panel
 // mid-stream.
-export type StreamFrame =
+type StreamFrame =
   | { delta: string }
   | { done: true }
   | { error: { code: string; message: string } };
 
-export interface StreamCallbacks {
+interface StreamCallbacks {
   onDelta: (chunk: string) => void;
   onDone: () => void;
   onError: (code: string, message: string) => void;
 }
 
 /** Where to reach the chat-stream endpoint, and with what credential. */
-export interface StreamOptions {
+interface StreamOptions {
   /** Absolute server root, e.g. ``http://127.0.0.1:8000``. Omitted for the
    *  console, which is same-origin with the API it is served from. */
   baseUrl?: string;
@@ -189,15 +190,14 @@ function dispatchFrame(frame: string, cb: StreamCallbacks): void {
  * punctuation, flush the buffer as one chunk so TTS doesn't sit idle
  * waiting for a period.
  */
-export interface SentenceSplit {
+interface SentenceSplit {
   complete: string[];
   tail: string;
 }
 
 // ``String.prototype.matchAll`` requires the regex to carry the global
 // flag -- V8 throws ``String.prototype.matchAll called with a non-global
-// RegExp argument`` otherwise. The historic bug shipped without ``g``
-// and the first chat reply in the panel surfaced as ``llm_failed``.
+// RegExp argument`` otherwise.
 const SENTENCE_BOUNDARIES = /([。！？；\n])/g;
 // Above this many characters without a boundary, flush anyway.
 const MAX_BUFFER_CHARS = 40;
@@ -233,12 +233,10 @@ export function splitSentences(buffer: string, delta: string): SentenceSplit {
 // panel split incrementally without re-flushing older sentences.
 //
 // ``splitSentences`` is pure, but the *running* buffer that callers feed
-// it is what was producing the duplicated-TTS bug: the panel used to do
-// ``buffer += delta`` followed by ``splitSentences(buffer, "")`` and
-// dispatch ``split.complete``, but never trimmed the buffer back to
-// ``split.tail``. Every subsequent delta re-split the entire accumulated
-// text -- including the sentences just dispatched -- so the avatar ended
-// up speaking each sentence multiple times. ``drainSentences`` owns the
+// it has to be trimmed back to ``split.tail`` after every delta. Feeding
+// the whole accumulated text back in makes each delta re-split -- and
+// re-flush -- the sentences just dispatched, so the avatar ends up
+// speaking each sentence multiple times. ``drainSentences`` owns the
 // "trim to tail" half of that dance so the caller can't forget it.
 //
 // Inputs:
@@ -257,11 +255,11 @@ export function splitSentences(buffer: string, delta: string): SentenceSplit {
 //     next delta.
 // ---------------------------------------------------------------------------
 
-export interface SentenceQueueState {
+interface SentenceQueueState {
   tail: string;
 }
 
-export interface SentenceQueueStep {
+interface SentenceQueueStep {
   flushed: string[];
   displayText: string;
   newTail: string;
@@ -309,11 +307,11 @@ export function drainSentences(
 //     tag split between two network reads is still recognised.
 // ---------------------------------------------------------------------------
 
-export interface ThinkStripperState {
+interface ThinkStripperState {
   thoughts: string[];
 }
 
-export interface FeedResult {
+interface FeedResult {
   /** Chars safe to ship to TTS / the avatar / the chat bubble text. */
   visibleText: string;
   /** Reasoning blocks that closed during *this* call. */
@@ -434,9 +432,9 @@ export function stripEmotionTags(
   //
   // The two failure modes are not symmetric: stripping too little leaves a
   // marker in the TTS text and the pet says "smile" out loud, while
-  // stripping too much drops at most a bracketed word. The empty list
-  // arrived from a model whose expression map had not loaded, and taking it
-  // literally meant neither the marker nor anything else was ever removed.
+  // stripping too much drops at most a bracketed word. An empty list means
+  // the caller's expression map did not load, so it must not be read as
+  // "strip nothing".
   const allowedSet = allowed?.length ? new Set(allowed.map((t) => t.toLowerCase())) : null;
   const stripped = text.replace(/\[([a-z]+)\]/gi, (match, name: string) => {
     const tag = name.toLowerCase();

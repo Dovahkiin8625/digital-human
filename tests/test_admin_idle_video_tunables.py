@@ -34,7 +34,6 @@ def _make_video_mode(client, avatar_id):
 
 
 def test_admin_idle_video_uses_tuned_preset(client, monkeypatch):
-    from server.avatar.tunables import dump_json
     from server.db.models import Setting
 
     avatar_id = _upload_avatar(client, "a")
@@ -72,7 +71,7 @@ def test_admin_idle_video_honours_per_avatar_overrides(client, monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
     from server.config import get_settings
-    from server.db.session import get_engine, reset_engine
+    from server.db.session import get_engine
     from server.db.models import Avatar
 
     engine = get_engine()

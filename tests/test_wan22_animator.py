@@ -5,10 +5,10 @@ the OSS I2V backend, registered as ``wan22-i2v-5b-bf16`` (~22 GB VRAM).
 The diffusers stack is heavy (a 5 B model loads ~15 s the first time), so
 the tests monkey-patch ``_run_pipeline`` and assert the contract instead.
 
-An fp8 sibling was originally planned but not shipped: Wan-AI hasn't
-released an officially-quantised fp8 release of TI2V-5B, and the third-
-party quants (Comfy-Org / bullerwins) don't fit diffusers'
-``from_pretrained``. Re-evaluate when Wan-AI ships an fp8 release.
+No fp8 sibling ships: Wan-AI hasn't released an officially-quantised fp8
+release of TI2V-5B, and the third-party quants (Comfy-Org / bullerwins)
+don't fit diffusers' ``from_pretrained``. Re-evaluate when Wan-AI ships an
+fp8 release.
 
 ``is_ready`` returns False on hosts that can't satisfy the variant's VRAM
 budget; the page renders whatever the registry exposes and surfaces any
@@ -24,6 +24,9 @@ import pytest
 from PIL import Image
 
 from server.avatar import animators
+
+# The default .venv has no torch, so the tests that patch ``torch.cuda``
+# skip there instead of failing (``pytest.importorskip``).
 
 
 def _png():
@@ -64,7 +67,7 @@ def _seed_weights(root, *, variant_name):
 
 def _gpu_vram_gb(monkeypatch, gb: float):
     """Force ``torch.cuda.get_device_properties().total_memory`` to read N GB."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     class _FakeProps:
         def __init__(self, gb):
@@ -226,9 +229,9 @@ def test_animate_writes_mp4_and_forwards_knobs(stub_pipeline, tmp_path, monkeypa
     _seed_weights(tmp_path, variant_name="5b-bf16")
     _gpu_vram_gb(monkeypatch, 16.0)
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path / "models")
-    # Bypass the Models-tab load gate (new lifecycle): this fixture
-    # already stubs _run_pipeline, so we don't need the real pipeline
-    # to be materialised -- just flip the flag.
+    # Bypass the Models-tab load gate: this fixture already stubs
+    # _run_pipeline, so we don't need the real pipeline to be
+    # materialised -- just flip the flag.
     a._loaded = True
     a._pipeline = object()
 

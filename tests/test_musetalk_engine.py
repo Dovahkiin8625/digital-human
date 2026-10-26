@@ -9,7 +9,6 @@ import asyncio
 import concurrent.futures
 import json
 import threading
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -814,7 +813,7 @@ def test_frame_selection_is_per_index_and_ping_pongs():
 @pytest.mark.musetalk  # needs torch, which the torch-free .venv does not have
 def test_render_uses_a_different_base_per_output_frame(tmp_path, monkeypatch):
     """Two output frames must blend onto two different base frames."""
-    import torch
+    torch = pytest.importorskip("torch")
 
     eng = MuseTalkEngine(models_dir=tmp_path / "m")
 
@@ -902,9 +901,9 @@ def _video_pack(tmp_path, monkeypatch, n_kept=3, decoded=4, kept=None):
     class _Loaded:
         """Stands in for a torch tensor: `.shape` and a no-op `.to()`.
 
-        `_Moved` (used by the legacy test) has no shape, and the video loader
-        validates `latents.shape[0]` against `kept` -- so this stub reads the
-        file the test actually wrote, which is what makes that check meaningful.
+        `_Moved` has no shape, and the video loader validates
+        `latents.shape[0]` against `kept` -- so this stub reads the file the
+        test actually wrote, which is what makes that check meaningful.
         """
 
         def __init__(self, path):

@@ -19,15 +19,7 @@ import { api, getConsoleToken, live2dHealth, setConsoleToken } from "../api";
 import LivePortraits from "./LivePortraits";
 import Models from "./Models";
 import StatusTag from "../components/StatusTag";
-import type { Live2DHealth, SessionInfo, SystemInfo } from "../types";
-
-interface JobInfo {
-  job_id: string;
-  avatar_id: string;
-  stage: string;
-  progress: number;
-  error: string | null;
-}
+import type { JobInfo, Live2DHealth, SessionInfo, SystemInfo } from "../types";
 
 const boolTag = (v: boolean, yes = "是", no = "否") => (
   <Tag color={v ? "success" : "error"}>{v ? yes : no}</Tag>

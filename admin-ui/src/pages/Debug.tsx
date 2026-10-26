@@ -74,9 +74,9 @@ export default function Debug() {
   const [status, setStatus] = useState("idle")
   const [error, setError] = useState("")
   const [text, setText] = useState("")
-  // The debug page picks the voice per session now -- voice_id was
-  // removed from the MiniMax settings card. The empty default nudges
-  // the operator to make a choice rather than silently picking one;
+  // The debug page picks the voice per session -- the MiniMax settings
+  // card does not carry a voice_id. The empty default nudges the
+  // operator to make a choice rather than silently picking one;
   // ``合成并驱动`` stays disabled until they do.
   const [voice, setVoice] = useState("")
   const [customVoice, setCustomVoice] = useState("")
@@ -211,9 +211,9 @@ export default function Debug() {
     if (!text.trim()) return
     if (!live2d && !client) return
     const voiceId = voice === CUSTOM_VOICE ? customVoice.trim() : voice
-    // voice_id is now required by the synthesise endpoint (no server-
-    // wide default). The button is also disabled while voice is empty,
-    // but this guard catches the "custom voice not typed yet" case.
+    // voice_id is required by the synthesise endpoint (no server-wide
+    // default). The button is also disabled while voice is empty, but
+    // this guard catches the "custom voice not typed yet" case.
     if (!voiceId) {
       message.warning("请先选择音色")
       return

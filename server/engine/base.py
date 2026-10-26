@@ -82,8 +82,8 @@ class DriveEngine(ABC):
 
         Returns an HWC RGB array, or None when this engine/pack cannot supply
         source frames; the caller then falls back to its resting canvas. A
-        stateless engine returns None, which keeps the pre-existing static
-        keep-alive behaviour.
+        stateless engine returns None, which keeps the keep-alive tick on the
+        session's static canvas.
         """
         return None
 

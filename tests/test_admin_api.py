@@ -100,15 +100,14 @@ def test_system_info(client):
 
 
 def test_avatar_config_endpoint_removed(client):
-    # The mouth/expression sliders never reached the real MuseTalk engine, so
-    # their endpoint was removed rather than left pretending to work.
+    # The mouth/expression sliders have no server-side endpoint, so the
+    # /config child route is not registered at all.
     avatar_id = _upload_avatar(client, "a")
 
     resp = client.patch(
         f"/api/admin/avatars/{avatar_id}/config", json={"mouth_scale": 1.5}
     )
-    # The /config child route existed only for the sliders' PATCH; with it
-    # gone, nothing matches the path at all.
+    # Nothing matches the path, so the request 404s.
     assert resp.status_code == 404
 
 
@@ -240,8 +239,7 @@ def test_admin_get_avatar_detail_and_error(client):
         "name",
         "status",
         # The console's Debug / Chat / Avatars pages branch on these to pick a
-        # renderer; the first was missing from the admin serialiser while
-        # /api/v1 carried it, which made a Live2D avatar unselectable.
+        # renderer, so the admin serialiser must carry both.
         "drive_model",
         "client_rendered",
         "config",
@@ -249,7 +247,7 @@ def test_admin_get_avatar_detail_and_error(client):
         "created_at",
     }
     assert detail["avatar_id"] == good
-    # Pack contents + tunables audit; ``_effective_params`` is the new audit row.
+    # Pack contents + tunables audit; ``_effective_params`` is the audit row.
     assert {"crop", "_effective_params"} <= set(detail["config"])
     assert detail["config"]["crop"] == {"mode": "center"}
     assert detail["error"] is None
@@ -375,9 +373,8 @@ def _seed_drivers_dir(monkeypatch, *stems):
 
 
 def test_list_liveportrait_drivers_returns_present_files(client, monkeypatch):
-    # ``motion_a`` stands in for the pkl-only canonical slot previously held
-    # by ``laugh`` (deleted: pkl-only entries have no .gif and are no longer
-    # shipped as canonical drivers).
+    # ``motion_a`` is a canonical driver name; seeding it with a .pkl (and
+    # no .mp4) covers the pkl-only listing path.
     _seed_drivers_dir(monkeypatch, "subtle", "motion_a")
     resp = client.get("/api/admin/liveportrait-drivers")
     assert resp.status_code == 200

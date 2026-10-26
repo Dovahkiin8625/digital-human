@@ -9,8 +9,7 @@ Speaks the ``/v1/chat/completions`` shape every major provider supports:
 Two surfaces:
 
 * :func:`chat` -- one POST, full reply string back. Used by the
-  non-streaming chat endpoint (kept around as a fallback when SSE isn't
-  desired or fails on the wire).
+  non-streaming chat endpoint.
 * :func:`stream_chat` -- async iterator yielding reply deltas. Used by
   the streaming endpoint. The caller can break out of the loop on the
   first ``StopAsyncIteration`` or by closing the underlying stream.
@@ -132,7 +131,7 @@ async def chat(
     ``client`` is injectable so tests can drive the real parse path through
     an ``httpx.MockTransport`` instead of the network. ``db`` is the FastAPI
     request session; passed through so the effective LLM config (DB rows
-    layered over env defaults) is read fresh on every call.
+    layered over the built-in defaults) is read fresh on every call.
     """
     if not messages:
         raise AppError("empty_messages", "messages must not be empty", 400)
@@ -252,9 +251,7 @@ async def stream_chat(
     # No read timeout on streaming -- the model can take a while between
     # tokens, and httpx's default 60 s would chop a long reply in half.
     # httpx.Timeout requires either a default OR all four of
-    # connect/read/write/pool to be set explicitly; the historic bug
-    # passed only ``connect`` and ``read``, which raised ``ValueError``
-    # on the first request through the admin endpoint.
+    # connect/read/write/pool to be set explicitly.
     client = client or httpx.AsyncClient(
         timeout=httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
     )

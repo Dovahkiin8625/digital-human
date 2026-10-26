@@ -8,12 +8,12 @@ export interface StageLike {
   speak(buffer: AudioBuffer): void
 }
 
-export interface MountHandlers {
+interface MountHandlers {
   onReady?: (params: ParameterReport[]) => void
   onError?: (e: unknown) => void
 }
 
-export interface MountHandle {
+interface MountHandle {
   /** Stop the render loop and release the stage. Safe to call twice. */
   stop(): void
 }
@@ -29,7 +29,7 @@ export interface MountHandle {
  * The `stopped` flag matters more than it looks. Model loading is async, so
  * unmounting while init is in flight is the normal case when the user
  * switches avatars quickly; without the guard, init resolves afterwards and
- * starts a render loop for a component that no longer exists.
+ * starts a render loop for a component that has already been unmounted.
  */
 export function mountStage(
   stage: StageLike,

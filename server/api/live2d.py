@@ -158,9 +158,9 @@ def get_model_file(
 #: The two are not siblings. In CubismSdkForWeb-5-r.5 the core sits at the
 #: root of the SDK and the GLSL sits under ``Framework/``, beside the
 #: framework source -- so the directory the SDK actually ships is not the
-#: one the old docs (and this file) assumed. The URL namespace stays
-#: ``Core/`` and ``Shaders/`` regardless: the client never learns the SDK's
-#: internal layout, and the server maps one onto the other.
+#: obvious one. The URL namespace stays ``Core/`` and ``Shaders/``
+#: regardless: the client never learns the SDK's internal layout, and the
+#: server maps one onto the other.
 _RUNTIME_TREES: dict[str, tuple[str, ...]] = {
     "Core": ("Core",),
     "Shaders": ("Framework/Shaders", "Shaders"),

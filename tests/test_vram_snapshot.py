@@ -2,14 +2,20 @@
 
 The Models tab needs more than a single ``get_vram_gb`` answer to render a
 useful progress bar; it needs the *currently* allocated / reserved figure so
-the operator can see how much of the card the runtime is using *now*. This
-is the missing piece and lives next to ``get_vram_gb`` to keep VRAM as one
-coherent module surface.
+the operator can see how much of the card the runtime is using *now*. It
+lives next to ``get_vram_gb`` to keep VRAM as one coherent module surface.
 
 Returns ``None`` whenever torch is missing or CUDA isn't available -- same
 contract as ``get_vram_gb`` so the UI can degrade identically.
 """
 from __future__ import annotations
+
+import pytest
+
+# The default .venv has no torch, so the tests that patch ``torch.cuda`` skip
+# there instead of failing (``pytest.importorskip``). The skip is per test
+# rather than per module so the torch-free contract test below -- the one
+# that pins the graceful degradation when torch is missing -- keeps running.
 
 
 def _gb(b: float) -> float:
@@ -36,7 +42,7 @@ def test_snapshot_is_none_when_torch_missing(monkeypatch):
 
 
 def test_snapshot_is_none_when_cuda_unavailable(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     from server.avatar import vram
@@ -45,7 +51,7 @@ def test_snapshot_is_none_when_cuda_unavailable(monkeypatch):
 
 
 def test_snapshot_returns_live_memory_when_cuda_available(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 

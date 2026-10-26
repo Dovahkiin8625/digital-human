@@ -51,8 +51,6 @@ def test_admin_delete_task_not_found_returns_404(client):
 
 
 def test_admin_delete_task_removes_row_and_scratch_dir(client):
-    import shutil
-
     from server.config import get_settings
 
     task_id = uuid4().hex
@@ -65,7 +63,7 @@ def test_admin_delete_task_removes_row_and_scratch_dir(client):
     resp = client.delete(f"/api/admin/tasks/{task_id}", )
     assert resp.status_code == 204
 
-    # The row is gone — the list endpoint should no longer report it.
+    # The row is gone — the list endpoint must not report it.
     listed = client.get("/api/admin/tasks", ).json()["tasks"]
     assert all(t["task_id"] != task_id for t in listed)
     # The on-disk scratch dir is gone too — leftover dirs would clutter

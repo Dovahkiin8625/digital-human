@@ -2,7 +2,6 @@
 that also enforces the duration/frame cap at upload time."""
 import io
 
-import numpy as np
 import pytest
 from PIL import Image
 

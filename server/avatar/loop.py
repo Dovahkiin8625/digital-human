@@ -3,7 +3,7 @@
 The frame sequence the engine plays must end where it begins, otherwise every
 loop boundary is a visible jump. The base frames run forward (kept[0..N-1]),
 the tail crossfades back into the head (up to K blend frames), and the
-resulting sequence is encoded once into ``musetalk/base.mp4``.
+resulting sequence is encoded once for playback.
 
 A short clip (a one-shot clip or anything shorter than the chosen K) cannot
 crossfade meaningfully, so the helper falls back to a single hard cut from
@@ -84,9 +84,8 @@ def build_loop_sequence(
 def forward_index(frame: int, n: int) -> int:
     """Wrap an absolute frame counter to a forward-only sequence of length n.
 
-    Replaces the legacy ping-pong ``cycle_index`` for packs with a baked
-    base.mp4: the clip plays 0..n-1, 0..n-1, ... with no reversal, so the
-    2N-2 period becomes N.
+    The clip plays 0..n-1, 0..n-1, ... with no reversal, so the 2N-2
+    ping-pong period becomes N.
     """
     if n <= 0:
         return 0

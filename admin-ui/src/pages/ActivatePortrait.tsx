@@ -105,9 +105,8 @@ async function fetchBackends(): Promise<BackendOption[]> {
 
 // Poll cadence for the records list while any task is in flight. One second
 // is fast enough that the operator sees meaningful progress without
-// hammering the server. Mirrors the cadence the deleted Tasks tab used;
-// the lifecycle is the same (the new record appears at the top and the
-// row's progress bar climbs every tick).
+// hammering the server. The new record appears at the top of the list and
+// its row's progress bar climbs every tick.
 const POLL_MS = 1000;
 
 async function submitTask(
@@ -160,15 +159,13 @@ async function fetchTaskBytes(id: string): Promise<Blob> {
 
 const FALLBACK_DEFAULTS = {
   // ``0`` (or empty) is interpreted server-side as "use the template's
-  // full duration" -- this prevents the previous default-49 behaviour
-  // from silently truncating a 354-frame template to 49 frames.
+  // full duration".
   numFrames: 0,
   steps: 20,
   prompt: "a person speaking naturally with subtle head and mouth motion",
 };
 
-// Visual language for the status column. Matches the deleted Tasks tab
-// so the operator's colour memory carries over.
+// Visual language for the status column.
 function statusColor(s: string): string {
   if (s === "done") return "green";
   if (s === "failed") return "red";
@@ -194,11 +191,10 @@ export default function ActivatePortrait() {
   const [drivers, setDrivers] = useState<DriverInfo[]>([]);
   const [pickedDriver, setPickedDriver] = useState<string | undefined>(undefined);
 
-  // Records list -- every i2v task the server has retained (newest-first).
-  // Replaces the deleted Tasks tab's table; the same /api/admin/tasks
-  // endpoint feeds it. The list poll (below) handles progress for in-
-  // flight rows, so the row an operator just submitted climbs from queued
-  // -> running -> done in place.
+  // Records list -- every i2v task the server has retained (newest-first),
+  // fed by /api/admin/tasks. The list poll (below) handles progress for
+  // in-flight rows, so the row an operator just submitted climbs from
+  // queued -> running -> done in place.
   const [items, setItems] = useState<GenerationTask[]>([]);
   const [listLoading, setListLoading] = useState(true);
   // Held inside a ref so the polling effect can re-arm itself with the
@@ -210,7 +206,7 @@ export default function ActivatePortrait() {
 
   // 查看 drawer: a single open record + the blob URL for its preview.
   // The drawer re-renders on every list poll so the open row's progress
-  // stays live (same pattern the deleted Tasks drawer used).
+  // stays live.
   const [drawerTask, setDrawerTask] = useState<GenerationTask | null>(null);
   const [drawerUrl, setDrawerUrl] = useState<string>("");
   const [drawerLoadError, setDrawerLoadError] = useState("");
@@ -305,9 +301,8 @@ useEffect(() => {
   async function refreshItems(): Promise<void> {
     try {
       const body = await api<{ tasks: GenerationTask[] }>("/api/admin/tasks");
-      // Only i2v rows surface here; the table's "type" column would always
-      // read "图生视频" today, but filtering keeps the page honest when a
-      // future task type is registered.
+      // Only i2v rows surface here; the registry also holds other task
+      // types this page does not render.
       setItems(body.tasks.filter((t) => t.type === "i2v"));
     } catch (err) {
       if (!initialLoadFailedRef.current) {
@@ -510,7 +505,7 @@ useEffect(() => {
       render: (_, row) => {
         // ``params.backend`` is the wire shape the submit form posts;
         // backends[].label_zh is the human-friendly name from the registry.
-        // Falls back to the raw id when the registry no longer lists it
+        // Falls back to the raw id when the registry does not list it
         // (e.g. an animator was uninstalled after the run).
         const params = row.params as { backend?: string } | undefined;
         const name = params?.backend;
@@ -615,9 +610,8 @@ useEffect(() => {
             form={form}
             layout="vertical"
             initialValues={FALLBACK_DEFAULTS}
-            // Tighten the 24px default Form.Item gap so the form
-            // collapses from 7 stacked rows to ~5 visible rows. Keeps the
-            // labels readable while reclaiming the vertical space.
+            // Each Form.Item below sets a 12px bottom margin (AntD's
+            // default is 24px), so the form reads as a compact column.
           >
             <Form.Item
               label="驱动后端"
@@ -682,8 +676,8 @@ useEffect(() => {
                   />
                   {pickedDriver && drivers.find((d) => d.name === pickedDriver)?.has_preview && (
                     // 72×72 thumbnail pinned to the right of the dropdown.
-                    // Was a 240px-wide Form.Item on its own row; the
-                    // Image preview keeps the click-to-enlarge behaviour.
+                    // The Image preview keeps the click-to-enlarge
+                    // behaviour.
                     <Image
                       src={driverPreviewUrl(pickedDriver)}
                       alt={pickedDriver}

@@ -52,8 +52,8 @@ class AvatarStore:
             else:
                 self._validate_image(path)
         except Exception:
-            # Broadened from AppError: a non-typed escape (e.g. a raw
-            # cv2.error from a validator) must not leak the file either.
+            # A non-typed escape (e.g. a raw cv2.error from a validator)
+            # must not leak the file either.
             path.unlink(missing_ok=True)
             try:
                 d.rmdir()  # empty at upload time; non-empty if another write raced

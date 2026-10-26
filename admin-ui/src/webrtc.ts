@@ -1,4 +1,4 @@
-export type SignalMessage =
+type SignalMessage =
   | { type: "offer"; sdp: string }
   | { type: "answer"; sdp: string }
   | { type: "candidate"; candidate: RTCIceCandidateInit | null }

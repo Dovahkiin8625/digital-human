@@ -986,7 +986,7 @@ def test_list_services_llm_configured_flips_with_keys(client, monkeypatch):
 def test_drive_models_endpoint_lists_every_model(client):
     """The list the avatar create form and the session pickers read.
 
-    There is no "selected" model any more: an avatar names the model that
+    There is no "selected" model: an avatar names the model that
     drives it, and every registered model is available.
     """
     body = client.get("/api/admin/drive-models").json()
@@ -1005,7 +1005,7 @@ def test_drive_models_endpoint_lists_every_model(client):
 
 
 def test_the_models_payload_has_no_active_model(client):
-    """The process-wide choice is gone: several models may be resident at
+    """There is no process-wide choice: several models may be resident at
     once, so there is nothing to select."""
     body = client.get("/api/admin/models").json()
     assert "active_model" not in body
@@ -1014,6 +1014,6 @@ def test_the_models_payload_has_no_active_model(client):
 
 
 def test_there_is_no_active_model_endpoint(client):
-    """The route is gone, not merely unused: a PUT to it is a 404."""
+    """The route is not registered, not merely unused: a PUT to it is a 404."""
     resp = client.put("/api/admin/models/active", json={"name": "musetalk"})
     assert resp.status_code == 404

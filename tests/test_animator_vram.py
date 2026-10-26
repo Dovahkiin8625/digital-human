@@ -17,7 +17,12 @@ This module tests two contracts:
 """
 from __future__ import annotations
 
-from unittest import mock
+import pytest
+
+# The default .venv has no torch, so the tests that patch ``torch.cuda`` skip
+# there instead of failing (``pytest.importorskip``). The skip is per test
+# rather than per module so the torch-free contract test below -- the one
+# that pins the graceful degradation when torch is missing -- keeps running.
 
 
 # ----- get_vram_gb() -----
@@ -47,18 +52,16 @@ def test_get_vram_gb_returns_none_when_cuda_not_available(monkeypatch):
     # running on CPU-only or remote. The dispatcher can't run any of the
     # GPU-bound backends; ``None`` keeps the page from falsely disabling
     # them.
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     from server.avatar import vram
 
-    # Force the module's import path to actually go through torch by
-    # importing it fresh.
     assert vram.get_vram_gb() is None
 
 
 def test_get_vram_gb_returns_total_memory_in_gb(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
@@ -77,7 +80,7 @@ def test_get_vram_gb_returns_total_memory_in_gb(monkeypatch):
 def test_liveportrait_meta_exposes_vram_required_and_fit(monkeypatch):
     # LivePortrait meta must declare its ~6 GB budget so the dropdown can
     # grey the option out on a host that doesn't have it (e.g. CI).
-    import torch
+    torch = pytest.importorskip("torch")
 
     from server.avatar import liveportrait
 
@@ -95,7 +98,7 @@ def test_liveportrait_meta_exposes_vram_required_and_fit(monkeypatch):
 def test_wan22_meta_marks_fit_on_consumer_card(monkeypatch):
     # A 16 GB host: Wan 2.2 5B-bf16 runs at ~10 GB peak with offload, so
     # the dropdown must keep it clickable on a consumer card.
-    import torch
+    torch = pytest.importorskip("torch")
 
     from server.avatar import wan22
 
@@ -111,7 +114,7 @@ def test_wan22_meta_marks_fit_on_consumer_card(monkeypatch):
 
 def test_wan22_meta_marks_unfit_on_tiny_card(monkeypatch):
     # An 8 GB host falls below the ~10 GB peak + 2 GB headroom budget.
-    import torch
+    torch = pytest.importorskip("torch")
 
     from server.avatar import wan22
 
@@ -129,7 +132,7 @@ def test_meta_vram_null_on_cpu_only_host(monkeypatch):
     # If cuda isn't available, ``fits_current_gpu`` is None (unknown) so
     # the page keeps the options clickable and the *real* failure shows up
     # inline when the user clicks 生成 instead of being silently hidden.
-    import torch
+    torch = pytest.importorskip("torch")
 
     from server.avatar import liveportrait
     from server.avatar import wan22

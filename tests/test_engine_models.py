@@ -97,7 +97,7 @@ def test_musetalk_engine_describe_reports_can_load_after_unload(tmp_path, monkey
     m_unloaded = eng.describe()["models"][0]
     assert m_unloaded["loaded"] is False
     assert m_unloaded["can_unload"] is False
-    # The bug fix: ``can_load`` must flip back to True once the runtime is
+    # ``can_load`` must flip back to True once the runtime is
     # gone and a load() method is exposed. Weights on disk are present
     # because the models_dir exists; only the runtime was dropped.
     assert m_unloaded["can_load"] is True, (

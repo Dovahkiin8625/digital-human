@@ -278,7 +278,7 @@ def test_delete_removes_row_and_assets(client):
 
 
 def test_one_delete_endpoint_handles_every_model(client):
-    """There is a single delete route now, so a Live2D avatar and a
+    """There is a single delete route, so a Live2D avatar and a
     server-driven one are removed the same way."""
     import io
 

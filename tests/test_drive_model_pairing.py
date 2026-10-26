@@ -8,7 +8,6 @@ later with a message about a missing pack.
 
 import io
 
-import pytest
 from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
@@ -74,7 +73,7 @@ def test_a_client_rendered_avatar_cannot_start_a_server_session(client):
 
 
 def test_an_avatar_with_an_unregistered_model_is_refused(client):
-    """A model that is no longer registered leaves the avatar undrivable.
+    """An avatar whose model is not in the registry is undrivable.
     The refusal names the problem instead of failing obscurely later."""
     avatar_id = _seed(client, "ghost")
 

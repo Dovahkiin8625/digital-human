@@ -18,10 +18,8 @@ from server.db.models import Avatar
 from server.lite import pack as lite_pack
 
 
-def test_the_config_block_names_every_file_the_engine_reads(tmp_path):
-    block = lite_pack.config_block(
-        tmp_path, frame_count=12, fps=25, model_type="feathertalk"
-    )
+def test_the_config_block_names_every_file_the_engine_reads():
+    block = lite_pack.config_block(frame_count=12, fps=25, model_type="feathertalk")
 
     assert block["dir"] == "lite"
     assert block["coords"] == "lite/coords.json"

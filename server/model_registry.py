@@ -3,9 +3,7 @@
 A *digital human model* is one complete talking-avatar implementation: an
 avatar preparation pipeline (upload -> pack) plus the drive engine that
 renders that pack. The two are bound together on purpose -- a pack written
-by one pipeline is only readable by the matching engine, which is exactly
-why the two ``DH_*`` env vars this module replaces had to be kept in step
-with each other.
+by one pipeline is only readable by the matching engine.
 
 An avatar records the model that owns it (``Avatar.drive_model``), so the
 pairing is a fact in the database and not merely a property of whatever
@@ -22,7 +20,7 @@ Two source kinds are registered today:
   no server-side engine at all (the browser renders it), so the model
   registers a pipeline and no ``engine_factory``.
 
-MuseTalk, Live2D and the CPU-only `lite` engine are the registered models.
+MuseTalk, Live2D and the CPU-only ``lite`` engine are the registered models.
 Adding another is one class pair plus one :func:`register_model` call::
 
     from server.model_registry import DigitalHumanModel, register_model
@@ -162,8 +160,8 @@ def default_model() -> DigitalHumanModel:
 def is_client_rendered(name: str) -> bool:
     """Whether the named model is rendered by the client.
 
-    False for a model that is not registered any more: there is no
-    runtime to speak of, and the caller has a bigger problem.
+    False for a name that is not in the registry: there is no runtime to
+    speak of, and the caller has a bigger problem.
     """
     model = MODELS.get(name)
     return bool(model and model.client_rendered)

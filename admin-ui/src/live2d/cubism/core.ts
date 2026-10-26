@@ -10,7 +10,7 @@
  *  Model files, which are operator-supplied, ARE gated, and this module is
  *  also the place a caller declares the token for those.
  */
-export interface RuntimeEndpoint {
+interface RuntimeEndpoint {
   /** Absolute server root. Empty in the console (same-origin); required in
    *  Electron, where the document is a file:// page. */
   baseUrl?: string;
@@ -31,7 +31,7 @@ function root(): string {
 }
 
 /** Absolute URL for a runtime asset. */
-export function runtimeUrl(path: string): string {
+function runtimeUrl(path: string): string {
   return `${root()}/api/v1/live2d/runtime/${path}`;
 }
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -98,10 +98,9 @@ class GenerationTask(Base):
     terminal state, then reads the result mp4 from
     ``/api/admin/tasks/{id}/result.mp4``.
 
-    ``params_json`` / ``result_json`` are JSON-encoded strings: SQLite has no
-    native JSON column on the venv in use here, and the server already uses
-    the same pattern for ``Setting.value``. They round-trip through
-    ``json.loads`` on the API side so the JSON shape stays ergonomic.
+    ``params_json`` / ``result_json`` are JSON-encoded strings -- the same
+    pattern ``Setting.value`` uses. They round-trip through ``json.loads``
+    on the API side so the JSON shape stays ergonomic.
     """
 
     __tablename__ = "generation_tasks"

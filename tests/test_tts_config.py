@@ -6,8 +6,8 @@ This module owns read/write + per-field validation; the synthesise path
 calls ``read_config(db)`` once per request so the change takes effect
 without a server restart.
 
-There is no env layer any more: the Models tab's dialog is the only
-entry point, exactly like the LLM.
+There is no env layer: the Models tab's dialog is the only entry point,
+exactly like the LLM.
 """
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ def _fresh_db(tmp_path, monkeypatch):
 
     apply_env(monkeypatch, tmp_path)
     reset_engine()
-    from server.main import create_app  # noqa: F401  -- ensures app init path
     init_db(get_engine())
     get_settings.cache_clear()
     from sqlalchemy.orm import sessionmaker
@@ -46,9 +45,9 @@ def test_read_config_returns_defaults_when_db_empty(_fresh_db):
     """No DB rows → the helper returns the built-in defaults.
 
     The api_key default is empty (a fresh install has no credential);
-    model / sample_rate carry real defaults. ``voice_id`` used to live
-    here -- the operator now picks it per session in the debug page, so
-    the config dict no longer surfaces it.
+    model / sample_rate carry real defaults. ``voice_id`` is not a
+    server-wide setting -- the operator picks it per session in the debug
+    page -- so the config dict does not surface it.
     """
     from server.tts.config import read_config
 
@@ -132,7 +131,7 @@ def test_write_config_rejects_invalid_sample_rate(_fresh_db):
 
 
 def test_write_config_rejects_voice_id_field(_fresh_db):
-    """``voice_id`` used to be a configurable field -- it isn't anymore.
+    """``voice_id`` is not a configurable field.
     ``validate()`` rejects the unknown key with a per-field message so a
     stale client (still sending voice_id) gets a clear 400 rather than a
     silently dropped key.

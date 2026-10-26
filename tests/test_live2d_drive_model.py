@@ -1,9 +1,8 @@
 """`Avatar.drive_model`: the column, its migration, and its filter.
 
 The column is the pairing between an avatar and the digital-human model
-that drives it. It replaced ``Avatar.kind``, whose two values
-("photoreal" / "live2d") were really two drive models wearing a
-different name.
+that drives it: the two values ``Avatar.kind`` carries ("photoreal" /
+"live2d") were really two drive models wearing a different name.
 
 The rebuild in ``_drop_abandoned_columns`` recreates ``avatars`` from a
 whitelist of column names. A column missing from that whitelist is
@@ -81,8 +80,8 @@ def test_the_kind_column_is_gone_and_its_values_moved(client):
     ``drive_model`` and drops the column.
 
     The migration runs on ``init_db``, so this test drives it directly
-    rather than through the ORM: the ORM has no ``kind`` attribute any
-    more, so a row cannot be seeded the old way.
+    rather than through the ORM: the ORM has no ``kind`` attribute, so a
+    row cannot be seeded through it.
     """
     engine = get_engine()
     with engine.begin() as conn:

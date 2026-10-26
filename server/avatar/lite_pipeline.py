@@ -148,7 +148,6 @@ class LiteAvatarPipeline(AvatarPipeline):
 
             progress("build_pack", 100)
             return lite_pack.config_block(
-                out_dir,
                 frame_count=len(coords),
                 fps=settings.fps,
                 model_type="feathertalk",
@@ -354,12 +353,6 @@ def _slim_checkpoint(trained: Path, target: Path) -> Path:
 
 
 def _decode_audio_16k(path: Path) -> np.ndarray:
-    """The video's audio as 16 kHz mono float32.
-
-    PyAV does the decoding and the resampling; the server already depends on
-    it through aiortc, and it is the only decoder here that handles every
-    container the upload endpoint accepts.
-    """
     """The video's audio as 16 kHz mono float32.
 
     PyAV does the decoding and the resampling; the server already depends on

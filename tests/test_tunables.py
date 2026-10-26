@@ -99,10 +99,9 @@ def test_effective_accepts_overrides_that_beat_db_rows(db):
     assert out["bbox_shift"] == 0
 
 
-def test_effective_overrides_none_matches_legacy(db):
-    # Passing overrides=None is identical to the old single-arg call; this is
-    # the contract the pipeline (which doesn't yet know about overrides) relies
-    # on for the duration of the migration.
+def test_effective_overrides_none_matches_the_default_call(db):
+    # Passing overrides=None is identical to the no-overrides call; the
+    # pipeline calls it that way.
     assert tunables.effective(db, overrides=None) == tunables.effective(db)
 
 

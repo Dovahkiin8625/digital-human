@@ -4,10 +4,6 @@
 // ``splitSentences`` (sentence-level chunking for TTS) and
 // ``makeThinkStripper`` (consumes ``<think>...</think>`` blocks before
 // they reach TTS / the avatar).
-//
-// Run with ``npx vitest run admin-ui/src/llm.test.ts`` once vitest is
-// wired up. For now this file is written to vitest's shape so it slots
-// in cleanly when the project's test infra is ready.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -140,13 +136,13 @@ describe("makeThinkStripper", () => {
 });
 
 describe("drainSentences", () => {
-  // The bug this helper exists to prevent: an LLM stream that produces
-  // two deltas in a row, each containing one or more complete
+  // The failure this helper exists to prevent: an LLM stream that
+  // produces two deltas in a row, each containing one or more complete
   // sentences, would re-flush the first delta's sentences a second
   // time on the second delta if the running buffer kept the just-
-  // flushed prefix. ``splitSentences`` is pure; the buffer-handling is
-  // what was wrong in the chat panel. ``drainSentences`` owns that
-  // contract -- the caller stores ``newTail`` and feeds it back in.
+  // flushed prefix. ``splitSentences`` is pure; the buffer handling is
+  // the part that needs a contract. ``drainSentences`` owns it -- the
+  // caller stores ``newTail`` and feeds it back in.
 
   it("flushes one sentence in one delta", () => {
     const step = drainSentences({ tail: "" }, "你好世界。");
@@ -176,12 +172,11 @@ describe("drainSentences", () => {
 
   it("does not re-flush a sentence that has already been drained", () => {
     // Regression for the "数字人说两遍" report: ``streamChat`` delivers
-    // each chunk as a separate delta call, and the previous code path
-    // kept the flushed prefix around in the running buffer. Each
-    // subsequent delta would re-flush the same sentence again, so the
-    // avatar narrated every sentence multiple times. With the helper
-    // owning the trim-to-tail contract, each sentence lands in
-    // ``flushed`` exactly once.
+    // each chunk as a separate delta call, so a running buffer that
+    // keeps the flushed prefix would re-flush the same sentence on
+    // every subsequent delta and the avatar would narrate it multiple
+    // times. With the helper owning the trim-to-tail contract, each
+    // sentence lands in ``flushed`` exactly once.
     const first = drainSentences({ tail: "" }, "你好。");
     expect(first.flushed).toEqual(["你好。"]);
     const second = drainSentences({ tail: first.newTail }, "下一句。");

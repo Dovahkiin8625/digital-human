@@ -280,8 +280,8 @@ export default function LivePortraits() {
     <Space direction="vertical" size={16} style={{ width: "100%" }}>
       <Typography.Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 0 }}>
         管理 LivePortrait 的动作模板。提取后特征被预缓存为 <code>.pkl</code>，
-        后续生成时跳过裁剪 + 关键点提取；预渲染的 GIF 缩略图会出现在「形象活化」和
-        「参数设置」里供选择时预览。
+        后续生成时跳过裁剪 + 关键点提取；预渲染的 GIF 缩略图会出现在「图生视频」页
+        供选择时预览。
       </Typography.Paragraph>
 
       {error && (

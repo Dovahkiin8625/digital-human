@@ -3,7 +3,7 @@
 // (video metadata, the upload itself): the lock is acquired synchronously
 // before the task's first await and released in `finally`, so a concurrent
 // caller is told it did not run instead of slipping through.
-export interface ReentryGuard {
+interface ReentryGuard {
   isHeld(): boolean;
   run<T>(task: () => Promise<T>): Promise<{ ran: boolean; value: T | undefined }>;
 }

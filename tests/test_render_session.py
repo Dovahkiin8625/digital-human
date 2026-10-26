@@ -198,9 +198,9 @@ async def test_maybe_idle_returns_to_idle_within_one_second(tmp_path):
     """After speech ends, the session must reach IDLE within ~1s.
 
     Regression for the perceived ~1.7s freeze on the last speech frame after
-    audio stopped: IDLE_AFTER was 2.0s, so the WebRTC video queue drained
-    (~320 ms for maxsize=8 at 25 fps) and then the receiver sat on the last
-    frame until the keep-alive loop was allowed to push idle frames again.
+    audio stopped: with a long IDLE_AFTER the WebRTC video queue drains
+    (~320 ms for maxsize=8 at 25 fps) and then the receiver sits on the last
+    frame until the keep-alive loop is allowed to push idle frames again.
     With IDLE_AFTER at half a second the queue has barely started draining
     before idle frames take over, so the freeze is bounded by the queue.
     """
@@ -208,8 +208,8 @@ async def test_maybe_idle_returns_to_idle_within_one_second(tmp_path):
     await session.start()
     await session.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())
     assert session.state == SessionState.SPEAKING
-    # 1.0s is past the new IDLE_AFTER (0.5s) but well under the old 2.0s --
-    # so a regression to the old value flips this back to SPEAKING and fails.
+    # 1.0s is past IDLE_AFTER (0.5s) but well inside the idle window, so a
+    # regression to a longer threshold flips this back to SPEAKING and fails.
     session.maybe_idle(now=session.last_audio_at + 1.0)
     assert session.state == SessionState.IDLE
     await session.close()
@@ -355,10 +355,10 @@ async def test_missing_canvas_disables_keepalive(tmp_path):
 async def test_keepalive_exits_on_error_even_without_a_canvas(tmp_path):
     """CLOSED/ERROR must stop the task before the keep-alive gate.
 
-    The check used to live only inside the lock, which a NullSink -- or a pack
-    with no normalized.png -- never reaches, so the task spun at 25 Hz forever
-    after the session errored. `_session` here writes no canvas and uses a
-    NullSink, which is exactly that blind spot.
+    The check sits outside the lock, so a NullSink -- or a pack with no
+    normalized.png -- reaches it too; otherwise the task would spin at 25 Hz
+    forever after the session errored. `_session` here writes no canvas and
+    uses a NullSink, which is exactly that blind spot.
     """
     session, _ = _session(tmp_path, sink=NullSink())
     await session.start()
@@ -569,8 +569,8 @@ async def test_second_speech_stretch_continues_without_double_counting(tmp_path)
     session._idle_pos = 13
     await session.push_pcm(np.zeros(4800, np.int16).tobytes())  # 2 frames
     # Seamless edge: turn 2 starts on the frame the idle track would show
-    # next, absolute position 13. The old absolute seed (phase = 13) composed
-    # with the still-cumulative emitted (10) would select positions 23/24.
+    # next, absolute position 13. The phase is relative to what the idle
+    # track already emitted, so it is 13 - 10 rather than 13.
     assert session._ctx.phase == 3  # 13 - 10
     assert engine.selections[-2:] == [cycle_index(13, 8), cycle_index(14, 8)]
     # Readback after turn 2 stays on one continuous timeline: phase 3 + 12.

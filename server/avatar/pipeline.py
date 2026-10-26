@@ -116,8 +116,7 @@ def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
     """Run an avatar job to completion in its own DB session.
 
     Shared by the FastAPI BackgroundTasks call sites in api/avatars.py (tenant
-    upload) and api/admin.py (admin retry); both previously carried a private,
-    near-identical copy of this runner.
+    upload) and api/admin.py (admin retry), so both run the same job runner.
 
     The pipeline comes from the model that owns the avatar, so the pack is
     always written by the model that will drive it.

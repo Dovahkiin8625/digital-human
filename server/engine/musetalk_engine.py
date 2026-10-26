@@ -87,7 +87,7 @@ def _try_empty_cuda_cache() -> None:
         pass
 
 
-def _model_components(models_dir: Path) -> list[str]:
+def _model_components() -> list[str]:
     """The MuseTalk runtime's on-disk components, as a stable display list.
 
     Mirrors the keys :data:`RUNTIME_WEIGHTS` enumerates so each displayed
@@ -546,13 +546,13 @@ class MuseTalkEngine(DriveEngine):
             "models": [
                 {
                     "id": "musetalk_runtime",
-                    # New: row-level kind so the Models tab can render
+                    # Row-level kind so the Models tab can render
                     # drive_runtime + portrait_animator rows in one
                     # table without an ``id`` prefix lookup.
                     "kind": "drive_runtime",
                     "label_zh": "MuseTalk 驱动运行时",
                     "type": "drive_runtime",
-                    "components": _model_components(self.models_dir),
+                    "components": _model_components(),
                     "source": str(self.models_dir),
                     "estimated_bytes": _estimated_bytes(self.models_dir),
                     "loaded": loaded,
@@ -578,16 +578,14 @@ class MuseTalkEngine(DriveEngine):
 
         The Models tab POSTs ``/api/admin/models/{id}/load`` and the admin
         router dispatches via ``getattr(engine, "load", None)``. The
-        engine's actual entry point has been ``warmup`` since pre-launch;
-        ``load()`` keeps the admin endpoint engine-agnostic (an engine
-        without weights has no ``load``) without renaming the
-        lifespan-managed lifecycle call.
+        engine's own entry point is ``warmup``; ``load()`` keeps the admin
+        endpoint engine-agnostic (an engine without weights has no
+        ``load``) without renaming the lifespan-managed lifecycle call.
 
-        Calls ``warmup`` unchanged, so cold start still costs the same
-        ~30 s the lifespan task was paying. Idempotent-ish: a second call
-        walks the same warmup path (re-mounts ``_Runtime`` under the
-        lock), which is the desired behaviour after ``unload()`` has
-        dropped ``_runtime`` to None.
+        Calls ``warmup`` unchanged, so cold start costs the same ~30 s the
+        lifespan task pays. Idempotent-ish: a second call walks the same
+        warmup path (re-mounts ``_Runtime`` under the lock), which is the
+        desired behaviour after ``unload()`` has dropped ``_runtime`` to None.
         """
         await self.warmup()
 
@@ -1047,6 +1045,7 @@ class MuseTalkEngine(DriveEngine):
             return self._load_video_avatar(rt, pack, root, prep)
         if mode == "image":
             return self._load_image_avatar(rt, root, prep)
+        # No ``mode`` field at all: a single-frame pack with one mask file.
         return self._load_legacy_avatar(rt, root, prep)
 
     def _load_image_avatar(self, rt: _Runtime, root: Path, prep: dict) -> _AvatarState:
@@ -1074,7 +1073,12 @@ class MuseTalkEngine(DriveEngine):
         )
 
     def _load_legacy_avatar(self, rt: _Runtime, root: Path, prep: dict) -> _AvatarState:
-        """A single-frame pack written before video support: N=1."""
+        """A single-frame pack: one base image plus one mask file.
+
+        Such packs carry no ``mode`` field, and their mask is a single
+        ``prep["mask"]`` PNG rather than the per-frame ``prep["masks"]``
+        directory the video / image packs use.
+        """
         from PIL import Image
 
         base_rgb = np.array(

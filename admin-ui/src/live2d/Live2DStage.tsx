@@ -3,7 +3,7 @@ import { CubismStage } from "./cubism/stage";
 import { mountStage } from "./mountStage";
 import type { ParameterReport } from "./cubism/types";
 
-export interface Live2DStageProps {
+interface Live2DStageProps {
   /** Model entry URL. Admin-console callers pass the authenticated hosting
    *  endpoint; the debug stage passes the local sample. */
   modelUrl: string
@@ -12,9 +12,9 @@ export interface Live2DStageProps {
    *  which is what makes drift impossible. */
   audio: AudioBuffer | null
   /** Index into the model's own expression list, driven by the emotion tags
-   *  in the reply. Wired through but currently inert: Cubism 5 replaced
-   *  index-based expressions with a motion queue, so the adapter inside
-   *  the stage is a no-op until that is designed. */
+   *  in the reply. Wired through but inert: Cubism 5 drives expressions
+   *  through a motion queue rather than by index, so the adapter inside the
+   *  stage is a no-op. */
   expressionIndex?: number
   width?: number
   height?: number

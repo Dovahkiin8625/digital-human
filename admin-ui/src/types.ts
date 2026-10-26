@@ -30,12 +30,14 @@ export interface AvatarInfo {
   // row so every page that can select an avatar can tell a server-driven
   // avatar from a client-rendered one without a second lookup.
   client_rendered: boolean;
-  // The pipeline's pack.json: the MuseTalk block plus, for new packs, a
-  // top-level `warnings` list of non-blocking source-quality findings.
+  // The pipeline's pack.json: the block the driving model's pipeline wrote,
+  // plus a top-level `warnings` list of non-blocking source-quality
+  // findings.
   config: {
     warnings?: string[];
     // _effective_params is the audit row of TUNABLES actually applied to this
-    // avatar at build time. May be absent on legacy / mock packs.
+    // avatar at build time. Absent for an avatar with no build pipeline (a
+    // client-rendered model).
     _effective_params?: TunableParams;
     [key: string]: unknown;
   };
@@ -43,7 +45,7 @@ export interface AvatarInfo {
   created_at: string;
 }
 
-export interface SessionMetrics {
+interface SessionMetrics {
   frames_out?: number;
   dropped_frames?: number;
   fps?: number;
@@ -80,7 +82,7 @@ export interface JobInfo {
 // One runtime as /api/admin/system reports it. Several digital-human
 // models may be resident at once, so the page is told about each of them
 // rather than about one "the" engine.
-export interface RuntimeInfo {
+interface RuntimeInfo {
   name: string;
   label_zh: string;
   // A model the browser renders has no engine and no weights.
@@ -161,8 +163,7 @@ export interface ArtifactInfo {
   kind: "image" | "json" | "tensor" | "mask" | "video" | "binary" | string;
 }
 
-// One slot from /api/admin/models. One row per thing the operator can
-// put on the GPU, plus one row per digital-human model.
+// One row from /api/admin/models.
 //
 // One row per thing the operator can put on the GPU. The Models tab
 // renders drive runtimes (``drive_runtime``), client-rendered runtimes
@@ -181,9 +182,8 @@ export interface ModelInfo {
   // engine's hardcoded Chinese name). The id column falls back to ``id``
   // when this is absent.
   label_zh?: string;
-  // Historical "type" string -- drive_runtime rows still carry this
-  // for the 类型 column's tag. Animator rows use ``kind``'s value here
-  // so the existing renderer doesn't see a null.
+  // The server's own "type" string for the row. It mirrors ``kind`` and
+  // is what the 类型 column's tag is built from.
   type: string;
   // The model parts the runtime materialises. Renders as a Tag each,
   // or as "+N" once there are too many to fit a row. Strings are
@@ -247,8 +247,8 @@ export interface ModelsPayload {
 // empty value means "clear the credential" (the synthesise endpoint
 // then returns 503 until a real key is saved).
 //
-// ``voice_id`` used to live here -- the operator now picks it per
-// session in the debug page, so it isn't a server-wide setting anymore.
+// ``voice_id`` is not a server-wide setting: the operator picks it per
+// session in the debug page.
 export interface TtsConfigInfo {
   model: string;
   sample_rate: number;
@@ -287,7 +287,7 @@ export interface LlmConfigUpdate {
 // One row per every OTHER model this server uses -- portrait animators
 // (LivePortrait / Wan 2.2) + MiniMax TTS. Lifecycle state is surfaced
 // so the operator can drive load / unload from here without bouncing
-// to 形象活化 tab or paying mid-call cold-loads.
+// to the Models tab or paying mid-call cold-loads.
 export interface ServiceInfo {
   id: string;
   // ``portrait_animator`` / ``tts_service`` / ``llm_service``. Drives

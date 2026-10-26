@@ -6,7 +6,6 @@ no per-sender bitrate parameter: the H264Encoder reads module globals at
 construction and the REMB setter clamps to them at runtime, so patching the
 module constants is the only seam.
 """
-import pytest
 
 
 def test_configure_h264_bitrate_raises_default_and_ceiling(monkeypatch):

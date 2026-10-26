@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fetch the RIFE 4.9 flownet used to remap sub-25 fps driver videos onto the
+# Fetch the RIFE 4.9 flownet that remaps sub-25 fps driver videos onto the
 # 25 fps timeline (server/avatar/interpolation.py).
 #
 # RIFE 4.9 (the v4.7-4.9 timestep-capable architecture: encode stem + four

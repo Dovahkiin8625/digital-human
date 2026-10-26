@@ -82,8 +82,7 @@ def test_loop_sequence_empty_is_empty():
 
 
 def test_forward_index_wraps_without_reversing():
-    # N=20: the legacy ping-pong would have period 38 with reversals; the
-    # forward-only loop has period 20 and never steps backwards.
+    # N=20: the forward-only loop has period 20 and never steps backwards.
     seq = list(range(20))
     seen = [seq[forward_index(i, 20)] for i in range(60)]
     assert seen == seq + seq + seq

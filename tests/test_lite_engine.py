@@ -57,8 +57,8 @@ def _write_pack(root: Path, frames: int = 4) -> AvatarPack:
         avatar_id="a1",
         root=root,
         source_image_path=root / "normalized.png",
-        config={"lite": lite_pack.config_block(root, frame_count=frames, fps=FPS, model_type="feathertalk")},
-        prep=json.loads(json.dumps(lite_pack.config_block(root, frame_count=frames, fps=FPS, model_type="feathertalk"))),
+        config={"lite": lite_pack.config_block(frame_count=frames, fps=FPS, model_type="feathertalk")},
+        prep=json.loads(json.dumps(lite_pack.config_block(frame_count=frames, fps=FPS, model_type="feathertalk"))),
     )
 
 

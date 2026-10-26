@@ -140,32 +140,6 @@ def decode_frames(
 _idle_locks: dict[str, threading.Lock] = {}
 
 
-def read_all_frames(path: Path) -> np.ndarray:
-    """Decode every frame of a clip we encoded ourselves (``[N,H,W,3]`` RGB).
-
-    The engine loads a baked avatar's ``base.mp4`` through here: the clip is
-    already on the 720x1280 canvas and encoded at the render fps, so frames are
-    read in storage order with no probing, retiming, or letterboxing. Raises
-    `VideoError` on an empty/unreadable clip.
-    """
-    cv2 = _cv2()
-    cap = cv2.VideoCapture(str(path))
-    out = []
-    try:
-        if not cap.isOpened():
-            raise VideoError("cannot open video")
-        while True:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            out.append(np.ascontiguousarray(frame[:, :, ::-1]))
-    finally:
-        cap.release()
-    if not out:
-        raise VideoError(f"no frames decoded from {path}")
-    return np.stack(out)
-
-
 def _encode_h264(
     path: Path,
     frames: np.ndarray,
@@ -187,7 +161,7 @@ def _encode_h264(
 
     ``crf`` and ``preset`` are the admin-tunable knobs: lower crf and slower
     preset yield smaller files for the same perceptual quality, at the cost of
-    encode time. Defaults preserve the historical behaviour.
+    encode time. The defaults are ``crf=18`` / ``preset="veryfast"``.
     """
     import av
 
@@ -231,8 +205,7 @@ def build_idle_video(
     ``.tmp`` makes the container fail to open.
 
     ``crf`` and ``preset`` are forwarded to ``_encode_h264``; omitting them
-    keeps the historical defaults (18, veryfast) so existing call sites are
-    unaffected.
+    keeps the defaults (18, veryfast).
     """
     import json
     import os

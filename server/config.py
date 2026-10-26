@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     # capped so its frames can stay resident: 15 s at 25 fps is 375 frames.
     avatar_max_video_seconds: float = 15.0
     avatar_max_video_frames: int = 375
-    # Video avatars keep ~1 GB of decoded frames resident each, so the engine's
-    # per-avatar LRU is smaller than it was when every avatar was one frame.
+    # Video avatars keep ~1 GB of decoded frames resident each, so the
+    # engine's per-avatar LRU is small.
     avatar_cache_size: int = 2
     # Uploads are streamed to disk and counted as they arrive; a body past
     # this many bytes is refused mid-copy with 413. Generous above a 15 s
@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     # NOTE: the MiniMax TTS config (api_key / group_id / base_url / model /
     # sample_rate) lives entirely in the SQLite ``settings`` table and is
     # configured from the Models tab, exactly like the LLM below. There are
-    # deliberately no ``DH_MINIMAX_*`` env defaults: two persistence layers
-    # for one credential meant the console's badge tracked the wrong one.
+    # deliberately no ``DH_MINIMAX_*`` env defaults: one credential, one
+    # persistence layer.
     # MiniMax tops out at 44100 Hz, so the synthesised rate is never the
     # render session's 48000 -- the browser resamples onto the WS audio
     # channel (webrtc.ts).
@@ -45,16 +45,15 @@ class Settings(BaseSettings):
     # SQLite ``settings`` table and is configured from the Models tab.
     # There are deliberately no ``DH_LLM_*`` env defaults here -- env vars
     # are a deployment concern, but the LLM is a per-box operator choice
-    # that's expected to be wired through the UI. Removing the env shim
-    # also keeps a leaked ``DH_LLM_API_KEY`` from silently turning the chat
-    # endpoint on in environments where the operator hasn't opted in.
+    # that's expected to be wired through the UI. A stray ``DH_LLM_API_KEY``
+    # in the environment is ignored, so it cannot silently turn the chat
+    # endpoint on in a box where the operator hasn't opted in.
 
     # Static credential for the business-plane endpoints a *remote* client
     # reaches -- today that is the Electron pet, which renders locally and
     # calls back for models and the Cubism runtime. Empty disables the
     # check, which is what a single-operator box behind the admin console
-    # wants. The admin plane itself has no auth since the no-tenant refactor
-    # and is a separate problem.
+    # wants. The admin plane itself has no auth; that is a separate problem.
     v1_api_token: str = ""
 
     # Live2D. `live2d_sdk_dir` is read by the server only to serve the SDK's
@@ -74,16 +73,14 @@ class Settings(BaseSettings):
     live2d_max_entry_bytes: int = 64_000_000
 
     # ``extra="ignore"`` rather than the pydantic-settings default of
-    # ``"forbid"``: a box upgraded from a version that still shipped
-    # ``DH_MINIMAX_*`` (or the retired ``DH_DRIVE_ENGINE`` /
-    # ``DH_AVATAR_PIPELINE``) in its .env must not fail to start just
-    # because those keys no longer have a Settings field. Unknown DH_*
-    # vars are inert; they are simply not read by anything.
+    # ``"forbid"``: a .env carrying DH_* keys this box does not read must
+    # not stop the server from starting. Unknown DH_* vars are inert; they
+    # are simply not read by anything.
     #
-    # Which digital-human model this box runs is NOT an env concern: it is
-    # an operator choice stored in the SQLite ``settings`` table, the same
-    # place the MiniMax TTS and LLM configs live. See
-    # ``server/model_registry.py``.
+    # Which digital-human model drives an avatar is NOT an env concern:
+    # each avatar records its own model (``avatars.drive_model``), and the
+    # Models tab loads / unloads the weights of each model on its own.
+    # See ``server/model_registry.py``.
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env", extra="ignore")
 
 

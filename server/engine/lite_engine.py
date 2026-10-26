@@ -45,7 +45,6 @@ from server.engine.base import (
     DriveEngine,
     DriveFrame,
     EngineUnavailable,
-    gpu_available,
 )
 from server.lite import geometry, pack as lite_pack, vendor
 
@@ -154,10 +153,6 @@ class _AvatarState:
 
     def _decode(self, index: int) -> np.ndarray:
         with self._lock:
-            if index in self._decoding:
-                # Another thread is on it; wait for it rather than decoding
-                # the same frame twice.
-                pass
             self._decoding.add(index)
         try:
             image = self._decode_bytes(index)

@@ -1,10 +1,9 @@
 """Credentials for the client-facing endpoints.
 
 Only the business-plane surface is gated, and only when a token is
-configured. The existing ``/api/v1`` routes are unauthenticated after the
-no-tenant refactor and stay that way here: retrofitting them would churn
-every current caller, and it is a separate piece of work with its own
-blast radius.
+configured. The ``/api/v1`` routes are unauthenticated and stay that way
+here: retrofitting them would churn every current caller, and it is a
+separate piece of work with its own blast radius.
 
 An unset token means open. That matches how every admin endpoint already
 behaves on a single-operator box, and it means the admin console -- which

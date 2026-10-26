@@ -56,10 +56,11 @@ TUNABLES: tuple[ParamSpec, ...] = (
     ParamSpec("idle_crf", "int", 18, minimum=0, maximum=51),
     ParamSpec("idle_preset", "enum", "veryfast", choices=X264_PRESETS),
     # -- portrait activation (server/avatar/animators.py) --
-    # No global tunables here. The new tab "形象活化" lets the operator pick a
-    # backend per generation, each of which has its own per-call knobs. Per-
-    # call overrides beat a global tunable -- they make one-off experiments
-    # possible without leaving fingerprints on every other avatar's build.
+    # No global tunable for the animator choice itself: the "形象活化" tab lets
+    # the operator pick a backend per generation, each of which has its own
+    # per-call knobs. Per-call overrides beat a global tunable -- they make
+    # one-off experiments possible without leaving fingerprints on every other
+    # avatar's build.
     # -- portrait activation (server/avatar/liveportrait.py) --
     # Default LivePortrait motion template (driver name). The "形象活化" tab
     # pre-selects this for new runs; the operator can still override per-

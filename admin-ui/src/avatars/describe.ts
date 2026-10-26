@@ -1,7 +1,7 @@
 import type { AvatarInfo } from "../types";
 
 /** How one avatar is driven, as the list's 驱动方式 column reads it. */
-export type DriveLabel = "图片驱动" | "视频驱动" | "客户端渲染";
+type DriveLabel = "图片驱动" | "视频驱动" | "客户端渲染";
 
 /**
  * The single cell that differs between the drive models.
@@ -27,7 +27,7 @@ export function driveLabel(
   return null;
 }
 
-export type ExpressionsResult =
+type ExpressionsResult =
   | { ok: true; value: Record<string, number> }
   | { ok: false; error: string };
 

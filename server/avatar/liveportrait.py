@@ -16,7 +16,7 @@ Design contract:
   ``scripts/fetch_liveportrait_weights.sh`` populates that directory. When
   the clip is missing, :attr:`is_ready` is False and :meth:`animate` raises
   :class:`AnimatorError` with a hint at the fetch script.
-* ``promote`` does not take a textual prompt or diffusion steps -- LivePortrait
+* ``animate`` does not take a textual prompt or diffusion steps -- LivePortrait
   retargets motion from the driving clip to the source face. ``meta()`` says
   so and ``validate(prompt=, steps=)`` therefore accept those knobs as
   no-ops.
@@ -32,15 +32,11 @@ Design contract:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from server.avatar.animators import ANIMATORS, AnimatorError
 from server.config import get_settings
-
-if TYPE_CHECKING:
-    from PIL import Image  # noqa: F401 -- type-only
 
 
 #: Directory containing bundled driving clips. ``scripts/fetch_liveportrait_weights.sh``
@@ -288,7 +284,7 @@ class LivePortraitAnimator:
     def weights_dir(self) -> Path | None:
         """Absolute path to the LivePortrait weights directory on disk.
 
-        Mirrors the path the heavy ``_load_pipeline`` builds (line 313):
+        Mirrors the path the heavy ``_load_pipeline`` builds:
         ``<data_dir>/models/liveportrait``. Exposed as a property so the
         Models tab's portrait-animator row can render it without re-
         implementing the path logic.
@@ -301,14 +297,11 @@ class LivePortraitAnimator:
         """Construct the heavy LivePortrait pipeline. Tests stub this.
 
         Default path: assemble the project-managed weights + point
-        upstream's :class:`LivePortraitPipeline` at them, mirroring
-        what ``_run_pipeline`` previously did inline before the first
-        ``animate()`` call.
+        upstream's :class:`LivePortraitPipeline` at them.
 
         Raises :class:`AnimatorError` (not ``ImportError``) when the
         LivePortrait runtime isn't installed -- the dispatcher maps
-        that to a clean 503 with a fetch-script hint, the same surface
-        the lazy-init path used to raise from inside ``animate()``.
+        that to a clean 503 with a fetch-script hint.
         """
         try:
             from LivePortrait.live_portrait_pipeline import LivePortraitPipeline  # type: ignore[import-not-found]
@@ -514,8 +507,8 @@ class LivePortraitAnimator:
           which takes FILE PATHS for ``source``/``driving``/``output_dir``
           (not pre-decoded frame arrays), writes the result to
           ``args.output_dir``, and returns ``(wfp, wfp_concat)``.
-        * ``driver_frames`` is kept in the signature for compatibility with
-          tests that still pass it; we ignore it here because upstream
+        * ``driver_frames`` is accepted for compatibility with the stubbed
+          pipeline signature; we ignore it here because upstream
           re-reads the driver from disk (it does its own
           ``cv2.VideoCapture`` or ``pickle.load`` on ``args.driving``).
         * The driver name is resolved via :func:`resolve_driver` -- it
@@ -535,7 +528,7 @@ class LivePortraitAnimator:
 
         settings = get_settings()
         # ``LivePortraitPipeline`` is heavy -- 1.5 GB of weights + the
-        # ONNX / InsightFace graph. The construction moved into
+        # ONNX / InsightFace graph. It is constructed by
         # :meth:`_load_pipeline` (called once by :meth:`load`) so a
         # second ``animate()`` doesn't re-pay the cost.
         pipe = self._pipeline

@@ -5,12 +5,11 @@ the OSS I2V backend, registered as ``wan22-i2v-5b-bf16`` in
 :data:`server.avatar.animators.ANIMATORS`.
 
 Wan-AI did not release an officially-quantised FP8 variant of this
-checkpoint on either Hugging Face or ModelScope, so the fp8 backend that
-was originally planned alongside bf16 is intentionally absent: shipping a
-Comfy-Org or bullerwins community quant would force a non-diffusers loader
-and break the rest of the pipeline. Re-evaluate when Wan-AI ships an
-official FP8 release (or when diffusers gains runtime bf16->fp8
-quantisation).
+checkpoint on either Hugging Face or ModelScope, so there is no fp8
+backend: shipping a Comfy-Org or bullerwins community quant would force a
+non-diffusers loader and break the rest of the pipeline. Re-evaluate when
+Wan-AI ships an official FP8 release (or when diffusers gains runtime
+bf16->fp8 quantisation).
 
 The model is a dense 5 B hybrid that diffusers exposes via
 ``WanImageToVideoPipeline``. Same 16N+1 motion grid as Wan 2.1, so the
@@ -27,15 +26,11 @@ graph into the import graph.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from server.avatar.animators import ANIMATORS, AnimatorError
 from server.config import get_settings
-
-if TYPE_CHECKING:
-    from PIL import Image as _PILImage  # noqa: F401
 
 
 #: Root directory under which the weights live.
@@ -124,7 +119,7 @@ class Wan22I2VAnimator:
 
         Idempotent: a second call while already loaded is a no-op
         (the pipeline construction is heavy). The actual ``from_pretrained``
-        + ``enable_sequential_cpu_offload`` work moved into
+        + ``enable_sequential_cpu_offload`` work lives in
         :meth:`_load_pipeline` so tests can stub it without importing
         diffusers.
         """
@@ -136,10 +131,9 @@ class Wan22I2VAnimator:
     def _load_pipeline(self) -> object:
         """Construct the heavy diffusers pipeline. Tests stub this.
 
-        Default path mirrors what ``_run_pipeline`` previously did inline
-        before each ``animate()`` call. Maps the spec's dtype string to
-        the matching ``torch`` dtype, applies sequential CPU offload on
-        supported devices, and returns the live pipeline object.
+        Maps the spec's dtype string to the matching ``torch`` dtype,
+        applies sequential CPU offload on supported devices, and returns
+        the live pipeline object.
         """
         try:
             import torch
@@ -319,11 +313,6 @@ class Wan22I2VAnimator:
                 f"this host has {free_gb:.1f} GB"
             )
 
-        # Side-channel: snap to grid so a slightly off input doesn't crash diffusers.
-        if (num_frames - 1) % 16 != 0:
-            rounded = ((num_frames - 1) // 16) * 16 + 1
-            num_frames = max(self.spec["num_frames_min"], rounded)
-
         try:
             frames = self._run_pipeline(
                 source_path, prompt=prompt, num_frames=num_frames, steps=steps, out_dir=out_dir
@@ -365,11 +354,11 @@ class Wan22I2VAnimator:
     ) -> np.ndarray:
         """Run the real Wan 2.2 I2V pipeline against the cached pipeline.
 
-        Pre-allocation belongs to :meth:`load`; the heavy ``from_pretrained``
-        + ``enable_sequential_cpu_offload`` construction moved into
-        :meth:`_load_pipeline` so the same diffusers pipeline is reused
-        across calls. Tests stub this method so CI doesn't pay for torch's
-        2 GB init graph.
+        Pre-allocation belongs to :meth:`load`; :meth:`_load_pipeline`
+        builds the heavy ``from_pretrained`` +
+        ``enable_sequential_cpu_offload`` pipeline so the same diffusers
+        pipeline is reused across calls. Tests stub this method so CI
+        doesn't pay for torch's 2 GB init graph.
         """
         try:
             import torch

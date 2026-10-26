@@ -132,18 +132,16 @@ export default function Avatars() {
     const seeded = initialPrefilledRef.current;
     if (!seeded) return [];
     // AntD's UploadFile requires ``originFileObj`` to be an ``RcFile`` --
-    // i.e. a real ``File`` plus a ``uid: string``. ``File.prototype`` still
-    // exposes the legacy ``lastModifiedDate`` getter, but writing to it is
-    // forbidden on modern browsers (``TypeError: Cannot set property
-    // lastModifiedDate``); we deliberately do NOT try to set it:
-    // rc-upload v4 only reads ``uid``/``name``/``type``/``size``/
-    // ``lastModified``, and AntD v5's runtime never touches the legacy
-    // date. A previous attempt wrapped the File via ``Object.create`` --
-    // that satisfied the RcFile shape but stripped the ``[[Blob]]`` internal
-    // slot, so ``URL.createObjectURL`` and friends later threw
-    // ``TypeError: Illegal invocation`` on the proxy. Mutating the seed
-    // File is safe because the i2v drawer hands us a brand-new ``File``
-    // in the same closure and never reuses it.
+    // i.e. a real ``File`` plus a ``uid: string``. The seed File is used
+    // as-is and only ``uid`` is written on it: wrapping it in a proxy
+    // (``Object.create``) would satisfy the RcFile shape but strip the
+    // ``[[Blob]]`` internal slot, so ``URL.createObjectURL`` and friends
+    // would throw ``TypeError: Illegal invocation``. Writing
+    // ``lastModifiedDate`` is forbidden too -- it is a read-only legacy
+    // getter -- and rc-upload v4 never reads it (it only reads
+    // ``uid``/``name``/``type``/``size``/``lastModified``). Mutating the
+    // seed File is safe because the i2v drawer hands us a brand-new
+    // ``File`` in the same closure and never reuses it.
     const rcFile = seeded as RcFile;
     rcFile.uid = "-1";
     return [

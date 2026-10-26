@@ -1,7 +1,7 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { theme as antdTheme } from "antd";
 
-export type ThemeMode = "dark" | "light";
+type ThemeMode = "dark" | "light";
 
 const STORAGE_KEY = "dh-admin-theme";
 

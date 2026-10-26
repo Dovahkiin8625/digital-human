@@ -5,9 +5,9 @@ every future frame copies the current frame's two tokens, interleaved. The
 training path has to produce the *same* window, or the model is served
 inputs it never saw.
 
-This is the regression test for a bug that was real: the fill was written as
-one flat assignment, which cannot broadcast two tokens into eighteen slots --
-and the obvious "fix" (``repeat``) tiles the pair instead of interleaving it.
+The fill must interleave two tokens into eighteen slots: a flat
+assignment cannot broadcast them, and ``repeat`` would tile the pair
+instead of interleaving it.
 
 Needs torch and the vendored FeatherTalk checkout, so it runs in the runtime
 venv.

@@ -82,8 +82,12 @@ def read_meta(root: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def config_block(root: Path, *, frame_count: int, fps: int, model_type: str, **extra) -> dict:
-    """The ``lite`` block for ``pack.json``."""
+def config_block(*, frame_count: int, fps: int, model_type: str, **extra) -> dict:
+    """The ``lite`` block for ``pack.json``.
+
+    Every path in the block is relative to the avatar directory, so the
+    block needs no root of its own.
+    """
     block = {
         "dir": SUBDIR,
         "version": VERSION,

@@ -75,16 +75,20 @@ def _list_avatar_artifacts(avatar: Avatar) -> list[dict]:
 def _pipeline_timeline(avatar: Avatar, raw_meta: dict | None) -> dict:
     """Compose the admin-side timeline view from ``Avatar.config_json``.
 
-    The MuseTalk pack writes a ``prep`` block with ``mode``, plus ``crop``,
+    Each model writes its own block into ``pack.json`` -- ``musetalk`` for
+    MuseTalk, ``lite`` for FeatherTalk -- carrying ``mode``, plus ``crop``,
     ``detector``, ``version``, ``fps``, ``source_fps``, ``frame_count``, and
-    an optional ``warnings`` list.
+    an optional ``warnings`` list. The block is addressed by the avatar's
+    own model, so a pack is never read through another model's key.
 
-    An avatar whose pack carries no ``prep`` block (and no
-    ``musetalk/meta.json``) falls back to the source file's suffix so the
-    UI still gets a usable mode.
+    An avatar whose pack carries no block (and no ``<model>/meta.json``)
+    falls back to the source file's suffix so the UI still gets a usable
+    mode.
     """
     cfg = dict(avatar.config_json or {})
-    prep = cfg.get("musetalk", {}) if isinstance(cfg.get("musetalk"), dict) else {}
+    key = avatar.drive_model or DEFAULT_MODEL
+    block = cfg.get(key)
+    prep = block if isinstance(block, dict) else {}
     meta = dict(raw_meta or {})
     mode = prep.get("mode") or meta.get("mode")
     if not mode:
@@ -187,7 +191,7 @@ def admin_patch_settings(payload: dict, db=Depends(get_db)) -> dict:
     """
     from datetime import datetime, timezone
 
-    from server.avatar.tunables import defaults, dump_json, validate
+    from server.avatar.tunables import dump_json, validate
     from server.db.models import Setting
 
     errors = validate(payload)
@@ -310,7 +314,6 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
     column -- the task transitions to ``failed`` and the HTTP client never
     sees a 5xx for problems it could not prevent.
     """
-    import json as _json
     from datetime import datetime, timezone
 
     from sqlalchemy.orm import sessionmaker
@@ -335,7 +338,7 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
         task.updated_at = datetime.now(timezone.utc)
         session.commit()
 
-        params = _json.loads(task.params_json)
+        params = json.loads(task.params_json)
         animator = ANIMATORS[params["backend"]]
 
         # ``driver`` is a LivePortrait-specific knob. Other backends
@@ -383,7 +386,7 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
         task.status = "done"
         task.stage = "done"
         task.progress = 100
-        task.result_json = _json.dumps({"mp4_path": str(clip)})
+        task.result_json = json.dumps({"mp4_path": str(clip)})
         task.updated_at = datetime.now(timezone.utc)
         session.commit()
     finally:
@@ -392,16 +395,14 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
 
 def _serialize_task(task: "GenerationTask") -> dict:
     """Render a GenerationTask as the API shape the UI consumes."""
-    import json as _json
-
     out: dict = {
         "task_id": task.id,
         "type": task.type,
         "status": task.status,
         "stage": task.stage,
         "progress": task.progress,
-        "params": _json.loads(task.params_json) if task.params_json else {},
-        "result": _json.loads(task.result_json) if task.result_json else None,
+        "params": json.loads(task.params_json) if task.params_json else {},
+        "result": json.loads(task.result_json) if task.result_json else None,
         "error": task.error,
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "updated_at": task.updated_at.isoformat() if task.updated_at else None,
@@ -817,12 +818,11 @@ def admin_extract_liveportrait_driver_template(
             # up small.
             _ffmpeg_gif(driving_for_upstream, target_gif, max_seconds=5.0)
             gif_size = target_gif.stat().st_size if target_gif.exists() else 0
-        except Exception as exc:  # noqa: BLE001 -- preview is non-critical
+        except Exception:  # noqa: BLE001 -- preview is non-critical
             # Leave the .gif missing; ``list_drivers`` reports has_preview
             # accordingly. Don't fail the whole request.
             target_gif.unlink(missing_ok=True)
             gif_size = 0
-            _gif_warn = exc  # noqa: F841 -- retained only for the trace below
 
         return {
             "name": name,
@@ -962,9 +962,7 @@ def _admin_avatar_row(db, a: Avatar) -> dict:
         "status": a.status,
         # Which digital-human model drives this avatar. The console's
         # Debug / Chat / Avatars pages all branch on this to decide between
-        # a WebRTC session and a client-rendered canvas. It was missing
-        # here while /api/v1 carried it, which made a registered Live2D
-        # avatar invisible to every page that could select one.
+        # a WebRTC session and a client-rendered canvas.
         "drive_model": a.drive_model,
         # Whether this avatar is drawn by the browser rather than driven by
         # the server. The console's Debug / Chat pages need the fact on
@@ -1200,7 +1198,7 @@ def avatar_idle_video(avatar_id: str, db=Depends(get_db)):
     store = AvatarStore(get_settings().data_dir)
     pack = store.load_pack(avatar)
     if pack.prep.get("mode") != "video":
-        # Photo/legacy avatars have no source cycle; the UI uses normalized.png.
+        # Photo avatars have no source cycle; the UI uses normalized.png.
         raise AppError("not_found", f"avatar {avatar_id} has no idle video", 404)
     root = store.avatar_dir(avatar_id)
     path = root / "idle.mp4"
@@ -1260,7 +1258,8 @@ def avatar_timeline(avatar_id: str, db=Depends(get_db)) -> dict:
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
     raw_meta: dict | None = None
-    meta_path = AvatarStore(get_settings().data_dir).avatar_dir(avatar_id) / "musetalk" / "meta.json"
+    model_dir = avatar.drive_model or DEFAULT_MODEL
+    meta_path = AvatarStore(get_settings().data_dir).avatar_dir(avatar_id) / model_dir / "meta.json"
     if meta_path.exists():
         try:
             raw_meta = json.loads(meta_path.read_text())
@@ -1339,9 +1338,6 @@ class TtsConfigIn(BaseModel):
     ``extra='forbid'`` makes Pydantic reject unknown keys at the request
     boundary so a typo'd field name surfaces as a 400 rather than being
     silently dropped.
-
-    ``voice_id`` used to live here -- the operator now picks it per session
-    in the debug page, so it isn't a server-wide setting anymore.
     """
     model_config = {"extra": "forbid"}
 
@@ -1587,9 +1583,7 @@ def admin_close_session(session_id: str, db=Depends(get_db)) -> Response:
 
     Closes any live render first (so an active conversation is also
     unwound) and then deletes the StreamSession row. Active sessions
-    disappear from the list immediately; the prior "force-close but
-    keep the row" behaviour left a long tail of closed rows the
-    operator had to live with.
+    disappear from the list immediately.
     """
     import asyncio
 
@@ -1695,6 +1689,70 @@ def _resolve_animator_model_id(model_id: str):
     return animator, name
 
 
+async def _load_animator(animator, row_id: str, label: str, engine_name: str) -> dict:
+    """Mount an animator's pipeline and report the row's new state.
+
+    Shared by the model and service routes: both address a portrait
+    animator, and both answer with the same 200/409/400/503 semantics.
+    """
+    try:
+        is_loaded = bool(getattr(animator, "is_loaded", False))
+    except Exception:  # noqa: BLE001
+        is_loaded = False
+    if is_loaded:
+        raise AppError(
+            "already_loaded",
+            f"{label} {row_id!r} is already loaded",
+            409,
+            detail={"id": row_id},
+        )
+    loader = getattr(animator, "load", None)
+    if loader is None:
+        raise AppError(
+            "no_weights_to_load",
+            f"{label} {row_id!r} has no weights to load",
+            400,
+            detail={"id": row_id, "name": engine_name},
+        )
+    try:
+        result = loader()
+        if hasattr(result, "__await__"):
+            await result
+    except Exception as exc:  # noqa: BLE001 -- surface verbatim to the operator
+        raise AppError(
+            "load_failed",
+            f"{exc}",
+            503,
+            detail={"id": row_id, "engine": engine_name},
+        )
+    return {"id": row_id, "loaded": True}
+
+
+def _unload_animator(animator, row_id: str, label: str) -> dict:
+    """Release an animator's VRAM and report the row's new state."""
+    try:
+        is_loaded = bool(getattr(animator, "is_loaded", False))
+    except Exception:  # noqa: BLE001
+        is_loaded = False
+    if not is_loaded:
+        raise AppError(
+            "not_loaded",
+            f"{label} {row_id!r} is not loaded",
+            409,
+            detail={"id": row_id},
+        )
+    unloader = getattr(animator, "unload", None)
+    if unloader is None:
+        raise AppError(
+            "not_unloadable",
+            f"{label} {row_id!r} has no weights to unload",
+            400,
+            detail={"id": row_id},
+        )
+    unloader()
+    return {"id": row_id, "loaded": False}
+
+
 # ----- service surface (animators + TTS) -----------------------------------
 
 # Animators register into ``ANIMATORS`` via side-effect imports at module
@@ -1714,7 +1772,7 @@ _LLM_ID = "llm:openai"
 def _animator_model_row(animator) -> dict | None:
     """Render one portrait animator as a Models tab row.
 
-    Each backend (LivePortrait / Wan 2.2 / MuseTalk silent) has its own
+    Each backend (LivePortrait / Wan 2.2) has its own
     weights directory and (for Wan 2.2) multiple variants. The Models
     tab aggregates them into a single list so the operator can confirm
     "which backends are wired in right now" at a glance -- without
@@ -1732,8 +1790,6 @@ def _animator_model_row(animator) -> dict | None:
     ``can_unload`` mirrors ``loaded``: a row that's already in VRAM
     can release it.
     """
-    from server.avatar.vram import get_vram_gb
-
     try:
         meta = animator.meta()
     except Exception:  # noqa: BLE001 -- meta() can probe torch; failure == unregistered
@@ -1824,8 +1880,8 @@ def _animator_model_row(animator) -> dict | None:
         "weights_present": weights_present,
         "weights_dir": weights_dir,
         "missing_script": script,
-        # Fields the UI Models table reads (originally engine-slot
-        # fields; animators fill them with their own equivalents).
+        # Fields the UI Models table reads; animators fill them with their
+        # own equivalents.
         "type": "portrait_animator",
         "components": [],
         "source": weights_dir,
@@ -1834,8 +1890,7 @@ def _animator_model_row(animator) -> dict | None:
         "can_load": can_load,
         "can_unload": can_unload,
         "loaded_at": None,  # animators don't track the warmup timestamp
-        # Pre-baked label, kept for backward-compat with the old
-        # services-table status cell.
+        # Pre-baked status label for the Models table.
         "status": status,
     }
 
@@ -1943,7 +1998,6 @@ def _llm_service_row(db) -> dict:
     from server.llm.config import is_configured, read_config
 
     cfg = read_config(db)
-    api_key = cfg.get("api_key", "")
     base_url = cfg.get("base_url", "")
     model = cfg.get("model", "gpt-3.5-turbo")
     configured = is_configured(cfg)
@@ -2121,37 +2175,7 @@ async def admin_load_model(model_id: str) -> dict:
     # Animator dispatch: ``animator:<name>`` → registered instance.
     animator, name = _resolve_animator_model_id(model_id)
     if animator is not None:
-        try:
-            is_loaded = bool(getattr(animator, "is_loaded", False))
-        except Exception:  # noqa: BLE001
-            is_loaded = False
-        if is_loaded:
-            raise AppError(
-                "already_loaded",
-                f"model {model_id!r} is already loaded",
-                409,
-                detail={"id": model_id},
-            )
-        loader = getattr(animator, "load", None)
-        if loader is None:
-            raise AppError(
-                "no_weights_to_load",
-                f"model {model_id!r} has no weights to load",
-                400,
-                detail={"id": model_id, "name": name},
-            )
-        try:
-            result = loader()
-            if hasattr(result, "__await__"):
-                await result
-        except Exception as exc:  # noqa: BLE001 -- surface verbatim
-            raise AppError(
-                "load_failed",
-                f"{exc}",
-                503,
-                detail={"id": model_id, "engine": name},
-            )
-        return {"id": model_id, "loaded": True}
+        return await _load_animator(animator, model_id, "model", name)
 
     engine = _drive_engine_for(model_id)
     slot = _engine_slot(engine)
@@ -2198,29 +2222,9 @@ def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
     the engine reports ``can_unload=False``; 404 for an unknown id.
     """
     # Animator dispatch: ``animator:<name>`` → registered instance.
-    animator, name = _resolve_animator_model_id(model_id)
+    animator, _ = _resolve_animator_model_id(model_id)
     if animator is not None:
-        try:
-            is_loaded = bool(getattr(animator, "is_loaded", False))
-        except Exception:  # noqa: BLE001
-            is_loaded = False
-        if not is_loaded:
-            raise AppError(
-                "not_loaded",
-                f"model {model_id!r} is not loaded",
-                409,
-                detail={"id": model_id},
-            )
-        unloader = getattr(animator, "unload", None)
-        if unloader is None:
-            raise AppError(
-                "not_unloadable",
-                f"model {model_id!r} has no weights to unload",
-                400,
-                detail={"id": model_id},
-            )
-        unloader()
-        return {"id": model_id, "loaded": False}
+        return _unload_animator(animator, model_id, "model")
 
     engine = _drive_engine_for(model_id, error_code="not_unloadable")
     slot = _engine_slot(engine)
@@ -2266,15 +2270,8 @@ def _resolve_animator_by_id(service_id: str):
     pattern (``tts:minimax``) and don't go through here -- they have
     no operator-loadable lifecycle.
     """
-    prefix = "animator:"
-    if not service_id.startswith(prefix):
-        return None
-    name = service_id[len(prefix):]
-    try:
-        from server.avatar.animators import ANIMATORS
-    except Exception:  # noqa: BLE001 -- registry import may fail in stub venvs
-        return None
-    return ANIMATORS.get(name)
+    animator, _ = _resolve_animator_model_id(service_id)
+    return animator
 
 
 @router.post("/services/{service_id}/load")
@@ -2297,43 +2294,9 @@ async def admin_load_service(service_id: str) -> dict:
     if animator is None:
         raise AppError("not_found", f"service {service_id!r} not found", 404)
 
-    # ``is_loaded`` is the source of truth across all three backends:
-    # LivePortrait / Wan read it from their own flag; MuseTalk silent
-    # proxies to the main drive engine's runtime.
-    try:
-        loaded = bool(getattr(animator, "is_loaded", False))
-    except Exception:  # noqa: BLE001
-        loaded = False
-
-    if loaded:
-        raise AppError(
-            "already_loaded",
-            f"service {service_id!r} is already loaded",
-            409,
-            detail={"id": service_id},
-        )
-
-    loader = getattr(animator, "load", None)
-    if loader is None:
-        raise AppError(
-            "no_weights_to_load",
-            f"service {service_id!r} has no weights to load",
-            400,
-            detail={"id": service_id},
-        )
-
-    try:
-        result = loader()
-        if hasattr(result, "__await__"):
-            await result
-    except Exception as exc:  # noqa: BLE001 -- surface verbatim to the operator
-        raise AppError(
-            "load_failed",
-            f"{exc}",
-            503,
-            detail={"id": service_id, "engine": getattr(animator, "name", service_id)},
-        )
-    return {"id": service_id, "loaded": True}
+    return await _load_animator(
+        animator, service_id, "service", getattr(animator, "name", service_id)
+    )
 
 
 @router.post("/services/{service_id}/unload")
@@ -2344,35 +2307,12 @@ def admin_unload_service(service_id: str) -> dict:
     not-loaded service returns 409 ``not_loaded`` so the operator can
     tell the click was processed without a confusing 200-no-op.
 
-    Services without an ``unload`` method (the future TTS-shaped
-    entrypoints) return 400 ``not_unloadable`` instead of 200, so the
-    operator's button is correctly disabled on the client side and
-    any race gives a clear error.
+    Services without an ``unload`` method return 400 ``not_unloadable``
+    instead of 200, so the operator's button is correctly disabled on
+    the client side and any race gives a clear error.
     """
     animator = _resolve_animator_by_id(service_id)
     if animator is None:
         raise AppError("not_found", f"service {service_id!r} not found", 404)
 
-    try:
-        loaded = bool(getattr(animator, "is_loaded", False))
-    except Exception:  # noqa: BLE001
-        loaded = False
-
-    if not loaded:
-        raise AppError(
-            "not_loaded",
-            f"service {service_id!r} is not loaded",
-            409,
-            detail={"id": service_id},
-        )
-
-    unloader = getattr(animator, "unload", None)
-    if unloader is None:
-        raise AppError(
-            "not_unloadable",
-            f"service {service_id!r} has no unload method",
-            400,
-            detail={"id": service_id},
-        )
-    unloader()
-    return {"id": service_id, "loaded": False}
+    return _unload_animator(animator, service_id, "service")

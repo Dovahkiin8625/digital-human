@@ -57,10 +57,10 @@ export class CubismStage {
     this.speakStart = this.running ? performance.now() : 0;
   }
 
-  /** Set the expression for subsequent frames. Inert for now: Cubism 5
+  /** Set the expression for subsequent frames. Inert under Cubism 5: it
    *  drives expressions through a motion queue rather than an index, so the
-   *  adapter in model.ts ignores it. Wired end to end so the plumbing is
-   *  in place when that lands. */
+   *  adapter in model.ts ignores the value. Wired end to end so an
+   *  index-based adapter can be dropped in. */
   setExpression(index: number): void {
     if (this.model) this.model.expressionIndex = index;
   }

@@ -10,7 +10,7 @@
  * model is loaded and do not depend on which motions have been read.
  */
 
-export interface ParamIndex {
+interface ParamIndex {
   getParameterIndex(name: string): number
   getParameterMinimumValue(i: number): number
   getParameterMaximumValue(i: number): number

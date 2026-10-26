@@ -77,10 +77,13 @@ asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["error::ResourceWarning"]
 # Both markers are deselected by default so `pytest` in the torch-free .venv
-# stays under ten seconds and never needs a GPU. `-m gpu` / `-m musetalk` in
-# .venv-musetalk opts back in. The module-level `pytest.importorskip("torch")`
-# in the gpu files is the second line of defence: it makes them skip cleanly
-# even when someone runs `-m ""` or `-m gpu` from the wrong interpreter.
+# never needs a GPU. `-m gpu` / `-m musetalk` in .venv-musetalk opts back in.
+# `pytest.importorskip("torch")` is the second line of defence: it makes the
+# torch-dependent tests skip cleanly even when someone runs `-m ""` or
+# `-m gpu` from the wrong interpreter. It is per-module in the `_gpu` files
+# and per-test in the animator / VRAM files, which lazy-import torch by
+# design -- a module-level skip there would take the torch-free contract
+# tests down with it.
 markers = [
   "gpu: needs a CUDA device and the real weights (run in .venv-musetalk)",
   "musetalk: needs the MuseTalk runtime dependencies (run in .venv-musetalk)",
