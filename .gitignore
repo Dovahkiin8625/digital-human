@@ -2,6 +2,7 @@
 .venv-musetalk/
 vendor/
 spike/
+scratch/
 __pycache__/
 *.egg-info/
 data/
@@ -10,3 +11,9 @@ admin-ui/dist/
 .pytest_cache/
 .env
 .playwright-mcp/*
+.claude/settings.local.json
+# Process artifacts: implementation plans and the tool's own ledgers. The
+# durable design record lives in docs/superpowers/specs/ and in the git
+# history.
+.superpowers/
+docs/superpowers/plans/
