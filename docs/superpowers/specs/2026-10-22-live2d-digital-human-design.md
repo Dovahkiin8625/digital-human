@@ -6,41 +6,41 @@
 
 ## 1. 目标与范围
 
-在**同一个服务**内增加 Live2D 数字人形态，与现有的真人视频数字人（MuseTalk / LivePortrait / Wan 2.2）**并存**。
+在**同一个服务**内增加 Live2D 数字人形态，与现有的服务端驱动数字人（MuseTalk；后来又加入了纯 CPU 的 FeatherTalk / `lite`）**并存**。
 
 Live2D 是后台管理台的一等功能，**三个页面都能选 Live2D 形象**：
 
-- **形象管理** —— 注册、校验、列出、删除 Live2D 模型。
+- **形象管理** —— 上传、校验、列出、删除 Live2D 模型。
 - **会话调试** —— 选中 Live2D 形象时，渲染路径从 WebRTC 视频轨切换为 canvas。
 - **数字人会话** —— 同上，并走完整的 LLM → TTS → 口型链路。
-- **系统 Tab** —— Live2D 的开关、SDK 路径、默认模型与构图参数。
+- **系统 Tab** —— Live2D 的开关、SDK 路径与构图参数。
 
 以及一个桌面宠物：Electron **独立最小窗口**（透明置顶、鼠标穿透、托盘），复用同一份 Cubism 渲染组件，渲染层本地、服务端远程。
 
-服务端的对话能力（LLM / TTS / 鉴权）完全复用现有实现。
+服务端的对话能力（LLM / TTS）完全复用现有实现。
 
 ### 1.0 对原设计的修订（2026-10-22，需求方确认）
 
-原设计把 `live2d-ui` 建成独立的产品客户端、由 FastAPI 挂在 `/live2d`，且明确「admin-ui 是调试台，不宜混入」。**这两条已被推翻**：
+原设计曾把 Live2D 渲染层做成独立的产品客户端、由 FastAPI 挂在 `/live2d`，且明确「admin-ui 是调试台，不宜混入」。**这两条已被推翻**：
 
 | 原设计 | 修订后 |
 |---|---|
-| 独立的 `live2d-ui` Vite app，挂在 `/live2d` | **收进 `admin-ui`**。Cubism 渲染层做成可复用组件，管理台三个页面直接用。只维护一份前端 |
+| 独立的 Live2D Vite app，挂在 `/live2d` | **收进 `admin-ui`**。Cubism 渲染层做成可复用组件，管理台三个页面直接用。只维护一份前端 |
 | Electron 加载同一份独立 bundle | Electron 加载 `admin-ui` 构建产物里的**桌宠路由**（只有 canvas + 输入框，不带管理台 UI） |
 
-代价：`admin-ui` 需要接入 vitest（它此前没有测试运行器），且桌宠与管理台共用一份构建产物。`live2d-ui/` 下已验证可用的 Cubism 集成代码迁入 `admin-ui/src/live2d/`，其余脚手架作废。
+代价：`admin-ui` 需要接入 vitest（它此前没有测试运行器），且桌宠与管理台共用一份构建产物。渲染层落在 `admin-ui/src/live2d/`，其测试用 vitest。
 
 ### 1.1 非目标（YAGNI）
 
 - **不做语音输入（ASR）**。v1 仅文字。服务里没有 ASR 代码（`server/` 下的 whisper 引用是 MuseTalk 的音频特征提取器，不是识别器），引入它等于新增一个子系统。
-- **不替换、不改动现有视频路径**。MuseTalk / LivePortrait / Wan 2.2 的引擎、制作流水线、WebRTC 出口、信令协议一行不改。
+- **不替换、不改动现有视频路径**。MuseTalk 的引擎、制作流水线、WebRTC 出口、信令协议一行不改。
 - **不给 Live2D 开新的 session 类型**。理由见 §3.2。
 - **不做主动搭话 / 服务端推送 / 空闲时的宠物发言**。同理，随 session 一起去。
 - **不碰服务端渲染的任何代码路径**。Live2D 不产出视频帧，因此不进入 `DriveEngine`。
 
 ### 1.2 与现有设计的关系
 
-原设计 §1 把「服务边界」定为「音频驱动 + 渲染 + 视频流输出」，且「LLM/ASR 由调用方自建」。此后 `server/llm/` 与 `server/tts/` 已经收回服务内，`admin-ui` 的 Chat 页也已跑通「LLM → 句子队列 → TTS → 驱动」全链路。本设计顺着这个已成事实的边界继续，**不修订**原设计的任何一条。
+原设计 §1 把「服务边界」定为「音频驱动 + 渲染 + 视频流输出」，且「LLM/ASR 由调用方自建」。此后 `server/llm/` 与 `server/tts/` 已经收回服务内，`admin-ui` 的 Chat 页也已跑通「LLM → 句子队列 → TTS → 驱动」全链路。本设计顺着这个已成事实的边界继续。
 
 ## 2. 背景：现状与差距
 
@@ -52,24 +52,24 @@ Live2D 是后台管理台的一等功能，**三个页面都能选 Live2D 形象
 
 | 现状 | 差距 |
 |---|---|
-| `Avatar` 表无 `kind` 列（`server/db/models.py:20`） | 无法区分两种形象形态 |
-| LLM / TTS 只挂在 admin 面：`/api/admin/llm/chat/stream`、`/api/admin/tts` | 产品客户端用 `X-API-Key` 打不到，必须补业务面端点 |
+| `Avatar` 表没有「形态 / 模型」列 | 无法区分两种形象形态 |
+| LLM / TTS 只挂在 admin 面：`/api/admin/llm/chat/stream`、`/api/admin/tts` | 产品客户端没有业务面的 LLM/TTS 端点可用 |
 | 无 Live2D 模型注册与托管 | 需要新增 |
-| `admin-ui` 是 admin 鉴权的调试台 | 产品客户端鉴权与生命周期都不同，不宜混入 |
-| **`/api/v1/*` 目前完全无鉴权。** README 关于 `X-API-Key` 的描述已过时 —— 鉴权代码在 no-tenant 重构中被删除，`server/api/admin.py:100` 明写「no auth dependencies, all endpoints public」 | 桌面宠物是**第一个连远程服务的客户端**，且新建的 LLM/TTS 端点直接消耗上游额度，必须单独鉴权。见 §4.3 |
+| `admin-ui` 是调试台 | 产品客户端鉴权与生命周期都不同，不宜混入 |
+| **`/api/v1/*` 目前完全无鉴权。** README 关于 `X-API-Key` 的描述已过时 —— 鉴权代码在 no-tenant 重构中被删除，`server/api/admin.py` 明写「no auth dependencies, all endpoints public」 | 桌面宠物是**第一个连远程服务的客户端**，而模型文件是部署方自己的资产，必须单独鉴权。见 §4.3 |
 
 **已有的有利条件**：
 
 - 迁移是手写的：`_SCHEMA_MIGRATIONS`（`server/db/session.py`）是 `(table, column, ddl)` 元组，`init_db()` 每次幂等执行。加字段只需加一行。
 - `Avatar.config_json` 是 JSON 列，Live2D 专属字段有现成落点。
-- `server/llm/openai.py`、`server/tts/minimax.py` 已是 provider 无关实现，补业务面端点是路由层工作，不是重写。
+- `server/llm/openai.py`、`server/tts/minimax.py` 已是 provider 无关实现，加端点是路由层工作，不是重写。
 - TTS 音频由服务端产出、客户端解码播放，这条链路 `Chat.tsx` 已跑通（MiniMax 上限 44100Hz vs 服务 48000Hz，重采样在浏览器侧完成）。
 
 ## 3. 关键决策
 
 ### 3.1 在同一个服务内做，不新开服务
 
-现有服务真正的资产不是 MuseTalk，是**对话脑 + 语音管线 + 租户鉴权 + 会话状态机**。新开服务要么重写、要么复制这些 —— 复制的是最贵的部分。
+现有服务真正的资产不是 MuseTalk，是**对话脑 + 语音管线 + 会话状态机**。新开服务要么重写、要么复制这些 —— 复制的是最贵的部分。
 
 同时注意：现有 `DriveEngine.drive() -> list[DriveFrame]` 返回 numpy 帧数组，**Live2D 不产出帧**。把它塞进这个接口要么写一个把参数序列伪装成假帧的适配器（纯浪费），要么在旁边开一条平行传输通道 —— 后者本质上是本设计，只是名字不同。所以选择**共用大脑、分开渲染路径**：会话与视频通道并列存在，互不干涉。
 
@@ -93,14 +93,14 @@ Electron **不加载远程 URL**，而是加载本地 bundle、服务地址作�
 
 ### 3.4 一个 Live2D 形象不需要新的 session 模型
 
-Live2D 不参与会话，模型字段与真人形象字段（bbox / crop / mask / prep 张量）零重叠。此时另开一张表的收益只有「字段不打架」，代价却是两套列表 / 删除 / 鉴权路径 —— 不划算。故并入 `avatars`，形态由 `kind` 区分。
+Live2D 不参与会话，模型字段与真人形象字段（bbox / crop / mask / prep 张量）零重叠。此时另开一张表的收益只有「字段不打架」，代价却是两套列表 / 删除 / 鉴权路径 —— 不划算。故并入 `avatars`，形态由该形象所属的**数字人模型**区分（`avatars.drive_model`）。
 
-### 3.5 管理台里的 Live2D 走 admin 鉴权，不走业务面 token
+### 3.5 管理台里的 Live2D 走 admin 面，业务面凭据留给桌宠
 
-管理台三个页面由操作者登录后使用，鉴权是 admin 令牌。业务面的 `X-V1-Token`（§4.3）只服务**非管理台**的调用方 —— 目前只有 Electron 桌宠。因此：
+管理台三个页面由操作者在同一台机器上操作，走 admin 面。业务面的 `X-V1-Token`（§4.3）只服务**非管理台**的调用方 —— 目前只有 Electron 桌宠。因此：
 
-- 模型文件托管端点接受**两套凭据**：admin 令牌（管理台用）或 `X-V1-Token`（桌宠用）。
-- LLM / TTS 端点同理：管理台走已有的 `/api/admin/*`，桌宠走 `/api/v1/*`。
+- 模型文件托管端点接受**两套凭据**：admin 面（管理台用）或 `X-V1-Token`（桌宠用）。
+- LLM / TTS 端点只有 admin 面一份（`/api/admin/llm/chat/stream`、`/api/admin/tts`），管理台与桌宠都用它，不复制第二套。
 
 这避免了为了管理台再复制一套 admin 版端点。
 
@@ -108,20 +108,23 @@ Live2D 不参与会话，模型字段与真人形象字段（bbox / crop / mask 
 
 ### 4.1 数据模型：一行迁移
 
-`Avatar` 增加 `kind` 列，默认 `'photoreal'`。现有数据原地不动：
+`Avatar` 增加一列，记录**这个形象由哪个数字人模型驱动**，默认 `'musetalk'`。现有数据原地不动：
 
 ```python
 # server/db/session.py 的 _SCHEMA_MIGRATIONS 增加：
-("avatars", "kind", "ALTER TABLE avatars ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'photoreal'"),
+("avatars", "drive_model", "ALTER TABLE avatars ADD COLUMN drive_model VARCHAR(32) NOT NULL DEFAULT 'musetalk'"),
 ```
 
-遵循该元组既有的幂等模式（`has_column` 检查后跳过）。SQLAlchemy 模型上对应加 `kind: Mapped[str] = mapped_column(String(16), default="photoreal", nullable=False)`。
+遵循该元组既有的幂等模式（`has_column` 检查后跳过）。SQLAlchemy 模型上对应加 `drive_model: Mapped[str] = mapped_column(String(32), default="musetalk", nullable=False)`。Live2D 形象记 `drive_model='live2d'`。
+
+这一列是「一个模型 = 一条流水线 + 一个引擎」的落点：Live2D 在
+`server/model_registry.py` 里注册**只有流水线、没有引擎** —— 客户端渲染，服务端
+不产像素。
 
 Live2D 专属字段（模型目录、`model3.json` 入口、默认表情、动作组、emotion→expression 映射）全部放已有的 `config_json`，不新增列：
 
 ```json
 {
-  "kind": "live2d",
   "model": {
     "entry": "model.model3.json",
     "scale": 0.2,
@@ -140,35 +143,44 @@ Live2D 专属字段（模型目录、`model3.json` 入口、默认表情、动�
 新包 `server/live2d/`：
 
 - **`registry.py`** —— 注册与校验。校验项：`model3.json`（或 `model.model3.json`）存在且可解析、被引用的 `.moc3` 与纹理文件均存在、`expressions` / `motions` 引用的 id 在模型里真实存在。**注册即验证**，不把错误留到客户端渲染时才炸。
-- **`assets.py`** —— 模型文件的带鉴权静态托管。
+- **`archive.py`** —— 上传 zip 的安全解压与入口文件探测（见 2026-10-23 的形象管理设计）。
+- 模型文件的托管端点在 `server/api/live2d.py`：`GET /api/v1/live2d/avatars/{id}/model/{path}`，配置了 `DH_V1_API_TOKEN` 时要带 `X-V1-Token`。
 
-> ⚠️ 模型文件**必须走带鉴权的端点下发**，不能裸静态暴露目录。模型是按租户/部署配置的资产，不是公开 CDN 内容。
+> ⚠️ 模型文件**必须走带鉴权的端点下发**，不能裸静态暴露目录。模型是按部署配置的资产，不是公开 CDN 内容。
 
 ### 4.3 业务面 LLM 与 TTS
 
-现有 LLM / TTS 只在 admin 面上，产品客户端用 `X-API-Key` 打不到。补两个业务面端点，内部复用同一套 provider 实现（`server/llm/openai.py`、`server/tts/minimax.py`）：
+现有 LLM / TTS 只在 admin 面上（`server/llm/openai.py`、`server/tts/minimax.py` 的 provider 实现被两层端点共用）：
 
-| 端点 | 复用现有 | 说明 |
-|---|---|---|
-| `POST /api/v1/chat/stream` | `/api/admin/llm/chat/stream` | `text/event-stream`，每帧 `{"delta": ...}` / `{"done": true}` / `{"error": ...}` |
-| `POST /api/v1/tts` | `/api/admin/tts` | `{"text", "voice_id"}` → `audio/wav`。沿用「服务端只套 WAV 头、重采样放浏览器」的既有做法，服务端不引入音频编解码依赖 |
+| 端点 | 说明 |
+|---|---|
+| `POST /api/admin/llm/chat/stream` | `text/event-stream`，每帧 `{"delta": ...}` / `{"done": true}` / `{"error": ...}` |
+| `POST /api/admin/tts` | `{"text", "voice_id"}` → `audio/wav`。沿用「服务端只套 WAV 头、重采样放浏览器」的既有做法，服务端不引入音频编解码依赖 |
 
-#### 鉴权：这两个端点单独加 token
+**没有另开业务面端点**：`/api/v1/chat/stream` 与 `/api/v1/tts` 最终没有实现，
+桌面宠物与管理台**共用 admin 面的这两个端点**。宠物只需要 LLM 与 TTS，两处调用
+共用一套实现与一套路由，比多开一份业务面端点少一处分叉。
 
-现有 `/api/v1/*` **没有任何鉴权**（§2）。这两个新端点**不跟随该现状**，理由是它们与其它端点性质不同：
+#### 鉴权：模型托管端点单独加 token
 
-- 它们是**第一批给远程客户端调用**的端点（桌面宠物指向远程部署）；
-- 它们**直接消耗上游额度**（LLM tokens、MiniMax 合成时长），暴露即等于送钱。
+现有 `/api/v1/*` **没有任何鉴权**（§2）。真正需要单独凭据的是 Live2D **模型托管端点**
+——它对外暴露部署方自己的模型资产：
 
-做法：新增环境变量 `DH_V1_API_TOKEN`。留空 = 关闭鉴权（本地开发无需配置），非空时两个端点要求请求头 `X-V1-Token` 与之相等，否则 401。错误走既有 `AppError` 信封。
+- 它是**第一批给远程客户端调用**的端点（桌面宠物指向远程部署）；
+- 模型文件是按部署配置的资产，不是公开 CDN 内容。
+
+做法：新增环境变量 `DH_V1_API_TOKEN`。留空 = 关闭鉴权（本地开发无需配置），非空时托管端点要求请求头 `X-V1-Token` 与之相等，否则 401。错误走既有 `AppError` 信封。
+
+Cubism 的**运行时**端点（`Core/` 与 `Shaders/`）**不鉴权**：core 经 `<script>` 标签加载、
+shader 由 framework 自行 fetch，两者都带不了请求头。
 
 **刻意不做**：不给现有 `/api/v1/avatars`、`/api/v1/sessions`、`/api/v1/ws/*` 补鉴权。那是既有的、独立的安全问题（README 已与其不符），把它混进来会改到现有调用方并让本设计的 diff 失焦。**应作为单独一件事处理**。
 
-**同时补** `GET /api/v1/avatars?kind=live2d` 的形态过滤（现有列表端点加一个可选查询参数）。
+**同时补** `GET /api/v1/avatars?drive_model=live2d` 的形态过滤（现有列表端点加一个可选查询参数）。
 
 ### 4.4 情绪标签
 
-情绪从 LLM 输出里带出来，而不是另起一个分类模型。在现有 system prompt 里约定行内标记：
+情绪从 LLM 输出里带出来，而不是另起一个分类模型。约定用行内标记：
 
 ```
 [smile]好的呀，[think]让我想想……[/think]
@@ -180,7 +192,7 @@ SSE 的 delta 原样透传，**由客户端解析**并剥离标记后再显示 �
 
 ## 5. 渲染层设计（`admin-ui/src/live2d/`）
 
-> 本节描述的算法（包络、生命感、参数解析、帧序、表情）全部保持不变，只是**代码位置**从 `live2d-ui/src/` 迁到 `admin-ui/src/live2d/`，并由 §5.6 的组件封装暴露给管理台。已实现并通过测试的部分不需要重做。
+> 本节描述的算法（包络、生命感、参数解析、帧序、表情）全部保持不变，只是**代码位置**在 `admin-ui/src/live2d/` 下，并由 §5.6 的组件封装暴露给管理台。
 
 ### 5.1 口型驱动：离线预算包络，实时只做查表
 
@@ -203,15 +215,19 @@ SSE 的 delta 原样透传，**由客户端解析**并剥离标记后再显示 �
 | 层 | 参数 | 做法 |
 |---|---|---|
 | 呼吸 | `ParamAngleZ`（+ 轻微 `AngleX/Y`） | 正弦，周期约 4s；**说话时压低幅度**，避免与口型打架 |
-| 眨眼 | `ParamEyeLOpen` | 随机间隔 2–6s，偶发双眨 |
-| 眼球扫视 | `ParamEyeBallX/Y` | 每 1–3s 一次快速跳动；光标进入中心 40% 画布宽以内时切换为平滑跟随，移开后平滑退回扫视（不得瞬切） |
+| 眨眼 | `ParamEyeLOpen` | 每 ~4s 一个眨眼槽位，槽内按概率眨眼，偶发双眨 |
+| 眼球扫视 | `ParamEyeBallX/Y` | 每 ~1.2s 换一个扫视目标（实现里是 1200 ms 一个槽位）。**光标跟随未实现** —— 眼球只做扫视 |
 | 头部微动 | `ParamAngleX/Y/Z` | 多层不同周期的正弦叠加，慢、小幅度 |
 
 **关键**：头动参数写完后 Cubism 的 physics 会自动跑出头发/布料的跟随，所以不要试图自己算二级动画，也不要绕过 physics。
 
 ### 5.3 表情导演
 
-emotion 标记 → `config_json.expressions` 映射 → `ExpressionManager.SetExpression(index)`，由 Cubism 做交叉淡入。
+emotion 标记 → `config_json.expressions` 映射 → 表情索引，由 Cubism 做交叉淡入。
+
+> ⚠️ **Cubism 5 没有 `SetExpression`** —— 表情改成队列式的 motion（`CubismExpressionMotionManager`
+> 按 motion 排队），按索引直接设置那条路走不通。当前实现里表情适配器是**空占位**：
+> 标记会被解析成索引，**表情尚未真正落到模型上**。接通这一段是这条链路上唯一还欠着的活。
 
 表情类型必须**限定在眼睛 / 眉毛 / 脸颊**，避免携带嘴部参数 —— 否则会与 §5.1 写的口型直接冲突（见 §5.4 的帧序说明）。
 
@@ -248,9 +264,9 @@ emotion 标记 → `config_json.expressions` 映射 → `ExpressionManager.SetEx
 
 | 页面 | 接法 |
 |---|---|
-| 形象管理 | 不挂载组件。列出 `kind=live2d` 的形象，提供注册表单（模型目录 + 名称 + 表情映射），注册即校验 |
-| 会话调试 | 顶部形象选择器（现有下拉框加 `kind` 分组）。选中 Live2D 时**不建 WebRTC session**，改为挂载 `<Live2DStage>` + 现有那个音频文件输入 |
-| 数字人会话 | 同上。选中 Live2D 时走 `/api/admin/tts`（不是 `/api/v1/tts`），TTS 音频解码后既送去播放，也送去算包络 |
+| 形象管理 | 不挂载组件。列出 `drive_model=live2d` 的形象，提供上传表单（zip + 名称 + 表情映射），上传即校验 |
+| 会话调试 | 顶部形象选择器（现有下拉框按数字人模型分组）。选中 Live2D 时**不建 WebRTC session**，改为挂载 `<Live2DStage>` + 现有那个音频文件输入 |
+| 数字人会话 | 同上。选中 Live2D 时走 `/api/admin/tts`，TTS 音频解码后既送去播放，也送去算包络 |
 
 **关键分叉点**：现有 Debug / Chat 页在 `start()` 里建 WebRTC 连接、拉视频轨。Live2D 形象下这些一步都不能做 —— 服务端根本没有为 Live2D 建 session（§3.4）。所以分支要落在**建连接之前**，不是渲染阶段之后。
 
@@ -258,12 +274,11 @@ emotion 标记 → `config_json.expressions` 映射 → `ExpressionManager.SetEx
 
 | 配置项 | 环境变量 | 默认 | 说明 |
 |---|---|---|---|
-| Live2D 开关 | `DH_LIVE2D_ENABLED` | `true` | 关掉后三个页面的形象选择器不再显示 Live2D 分组，注册入口置灰 |
-| SDK 路径 | `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Core / Shaders 所在目录；**服务端不需要它**，前端从 `/api/admin/live2d/runtime` 拿到 |
-| 默认模型 | 存 `settings` 表 | 空 | 新会话默认选中的 Live2D 形象 |
+| Live2D 开关 | `DH_LIVE2D_ENABLED` | `true` | **仅上报**：只出现在 Live2D 健康检查的 JSON 里（系统页据此显示「启用：否」），服务端没有任何端点按它分支 |
+| SDK 路径 | `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Core / Shaders 所在目录；**服务端只从这里读**，经 `/api/v1/live2d/runtime/{path}` 下发给浏览器，不渲染任何 Live2D |
 | 构图 | 存在形象 `config_json` | `scale=1, y=0` | 每个模型单独的缩放与垂直偏移，因为各模型原始构图差异很大 |
 
-SDK 是**前端**资源，但路径存在服务端配置里 —— 因为管理台要能读到它才知道去哪儿取，并且能按部署环境改。服务端提供一个端点把 Core / Shaders / 模型文件按 admin 鉴权送出来，替代原先的 `public/cubism` 静态目录（那份是调试期的临时做法，构建产物里不该有 SDK）。
+SDK 是**前端**资源，但路径存在服务端配置里 —— 因为管理台要能读到它才知道去哪儿取，并且能按部署环境改。服务端提供端点把 Core / Shaders 下发给浏览器（`/api/v1/live2d/runtime/{path}`，**不鉴权**：core 经 `<script>` 标签加载、shader 由 framework 自行 fetch，两者都带不了请求头），模型文件另走带 token 的托管端点。原先的 `public/cubism` 静态目录是调试期的临时做法，构建产物里不该有 SDK。
 
 ## 6. Electron 外壳
 
@@ -310,9 +325,9 @@ Electron 默认对**失焦或被遮挡**的窗口暂停 `requestAnimationFrame`�
 
 **Python**（沿用现有 torch-free pytest）：
 
-- 业务面 `/api/v1/chat/stream`、`/api/v1/tts` 的鉴权、SSE 分帧、错误映射
+- 托管端点的 `X-V1-Token` 校验：空 token 放行、错 token 401
 - `registry` 校验：缺 `model3.json`、`.moc3` 不存在、表情 id 不匹配 → 各一条
-- `kind` 迁移的幂等性：新库跑一次、旧库跑两次
+- `drive_model` 迁移的幂等性：新库跑一次、旧库跑两次
 
 > ⚠️ **测试一律用 scratch 库，绝不碰 `data/digital-human.db`。** 本地管理台的 demo key 绑在真实库上，用真库验证会作废用户的 key。
 
@@ -328,28 +343,11 @@ Electron 默认对**失焦或被遮挡**的窗口暂停 `requestAnimationFrame`�
 
 | 项 | 说明 | 应对 |
 |---|---|---|
-| **Cubism SDK for Web** | 走 Live2D **私有 npm registry**，需要账号 + License Agreement，免费档有附带条件 | **先做最小 Electron + Cubism 渲染 demo 验证 SDK 可装、模型可转，再动服务端**。这是唯一会否证整个方案的外部未知 |
+| **Cubism SDK for Web** | 专有 SDK，**不走 npm**：Core 与 Shaders 由服务端从 `DH_LIVE2D_SDK_DIR` 读出、经 `/api/v1/live2d/runtime/{path}` 下发给浏览器，构建产物里不含 SDK | SDK 需要账号 + License Agreement，免费档有附带条件。**先在最小 Electron + Cubism 里验证「SDK 可取到、模型能转」，再动服务端** —— 这是唯一会否证整个方案的外部未知 |
 | 模型文件 | 需求方自行下载 | 不在本设计范围。假定为合法的 Cubism 工程（`model3.json` + `.moc3` + 纹理 + physics + motions + expressions） |
 | Live2D 各家模型参数差异 | 参数名与取值范围不统一 | §5.1 已要求运行时从模型读规格，禁止硬编码 |
 
-## 10. 交付顺序
-
-第 1、2 阶段**已完成**（2026-10-22，提交 `60750a6`…`3376001`），结论记录在 `.superpowers/sdd/live2d-digital-human/progress.md`。以下为剩余部分：
-
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| ~~1~~ | ~~SDK 可行性验证（spike）~~ | ✅ Core 可用；framework 是 TS 源码经 Vite 别名编译；参数范围确认可读 |
-| ~~2~~ | ~~渲染内核（口型 / idle / 参数 / 帧序）~~ | ✅ 29 个单测通过；浏览器内 Hiyori 可渲染、可眨眼、可摇摆 |
-| **3** | **迁移** —— `live2d-ui/src/{audio,render,cubism}` 迁入 `admin-ui/src/live2d/`，`admin-ui` 接入 vitest，组件化 | 待做 |
-| **4** | **服务端** —— `kind` 迁移、registry、模型托管（admin + 业务面双凭据）、`DH_LIVE2D_*` 配置 | 待做 |
-| **5** | **管理台三页 + 系统 Tab** —— 形象管理、会话调试、数字人会话 | 待做 |
-| **6** | **Electron 桌宠** —— 独立最小窗口 | 待做 |
-
-顺序理由：阶段 3 是一次纯搬迁，已验证可用的代码原样移动，不引入新风险；阶段 4 的服务端不依赖前端；阶段 5 是本次需求的主体；阶段 6 最后做，因为它依赖 5 已跑通的链路。
-
-**表情仍未实现**（Cubism 5 的 API 从索引式改为队列式），排在阶段 5 之后单独一轮。
-
-### 10.1 实测参数范围（阶段 2 产出）
+## 10. 实测参数范围
 
 Hiyori 的真实取值，印证了 §5.1「禁止硬编码 0..1」是硬需求：
 
@@ -362,14 +360,3 @@ Hiyori 的真实取值，印证了 §5.1「禁止硬编码 0..1」是硬需求�
 | `ParamEyeBallX/Y` | -1 .. 1 | 恰好正确 |
 
 七个受驱动参数里只有两个是常规值。
-
----
-
-## 11. 附录：以下为原设计的交付顺序（已被 §10 取代）
-
-1. **SDK 可行性验证**（丢弃性 spike）—— 最小 Electron + Cubism，转一个真实模型。验证 SDK 能装上、模型能转、参数规格能读出。**不过就不继续。**
-2. **渲染内核** —— `live2d-ui` 骨架：模型装载、帧序、idle 层、一个写死参数的调试页。此阶段模型从**本地磁盘静态加载**（绕开 §4.2 的鉴权端点），以便在服务端就绪前独立调渲染。
-3. **服务端** —— `kind` 迁移、registry、业务面 LLM/TTS、情绪标签。
-4. **接线 + 外壳** —— 接上真实 LLM/TTS 链路，再套 Electron 托盘/穿透/置顶。
-
-顺序刻意如此：把唯一可能否证方案的未知（§9）放在最前面，而把确定能用的部分（现有 LLM/TTS/鉴权）放在后面。

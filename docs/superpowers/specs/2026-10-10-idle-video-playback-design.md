@@ -1,7 +1,7 @@
 # 空闲时播放闭嘴视频 — 设计规格
 
 日期：2026-10-10
-分支：`feat/video-driven-avatar`（视频形象能力的延续）
+定位：视频形象能力的延续（空闲时不静止）
 
 ## 1. 背景与目标
 
@@ -90,7 +90,7 @@ cycle_idxs += [
 
 ### 4.2 DriveEngine 接口（engine/base.py）
 
-新增两个方法，默认实现覆盖照片/mock 的退化情形：
+新增两个方法，默认实现覆盖照片形象的退化情形：
 
 ```python
     async def idle_frame(self, pack: AvatarPack, context: object | None, pos: int):
@@ -130,7 +130,7 @@ cycle_idxs += [
 - 任何异常（权重缺失、pack 损坏、runtime 不可用）都不允许打断 keepalive：
   捕获后返回 None，RenderSession 回退静态帧。
 
-mock 引擎沿用默认实现（返回 None），现有测试行为不变。
+照片形象沿用默认实现（返回 None），现有测试行为不变。
 
 ## 5. RenderSession 设计（server/core/render_session.py）
 
@@ -165,7 +165,7 @@ mock 引擎沿用默认实现（返回 None），现有测试行为不变。
 与直接种位置完全相同。
 
 `_SessionContext` 类型在运行时由引擎产生，RenderSession 不导入引擎内部类，
-统一用鸭子属性判断（mock 引擎的 context 为 None，跳过）。
+统一用鸭子属性判断（context 为 None 的引擎跳过）。
 
 相位种入只在 LISTENING/IDLE → SPEAKING 的转换点发生一次；持续说话期间
 `_idle_pos` 不再使用，不会每块重种。
@@ -232,7 +232,7 @@ SPEAKING 状态下 keepalive 不推帧（今天的 re-check 逻辑保留），�
 GET /api/admin/avatars/{avatar_id}/idle.mp4
 ```
 
-- 鉴权与现有 admin 端点一致（X-Admin-Token / 会话）。
+- 鉴权与现有 admin 端点一致（admin 面目前无鉴权）。
 - avatar 不存在 → `not_found` 404。
 - 视频形象：
   - 文件 `<avatar_dir>/idle.mp4` 已存在 → 直接 `FileResponse`（支持 Range、
@@ -294,11 +294,10 @@ def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
 
 - 移除：`level` / `fetchLevel` 状态、驱动电平 Slider、`fetchPreviewUrl`、
   preview.png 相关 object-URL 逻辑。
-- 新增：加载 idle.mp4 的 effect——`fetch("/api/admin/avatars/{id}/idle.mp4",
-  {headers: X-Admin-Token})`：
+- 新增：加载 idle.mp4 的 effect——`fetch("/api/admin/avatars/{id}/idle.mp4")`：
   - 200 → blob → object URL，渲染
     `<video src controls muted autoPlay playsInline loop style={{width:240}} />`；
-  - 404（照片形象）→ 改取 `/normalized.png`（同样带 token，blob URL）用
+  - 404（照片形象）→ 改取 `/normalized.png`（blob URL）用
     `<img>` 显示；
   - 503/其他 → 显示错误与「重试」按钮（重试逻辑同今天 preview 的重试）。
   - object URL 在切换/卸载时 revoke（沿用现有 previewRef 模式）。

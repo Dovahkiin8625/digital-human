@@ -78,7 +78,7 @@ FeatherTalk 的代价是**个性化**：视觉 UNet 属于某个人，要用这�
 这个偏移肉眼可见。
 
 本服务改用**因果窗口**：窗口里未来的 9 帧槽位填当前帧的 token。更重要的是，
-**训练也用因果窗口**（`server/lite/dataset.py` 的 `CausalTemporalMouthRoiDataset`
+**训练也用因果窗口**（`server/lite/causal_dataset.py` 的 `CausalTemporalMouthRoiDataset`
 只重写音频窗口，其余训练循环原样复用上游 `train.py`）——训练与推理分布一致，
 不会出现"训练时看得到未来、推理时看不到"的错配。
 

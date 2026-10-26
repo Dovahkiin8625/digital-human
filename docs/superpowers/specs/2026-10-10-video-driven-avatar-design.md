@@ -14,7 +14,7 @@
 
 ### 对原设计非目标的修订
 
-原设计文档 §1「非目标」列有「真人视频驱动不做」。本次将其**收窄**为「不做 3D 数字人；真人视频驱动改为本设计的核心能力」。其余非目标不变。
+原设计文档 §1「非目标」列有「真人视频驱动不做」。本次将其**收窄**为「不做 3D 数字人；真人视频驱动改为本设计的核心能力」。其余非目标（多 GPU 集群调度、SFU 分发、计费结算）不变。
 
 ### 非目标（YAGNI）
 
@@ -153,8 +153,6 @@ decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, i
 5. 写 `latents.pt`（堆叠）、`coords.json`、`masks/NNNN.png`、`meta.json`、`normalized.png`（第 0 个有效帧的画布）。
 6. `progress()` 增量上报：`decode` / `detect_face` / `align` / `normalize` / `build_pack`，供后台页面显示进度。
 
-`MockAvatarPipeline` 也接受视频（取第 0 帧 letterbox），保持 mock 路径可测。
-
 ## 7. 存储、校验与 API
 
 **`AvatarStore`**：`save_source_image` 改名 `save_source`，按后缀分支——
@@ -176,7 +174,6 @@ decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, i
 
 - **旧单帧形象包**（已有 `normalized.png` + `musetalk/{latents.pt, bbox.json, mask.png}`，无 `coords.json`）：`_load_avatar` 检测到后按 N=1 加载，`bbox`/`mask_crop_box` 取自 `pack.json` 的 `musetalk` 块。旧形象无需重建。
 - **照片上传**：行为不变，只是产物写入新的统一结构。
-- **Mock 引擎**：不受影响（不读 latents/sidecar）。
 
 ## 9. 配置
 
@@ -204,7 +201,7 @@ decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, i
 
 - `decode_frames`：以桩替换 cv2，断言时间戳重采样、letterbox 画布尺寸、`max_frames` 截断。
 - `AvatarStore.save_source`：拒绝不可解码视频（`invalid_video`）、拒绝超长（`video_too_long`）、接受合规视频。
-- API：mock 流水线下 `POST /api/v1/avatars` 与 `/api/admin/avatars` 接受视频文件。
+- API：`POST /api/v1/avatars` 与 `/api/admin/avatars` 接受视频文件。
 - `cycle_index`：乒乓数学（n=1、n=2、n=3、越界回绕）。
 - 引擎：以桩替换内部件，构造 N 帧 `_AvatarState`，断言每帧取到不同的底图/latents/bbox；断言旧单帧包仍加载。
 - `MuseTalkAvatarPipeline.process` 契约：以注入的假解码器 + 假 preparer，断言 `latents.pt` 形状、`coords.json` 长度、`masks/` 数量、`meta.json` 字段、`normalized.png` 尺寸。
