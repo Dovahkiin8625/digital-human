@@ -1,0 +1,76 @@
+import numpy as np
+import pytest
+from PIL import Image
+
+from server.core.render_session import RenderSession
+from server.core.stream_sink import FrameBufferSink
+from server.engine.base import AvatarPack
+from server.engine.mock_engine import MockEngine
+from server.overlay.state import OverlayEvent
+
+
+def _pack_no_overlays(tmp_path):
+    src = tmp_path / "src.png"
+    Image.new("RGB", (720, 1280), (10, 10, 10)).save(src)
+    return AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=src, config={})
+
+
+def _session(tmp_path, sink=None, rng=None):
+    return RenderSession(
+        "s1", _pack_no_overlays(tmp_path), MockEngine(),
+        sink or FrameBufferSink(), rng=rng,
+    )
+
+
+@pytest.mark.asyncio
+async def test_session_keeps_working_without_overlay_assets(tmp_path):
+    s = _session(tmp_path)
+    await s.start()
+    await s.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())
+    assert s.metrics["frames_out"] > 0
+    # overlay_applied_frames must still appear (always 0 for no-op)
+    assert s.metrics["overlay_applied_frames"] == 0
+    assert s.metrics["overlay_skipped_frames"] == 0
+    await s.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_overlay_event_does_not_crash(tmp_path):
+    s = _session(tmp_path)
+    await s.start()
+    s.enqueue_overlay_event(OverlayEvent("expression", "smile", 500))
+    await s.close()
+
+
+@pytest.mark.asyncio
+async def test_metrics_expose_overlay_keys(tmp_path):
+    s = _session(tmp_path)
+    await s.start()
+    m = s.metrics
+    assert "overlay_applied_frames" in m
+    assert "overlay_skipped_frames" in m
+    assert "overlay_auto_blinks" in m
+    await s.close()
+
+
+@pytest.mark.asyncio
+async def test_audio_pts_property(tmp_path):
+    s = _session(tmp_path)
+    await s.start()
+    assert s.audio_pts == 0.0
+    await s.push_pcm(np.zeros(24000, dtype=np.int16).tobytes())  # 0.5s
+    assert s.audio_pts > 0.0
+    await s.close()
+
+
+@pytest.mark.asyncio
+async def test_reset_overlay_clears_active(tmp_path):
+    s = _session(tmp_path)
+    await s.start()
+    s.enqueue_overlay_event(OverlayEvent("expression", "smile", 5000))
+    s.enqueue_overlay_event(OverlayEvent("gaze", "left", 5000))
+    s.reset_overlay("all")
+    # No crash; session continues normally.
+    await s.push_pcm(np.zeros(4800, dtype=np.int16).tobytes())  # 100ms
+    assert s.metrics["frames_out"] > 0
+    await s.close()

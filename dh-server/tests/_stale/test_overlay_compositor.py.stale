@@ -1,0 +1,130 @@
+import numpy as np
+import pytest
+from PIL import Image
+
+from server.engine.base import AvatarPack
+from server.overlay.compositor import OverlayCompositor, composite_layer
+from server.overlay.state import OverlayState, OverlayEvent, EXPRESSION_TOKENS, GAZE_TOKENS
+
+
+def _vocab():
+    return {"expression": EXPRESSION_TOKENS, "gaze": GAZE_TOKENS, "blink": True}
+
+
+def _state():
+    return OverlayState(
+        vocab=_vocab(),
+        default_duration_ms=1500,
+        max_duration_ms=30000,
+        blink_default_ms=120,
+        blink_min_s=4.0,
+        blink_max_s=9.0,
+        rng=__import__("random").Random(0),
+    )
+
+
+def _pack_no_overlays(tmp_path):
+    """Avatar pack pointing to a root with no overlays/ directory."""
+    src = tmp_path / "src.png"
+    Image.new("RGB", (720, 1280), (10, 10, 10)).save(src)
+    return AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=src, config={})
+
+
+def _write_alpha_png(path, rgb, alpha):
+    arr = np.zeros((rgb.shape[0], rgb.shape[1], 4), dtype=np.uint8)
+    arr[..., :3] = rgb
+    arr[..., 3] = alpha
+    Image.fromarray(arr, mode="RGBA").save(path)
+
+
+def _make_pack_with_one_expr(tmp_path, *, expr="smile", rgb=None, alpha=None, mask_box=(0, 0, 100, 100)):
+    """Write a minimal overlays/ tree with one expression at one gaze."""
+    pack = _pack_no_overlays(tmp_path)
+    overlays = tmp_path / "overlays"
+    overlays.mkdir()
+    if rgb is None:
+        rgb = np.full((100, 100, 3), 200, dtype=np.uint8)
+    if alpha is None:
+        alpha = np.full((100, 100), 255, dtype=np.uint8)
+    _write_alpha_png(overlays / f"expr_{expr}_center.png", rgb, alpha)
+    (overlays / "blink.png").write_bytes(b"")  # blank — unused in this pack
+    pack.prep = {
+        "overlay": {
+            "tokens": _vocab(),
+            "assets": {
+                "expression": {expr: {"center": f"overlays/expr_{expr}_center.png"}},
+                "blink": "overlays/blink.png",
+            },
+            "landmarks": "overlays/landmarks.json",
+            "version": 1,
+            "warnings": [],
+        }
+    }
+    return pack
+
+
+def test_compositor_no_op_when_overlays_missing(tmp_path):
+    pack = _pack_no_overlays(tmp_path)
+    c = OverlayCompositor(pack, _state())
+    assert c.disabled is True
+    img = np.full((1280, 720, 3), 7, dtype=np.uint8)
+    out = c.apply(img, now=0.0)
+    assert out is img  # identity
+
+
+def test_compositor_applies_active_expression(tmp_path):
+    pack = _make_pack_with_one_expr(tmp_path)
+    c = OverlayCompositor(pack, _state())
+    c.enqueue_event(OverlayEvent("expression", "smile", 1500), now=0.0)
+    base = np.zeros((1280, 720, 3), dtype=np.uint8)
+    out = c.apply(base, now=0.5)
+    # The composited region should now contain the overlay RGB (200,200,200)
+    # at least somewhere in the top-left 100x100.
+    assert (out[0:100, 0:100, :] == 200).any(), out[0:50, 0:50, :]
+
+
+def test_compositor_blending_honors_alpha(tmp_path):
+    """A 50% alpha overlay should blend 50/50 with the base."""
+    rgb = np.full((100, 100, 3), 200, dtype=np.uint8)
+    alpha = np.full((100, 100), 128, dtype=np.uint8)  # ~50%
+    pack = _make_pack_with_one_expr(tmp_path, rgb=rgb, alpha=alpha)
+    c = OverlayCompositor(pack, _state())
+    c.enqueue_event(OverlayEvent("expression", "smile", 1500), now=0.0)
+    base = np.zeros((1280, 720, 3), dtype=np.uint8)
+    out = c.apply(base, now=0.5)
+    # In the 100x100 region, after 50% blend over black we expect ~100
+    assert (out[0:100, 0:100, 0] >= 90).all()
+    assert (out[0:100, 0:100, 0] <= 110).all()
+
+
+def test_compositor_shape_mismatch_skipped(tmp_path, caplog):
+    pack = _make_pack_with_one_expr(tmp_path)
+    c = OverlayCompositor(pack, _state())
+    c.enqueue_event(OverlayEvent("expression", "smile", 1500), now=0.0)
+    bad_shape = np.zeros((640, 480, 3), dtype=np.uint8)  # wrong shape
+    out = c.apply(bad_shape, now=0.5)
+    assert out is bad_shape
+    assert c.skipped == 1
+
+
+def test_compositor_alpha_load_failure_skipped(tmp_path, caplog):
+    pack = _make_pack_with_one_expr(tmp_path)
+    # Corrupt the PNG so PIL raises
+    (tmp_path / "overlays" / "expr_smile_center.png").write_bytes(b"not a png")
+    c = OverlayCompositor(pack, _state())
+    c.enqueue_event(OverlayEvent("expression", "smile", 1500), now=0.0)
+    base = np.zeros((1280, 720, 3), dtype=np.uint8)
+    out = c.apply(base, now=0.5)
+    assert out is base
+    assert c.skipped == 1
+
+
+def test_composite_layer_pastes_alpha_correctly():
+    base = np.zeros((50, 50, 3), dtype=np.uint8)
+    layer = np.full((50, 50, 4), 0, dtype=np.uint8)
+    layer[..., :3] = 100
+    layer[..., 3] = 255
+    out = composite_layer(base, layer, mask_box=(5, 5, 20, 20))
+    assert (out[5:25, 5:25, :] == 100).all()
+    assert (out[:5, :, :] == 0).all()
+    assert (out[25:, :, :] == 0).all()

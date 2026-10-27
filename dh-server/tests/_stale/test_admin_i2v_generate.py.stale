@@ -1,0 +1,160 @@
+"""POST /api/admin/i2v: standalone image-to-video endpoint.
+
+The new tab in the admin UI surfaces a stateless "image -> mp4" flow: no
+avatar row, no DB write. ``CogVideoXI2V`` is monkeypatched because the real
+diffusion stack is heavy and unavailable in CI.
+"""
+from __future__ import annotations
+
+import io
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from server.avatar import i2v
+from server.config import get_settings
+
+
+ADMIN = {"X-Admin-Token": "dev-admin-token"}
+
+
+def _png():
+    buf = io.BytesIO()
+    Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@pytest.fixture()
+def fake_i2v(monkeypatch):
+    """Stub the diffusion backend so the endpoint produces real h264 bytes fast.
+
+    The constructor's preflight only checks the weights dir is non-empty;
+    dropping a placeholder file is enough to satisfy it.
+    """
+    weights = Path(get_settings().data_dir) / "models" / "cogvideox-5b-i2v"
+    weights.mkdir(parents=True, exist_ok=True)
+    (weights / ".gitkeep").write_bytes(b"")
+
+    def backend(self, source_path, *, num_frames, steps, prompt, seed, device):
+        return [np.full((1280, 720, 3), 80, dtype=np.uint8) for _ in range(num_frames)]
+
+    monkeypatch.setattr(i2v.CogVideoXI2V, "_run_diffusion", backend)
+    return weights
+
+
+def test_i2v_returns_mp4_attachment(client, fake_i2v):
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "look up", "num_frames": "9", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith("video/mp4")
+    disp = resp.headers.get("content-disposition", "")
+    assert "attachment" in disp
+    assert "i2v_clip.mp4" in disp
+    assert len(resp.content) > 0
+
+
+def test_i2v_forwards_params_to_backend(client, fake_i2v, monkeypatch):
+    seen = {}
+
+    def backend(self, source_path, *, num_frames, steps, prompt, seed, device):
+        seen["num_frames"] = num_frames
+        seen["steps"] = steps
+        seen["prompt"] = prompt
+        return [np.full((1280, 720, 3), 80, dtype=np.uint8) for _ in range(num_frames)]
+
+    monkeypatch.setattr(i2v.CogVideoXI2V, "_run_diffusion", backend)
+
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "look up and smile", "num_frames": "9", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 200
+    assert seen["num_frames"] == 9
+    assert seen["steps"] == 10
+    assert seen["prompt"] == "look up and smile"
+
+
+def test_i2v_rejects_num_frames_below_minimum(client, fake_i2v):
+    # tunables.i2v_num_frames.minimum == 8; below that is invalid.
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "x", "num_frames": "7", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    detail = body.get("error", {}).get("detail") or {}
+    assert "num_frames" in detail
+
+
+def test_i2v_rejects_steps_above_maximum(client, fake_i2v):
+    # tunables.i2v_steps.maximum == 50; above that is invalid.
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "x", "num_frames": "9", "steps": "60"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    detail = body.get("error", {}).get("detail") or {}
+    assert "steps" in detail
+
+
+def test_i2v_returns_502_when_backend_raises_i2v_unavailable(client, fake_i2v, monkeypatch):
+    def boom(self, source_path, *, num_frames, steps, prompt, seed, device):
+        raise i2v.I2VUnavailable("weights missing; run fetch_cogvidex_weights.sh")
+
+    monkeypatch.setattr(i2v.CogVideoXI2V, "_run_diffusion", boom)
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "x", "num_frames": "9", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 502
+    msg = resp.json().get("error", {}).get("message") or ""
+    assert "weights missing" in msg
+
+
+def test_i2v_cleans_up_tmp_after_success(client, fake_i2v):
+    tmp_root = Path(get_settings().data_dir) / "tmp" / "i2v"
+    before = {p.name for p in tmp_root.iterdir()} if tmp_root.exists() else set()
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "x", "num_frames": "9", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 200
+    after = {p.name for p in tmp_root.iterdir()} if tmp_root.exists() else set()
+    # No new subdirs left behind -- each request's scratch dir is gone.
+    assert after == before
+
+
+def test_i2v_cleans_up_tmp_after_failure(client, fake_i2v, monkeypatch):
+    tmp_root = Path(get_settings().data_dir) / "tmp" / "i2v"
+    before = {p.name for p in tmp_root.iterdir()} if tmp_root.exists() else set()
+
+    def boom(self, source_path, *, num_frames, steps, prompt, seed, device):
+        raise i2v.I2VUnavailable("kaboom")
+
+    monkeypatch.setattr(i2v.CogVideoXI2V, "_run_diffusion", boom)
+    resp = client.post(
+        "/api/admin/i2v",
+        headers=ADMIN,
+        data={"prompt": "x", "num_frames": "9", "steps": "10"},
+        files={"file": ("a.png", _png(), "image/png")},
+    )
+    assert resp.status_code == 502
+    after = {p.name for p in tmp_root.iterdir()} if tmp_root.exists() else set()
+    assert after == before

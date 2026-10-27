@@ -1,0 +1,231 @@
+"""The animate flag drives the image-to-video branch in the MuseTalk pipeline.
+
+The pipeline keeps ``mode == 'image'`` (the engine layer still reads it for
+the cycle lookup) but tags ``source_kind='i2v'`` so the operator can tell, on
+the timeline view, why this seemingly photo-driven pack carries more than one
+prepared frame. The I2V module is injected: real torch/diffusers inference is
+not exercised in CI.
+"""
+from __future__ import annotations
+
+import io
+import json
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from server.avatar import i2v as i2v_module
+from server.avatar import musetalk_pipeline as mp
+from server.avatar.musetalk_pipeline import FACE_CROP, MuseTalkAvatarPipeline
+from server.avatar.pipeline import PipelineError, run_avatar_job
+from server.avatar.store import AvatarStore
+from server.db.models import Avatar, AvatarJob
+
+
+class _StubPreparer:
+    """Correct-shape stub: ``all-zero`` landmarks aren't a face, but quality
+    is mocked out in the suite to keep the focus on layout."""
+
+    def __call__(self, bgr):
+        return {
+            "bbox": [100, 200, 300, 400],
+            "landmarks": np.zeros((468, 2), dtype=np.float32),
+            "face_crop_bgr": np.zeros((FACE_CROP, FACE_CROP, 3), dtype=np.uint8),
+            "latents": np.zeros((1, 8, 32, 32), dtype=np.float32),
+            "mask": np.full((300, 300), 255, dtype=np.uint8),
+            "mask_crop_box": [10, 20, 310, 320],
+        }
+
+
+class _FakeBackend:
+    """Stands in for the diffusers call. Records the call args and yields N frames.
+
+    The real ``CogVideoXI2V._run_diffusion`` is replaced via monkeypatch so
+    the public ``generate`` method (which writes ``i2v_clip.mp4`` and runs
+    the preflight on weights) still executes -- only the heavy model call
+    is skipped.
+    """
+
+    def __init__(self, frames: int = 49, fail_with: Exception | None = None):
+        self.frames = frames
+        self.fail_with = fail_with
+        self.calls: list[dict] = []
+
+    def __call__(self, source_path, *, num_frames, steps, prompt, seed, device):
+        self.calls.append(
+            {"source": str(source_path), "num_frames": num_frames, "steps": steps, "prompt": prompt}
+        )
+        if self.fail_with is not None:
+            raise self.fail_with
+        return [np.full((1280, 720, 3), 100, dtype=np.uint8) for _ in range(self.frames)]
+
+
+def _png(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (640, 800), (90, 50, 30)).save(path)
+
+
+def _wire(monkeypatch, *, i2v_frames: int = 49, fail_with: Exception | None = None):
+    def _stub_save_latents(parts, path):
+        with open(path, "wb") as fh:
+            fh.write(b"\x00")
+
+    monkeypatch.setattr(mp, "_save_latents", _stub_save_latents)
+    monkeypatch.setattr(mp, "assess_quality", lambda rgb, pts: [])
+
+    backend = _FakeBackend(frames=i2v_frames, fail_with=fail_with)
+    # The real ``generate(...)`` runs first; ``_ensure_ready`` checks the
+    # weights dir on disk. Stub the property to True so the test does not
+    # have to populate that directory, while still exercising the real
+    # ``i2v_clip.mp4`` write + frame handoff path.
+    monkeypatch.setattr(mp.CogVideoXI2V, "is_ready", property(lambda self: True))
+    monkeypatch.setattr(mp.CogVideoXI2V, "_run_diffusion", backend)
+    return backend
+
+
+@pytest.fixture()
+def db(tmp_path, monkeypatch):
+    monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
+    from sqlalchemy.orm import sessionmaker
+
+    from server.config import get_settings
+    from server.db.session import get_engine, init_db, reset_engine
+
+    get_settings.cache_clear()
+    reset_engine()
+    init_db(get_engine())
+    session = sessionmaker(bind=get_engine())()
+    try:
+        yield session
+    finally:
+        session.close()
+        reset_engine()
+        get_settings.cache_clear()
+
+
+def _make_avatar(db, src_path, *, animate: bool, with_id: str | None = None):
+    avatar = Avatar(
+        id=with_id or "abcdef0123456789abcdef0123456789",
+        name="a",
+        tenant_id="t",
+        status="processing",
+        source_image_path=str(src_path),
+        config_json={"request": {"animate": animate}},
+    )
+    db.add(avatar)
+    db.flush()
+    job = AvatarJob(avatar_id=avatar.id, stage="queued")
+    db.add(job)
+    db.commit()
+    return avatar, job
+
+
+# ----- pipeline.process() level -----
+
+
+def test_animate_image_routes_through_i2v(monkeypatch, tmp_path):
+    _wire(monkeypatch, i2v_frames=49)
+    src = tmp_path / "photo.png"
+    _png(src)
+    out = tmp_path / "out"
+    pipeline = MuseTalkAvatarPipeline(preparer=_StubPreparer())
+
+    cfg = pipeline.process("aid", src, out, lambda s, p: None, animate=True)
+
+    # 49 frames means one latent per frame; coords + masks cover them all.
+    assert cfg["musetalk"]["frame_count"] == 49
+    assert cfg["musetalk"]["mode"] == "image"
+    assert cfg["musetalk"]["source_kind"] == "i2v"
+    meta = json.loads((out / "musetalk" / "meta.json").read_text())
+    assert meta["source_kind"] == "i2v"
+    assert meta["frame_count"] == 49
+    # i2v_clip.mp4 saved by the I2V module is preserved as an operator artifact.
+    assert (out / "i2v_clip.mp4").exists()
+
+
+def test_animate_short_i2v_falls_back_to_image_with_warning(monkeypatch, tmp_path, db):
+    # An i2v run that produces fewer frames than MIN_FRAMES must not silently
+    # break the pipeline: drop the i2v path, keep the photo as N=1, and emit a
+    # warning operators can find.
+    _wire(monkeypatch, i2v_frames=2)  # far below MIN_FRAMES=8
+    src = tmp_path / "photo.png"
+    _png(src)
+    out = tmp_path / "out"
+    pipeline = MuseTalkAvatarPipeline(preparer=_StubPreparer())
+
+    cfg = pipeline.process("aid", src, out, lambda s, p: None, animate=True)
+
+    assert cfg["musetalk"]["frame_count"] == 1
+    assert cfg["musetalk"].get("source_kind") is None
+    warnings = cfg.get("warnings", [])
+    assert any("i2v" in w.lower() for w in warnings)
+
+
+def test_animate_video_upload_does_not_invoke_i2v(monkeypatch, tmp_path):
+    # Use a tiny mp4 already on disk that decode_frames can accept.
+    from server.avatar.video import _encode_h264
+
+    src = tmp_path / "clip.mp4"
+    frames = np.full((25, 1280, 720, 3), 50, dtype=np.uint8)
+    _encode_h264(src, frames, fps=25, crf=28, preset="ultrafast")
+    fake = _wire(monkeypatch, i2v_frames=49)
+    out = tmp_path / "out"
+    pipeline = MuseTalkAvatarPipeline(preparer=_StubPreparer())
+
+    cfg = pipeline.process("aid", src, out, lambda s, p: None, animate=True)
+
+    # Mode stays 'video' and the i2v module was never called.
+    assert cfg["musetalk"]["mode"] == "video"
+    assert fake.calls == []
+    assert cfg["musetalk"]["frame_count"] == 25
+
+
+def test_animate_image_without_flag_keeps_n1_image(monkeypatch, tmp_path):
+    # Control: a non-animate image build must not pay for the i2v path.
+    fake = _wire(monkeypatch, i2v_frames=49)
+    src = tmp_path / "photo.png"
+    _png(src)
+    out = tmp_path / "out"
+    pipeline = MuseTalkAvatarPipeline(preparer=_StubPreparer())
+
+    cfg = pipeline.process("aid", src, out, lambda s, p: None, animate=False)
+
+    assert cfg["musetalk"]["frame_count"] == 1
+    assert cfg["musetalk"].get("source_kind") is None
+    assert fake.calls == []
+
+
+# ----- run_avatar_job level (end-to-end through the row) -----
+
+
+def test_run_avatar_job_dispatches_animate_flag(db, tmp_path, monkeypatch):
+    fake = _wire(monkeypatch, i2v_frames=49)
+    store = AvatarStore(tmp_path / "data")
+    src = tmp_path / "photo.png"
+    _png(src)
+    avatar, job = _make_avatar(db, src, animate=True)
+
+    run_avatar_job(db, store, MuseTalkAvatarPipeline(preparer=_StubPreparer()), job.id)
+    db.refresh(avatar)
+
+    assert avatar.status == "ready"
+    # The request block survives the pipeline's overwrite of config_json.
+    assert avatar.config_json.get("request", {}).get("animate") is True
+    assert avatar.config_json["musetalk"]["source_kind"] == "i2v"
+    assert fake.calls and fake.calls[0]["num_frames"] == 49
+
+
+def test_run_avatar_job_marks_failed_when_i2v_unavailable(db, tmp_path, monkeypatch):
+    _wire(monkeypatch, fail_with=i2v_module.I2VUnavailable("weights missing"))
+    store = AvatarStore(tmp_path / "data")
+    src = tmp_path / "photo.png"
+    _png(src)
+    avatar, job = _make_avatar(db, src, animate=True)
+
+    run_avatar_job(db, store, MuseTalkAvatarPipeline(preparer=_StubPreparer()), job.id)
+    db.refresh(avatar)
+
+    assert avatar.status == "failed"
+    assert "weights missing" in (job.error or "")

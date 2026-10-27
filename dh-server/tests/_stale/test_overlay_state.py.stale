@@ -1,0 +1,150 @@
+import pytest
+
+from server.overlay.state import (
+    OverlayState,
+    OverlayEvent,
+    ActiveTokens,
+    EXPRESSION_TOKENS,
+    GAZE_TOKENS,
+)
+
+
+def _state(**kw):
+    return OverlayState(
+        vocab={"expression": EXPRESSION_TOKENS, "gaze": GAZE_TOKENS, "blink": True},
+        default_duration_ms=1500,
+        max_duration_ms=30000,
+        blink_default_ms=120,
+        blink_min_s=4.0,
+        blink_max_s=9.0,
+        rng=kw.pop("rng", None),
+        **kw,
+    )
+
+
+def test_constructor_starts_idle():
+    s = _state()
+    cur = s.current(0.0)
+    assert cur.expression is None
+    assert cur.gaze is None
+    assert cur.blinking is False
+
+
+def test_trigger_expression_sets_active_with_until():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", duration_ms=1500), now=10.0)
+    cur = s.current(11.0)
+    assert cur.expression == "smile"
+    assert cur.gaze is None
+
+
+def test_same_kind_event_overrides():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 1000), now=10.0)
+    s.trigger_event(OverlayEvent("expression", "sad", 1000), now=10.5)
+    cur = s.current(10.6)
+    assert cur.expression == "sad"
+
+
+def test_cross_kind_independent():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 1000), now=10.0)
+    s.trigger_event(OverlayEvent("gaze", "left", 1000), now=10.5)
+    cur = s.current(10.6)
+    assert cur.expression == "smile"
+    assert cur.gaze == "left"
+
+
+def test_expression_expires_lazily_on_current():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 500), now=10.0)
+    assert s.current(10.4).expression == "smile"
+    assert s.current(10.6).expression is None  # 10.0 + 0.5 == expires
+
+
+def test_max_duration_clamped():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 999999), now=10.0)
+    cur = s.current(10.5)
+    assert cur.expression == "smile"
+    # 30s cap → at t=39.5 still active, at 40.1 idle
+    assert s.current(39.5).expression == "smile"
+    assert s.current(40.1).expression is None
+
+
+def test_default_duration_applied_when_missing():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", None), now=10.0)
+    # 1.5s default → active at 11.0, idle at 11.5
+    assert s.current(11.0).expression == "smile"
+    assert s.current(11.6).expression is None
+
+
+def test_reset_expression_clears_only_expression():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 1000), now=10.0)
+    s.trigger_event(OverlayEvent("gaze", "left", 1000), now=10.0)
+    s.reset("expression", now=10.0)
+    cur = s.current(10.0)
+    assert cur.expression is None
+    assert cur.gaze == "left"
+
+
+def test_reset_all_clears_both_but_keeps_blinks():
+    s = _state()
+    s.trigger_event(OverlayEvent("expression", "smile", 1000), now=10.0)
+    s.trigger_event(OverlayEvent("blink", None, 120), now=10.0)
+    s.reset("all", now=10.05)
+    cur = s.current(10.05)
+    assert cur.expression is None
+    assert cur.gaze is None
+    assert cur.blinking is True  # blink window still in flight
+
+
+def test_blink_event_sets_active_window():
+    s = _state()
+    s.trigger_event(OverlayEvent("blink", None, None), now=10.0)
+    # default 120ms → window [10.0, 10.12]
+    assert s.current(10.05).blinking is True
+    assert s.current(10.13).blinking is False
+
+
+def test_auto_blink_fires_within_window():
+    import random
+    rng = random.Random(42)
+    s = _state(rng=rng)
+    # Tick 1000 frames at fps=25 → 40s. Each blink is visible for 3 ticks
+    # (120ms / 40ms). With rng seeded, the number of distinct auto-blinks
+    # must lie in [floor(40/9), ceil(40/4)] = [4, 10]. We approximate by
+    # counting transitions into the blinking state.
+    blink_starts = 0
+    was_blinking = False
+    t = 0.0
+    for _ in range(1000):
+        s.tick(t)
+        cur = s.current(t)
+        if cur.blinking and not was_blinking:
+            blink_starts += 1
+        was_blinking = cur.blinking
+        t += 0.04  # 25fps
+    assert 4 <= blink_starts <= 10, f"auto-blink count out of band: {blink_starts}"
+
+
+def test_explicit_event_pushes_auto_blink_out():
+    s = _state(rng=__import__("random").Random(0))
+    s.trigger_event(OverlayEvent("expression", "smile", 200), now=10.0)
+    s.tick(10.0)
+    # Next auto-blink must be >= 10.0 + 2.0 = 12.0
+    assert s._next_auto_blink >= 12.0
+
+
+def test_unknown_token_raises():
+    s = _state()
+    with pytest.raises(ValueError, match="unknown expression token"):
+        s.trigger_event(OverlayEvent("expression", "happy", 100), now=10.0)
+
+
+def test_unknown_kind_raises():
+    s = _state()
+    with pytest.raises(ValueError, match="unknown kind"):
+        s.trigger_event(OverlayEvent("smile", None, 100), now=10.0)

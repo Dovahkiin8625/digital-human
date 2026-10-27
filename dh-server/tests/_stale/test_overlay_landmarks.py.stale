@@ -1,0 +1,102 @@
+"""Region boxes must be derived from the face mesh, not from fixed pixel sizes.
+
+The old boxes were `(pts[33].x - 10, pts[33].y - 5, 40, 30)` and friends: one
+anchor point plus a constant. On a 720x1280 portrait the real left eye ring
+spans x 282-334 / y 423-443 while that box covered x 272-312 / y 428-458 --
+42% of the eye's width cut off, the lash line below the top edge, and 15px of
+cheek pulled in below. Every overlay landed beside the feature it was driving.
+"""
+import numpy as np
+
+from server.overlay.landmarks import (
+    LEFT_EYE_RING,
+    MOUTH_RING,
+    RIGHT_EYE_RING,
+    boxes_from_points,
+)
+from server.overlay.prep import _clip_box
+
+
+def _ring_pts(indices, cx, cy, rx, ry):
+    a = np.linspace(0, 2 * np.pi, len(indices), endpoint=False)
+    return np.stack([cx + rx * np.cos(a), cy + ry * np.sin(a)], axis=1).astype(np.float32)
+
+
+def _mesh(eye_cx=300, eye_cy=450, eye_rx=30, eye_ry=13, shape=(720, 1280)):
+    """A 468-point array with the eye and mouth rings at known extents."""
+    pts = np.zeros((468, 2), dtype=np.float32)
+    pts[:, 0], pts[:, 1] = shape[0] / 2, shape[1] / 2
+    pts[list(LEFT_EYE_RING)] = _ring_pts(LEFT_EYE_RING, eye_cx, eye_cy, eye_rx, eye_ry)
+    pts[list(RIGHT_EYE_RING)] = _ring_pts(RIGHT_EYE_RING, eye_cx + 150, eye_cy, eye_rx, eye_ry)
+    # Mouth ring: inner corners 61/291, upper-lip top 0, lower-lip bottom 17.
+    pts[61] = (eye_cx - 30, eye_cy + 150)
+    pts[291] = (eye_cx + 30, eye_cy + 150)
+    pts[0] = (eye_cx, eye_cy + 135)
+    pts[17] = (eye_cx, eye_cy + 165)
+    return pts
+
+
+def _bbox(points):
+    return points[:, 0].min(), points[:, 1].min(), points[:, 0].max(), points[:, 1].max()
+
+
+def test_eye_box_contains_the_whole_eye_ring():
+    pts = _mesh()
+    boxes = boxes_from_points(pts)
+    for key, ring in (("eye_l_box", LEFT_EYE_RING), ("eye_r_box", RIGHT_EYE_RING)):
+        rx0, ry0, rx1, ry1 = _bbox(pts[list(ring)])
+        x, y, w, h = boxes[key]
+        assert x <= rx0 and y <= ry0, f"{key} clips the ring's top-left"
+        assert x + w >= rx1 and y + h >= ry1, f"{key} clips the ring's bottom-right"
+
+
+def test_eye_box_grows_with_the_eye():
+    """A box sized in absolute pixels cannot track a face across distances."""
+    small = boxes_from_points(_mesh(eye_rx=20, eye_ry=9))["eye_l_box"]
+    large = boxes_from_points(_mesh(eye_rx=40, eye_ry=18))["eye_l_box"]
+    assert large[2] > small[2] * 1.5, (small, large)
+    assert large[3] > small[3] * 1.5, (small, large)
+
+
+def test_eye_box_covers_the_eye_opening_plus_lid():
+    """The box has to include the lash line and the lid, not just the iris."""
+    pts = _mesh()
+    box = boxes_from_points(pts)["eye_l_box"]
+    x, y, w, h = box
+    rx0, ry0, rx1, ry1 = _bbox(pts[list(LEFT_EYE_RING)])
+    ring_w, ring_h = rx1 - rx0, ry1 - ry0
+    assert w > ring_w, "box must be wider than the eye opening"
+    assert h > ring_h * 1.5, "box must leave room for the lid above and below"
+
+
+def test_mouth_box_contains_the_mouth_ring():
+    pts = _mesh()
+    x, y, w, h = boxes_from_points(pts)["mouth_box"]
+    rx0, ry0, rx1, ry1 = _bbox(pts[list(MOUTH_RING)])
+    assert x <= rx0 and y <= ry0
+    assert x + w >= rx1 and y + h >= ry1
+
+
+def test_cheek_boxes_sit_beside_the_mouth_and_stay_in_frame():
+    shape = (720, 1280)
+    boxes = boxes_from_points(_mesh(shape=shape))
+    mouth = boxes["mouth_box"]
+    for key, side in (("cheek_l_box", -1), ("cheek_r_box", 1)):
+        x, y, w, h = boxes[key]
+        cx = x + w / 2
+        if side < 0:
+            assert cx < mouth[0] + mouth[2] / 2, "left cheek must sit left of mouth centre"
+        else:
+            assert cx > mouth[0] + mouth[2] / 2, "right cheek must sit right of mouth centre"
+        assert w > 0 and h > 0
+
+
+def test_clip_box_keeps_a_region_inside_the_image():
+    """A face near the frame edge must not produce an out-of-bounds write."""
+    shape = (720, 1280)
+    boxes = boxes_from_points(_mesh(eye_cx=8, eye_cy=1268, shape=shape))
+    for key, box in boxes.items():
+        x, y, w, h = _clip_box(box, shape[0], shape[1])
+        assert x >= 0 and y >= 0, key
+        assert x + w <= shape[0] and y + h <= shape[1], key
+        assert w > 0 and h > 0, f"{key} clipped away to nothing"
