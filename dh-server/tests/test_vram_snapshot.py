@@ -1,4 +1,4 @@
-"""Live GPU memory snapshot returned by ``server.avatar.vram.get_vram_snapshot``.
+"""Live GPU memory snapshot returned by ``dh_server.avatar.vram.get_vram_snapshot``.
 
 The Models tab needs more than a single ``get_vram_gb`` answer to render a
 useful progress bar; it needs the *currently* allocated / reserved figure so
@@ -36,7 +36,7 @@ def test_snapshot_is_none_when_torch_missing(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(_bi, "__import__", fake_import)
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     assert vram.get_vram_snapshot() is None
 
@@ -45,7 +45,7 @@ def test_snapshot_is_none_when_cuda_unavailable(monkeypatch):
     torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     assert vram.get_vram_snapshot() is None
 
@@ -66,7 +66,7 @@ def test_snapshot_returns_live_memory_when_cuda_available(monkeypatch):
     # mem_get_info returns (free, total) in bytes.
     monkeypatch.setattr(torch.cuda, "mem_get_info", lambda _idx: (3.0 * 1024 ** 3, 4.0 * 1024 ** 3))
 
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     snap = vram.get_vram_snapshot()
     assert snap is not None

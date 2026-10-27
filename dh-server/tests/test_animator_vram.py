@@ -11,7 +11,7 @@ This module tests two contracts:
 
 1. Each backend's ``meta()`` returns ``vram_required_gb`` and
    ``fits_current_gpu`` so the page can decide which options to disable.
-2. ``server.avatar.vram.get_vram_gb()`` is the single source of VRAM
+2. ``dh_server.avatar.vram.get_vram_gb()`` is the single source of VRAM
    truth; the dispatcher's animate() path can also use it to do the
    live VRAM recheck.
 """
@@ -42,7 +42,7 @@ def test_get_vram_gb_returns_none_when_torch_missing(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(_bi, "__import__", fake_import)
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     assert vram.get_vram_gb() is None
 
@@ -55,7 +55,7 @@ def test_get_vram_gb_returns_none_when_cuda_not_available(monkeypatch):
     torch = pytest.importorskip("torch")
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     assert vram.get_vram_gb() is None
 
@@ -69,7 +69,7 @@ def test_get_vram_gb_returns_total_memory_in_gb(monkeypatch):
         total_memory = 12 * 1024 ** 3  # 12 GB
 
     monkeypatch.setattr(torch.cuda, "get_device_properties", lambda _idx: _Props())
-    from server.avatar import vram
+    from dh_server.avatar import vram
 
     assert vram.get_vram_gb() == 12.0
 
@@ -82,7 +82,7 @@ def test_liveportrait_meta_exposes_vram_required_and_fit(monkeypatch):
     # grey the option out on a host that doesn't have it (e.g. CI).
     torch = pytest.importorskip("torch")
 
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
@@ -100,7 +100,7 @@ def test_wan22_meta_marks_fit_on_consumer_card(monkeypatch):
     # the dropdown must keep it clickable on a consumer card.
     torch = pytest.importorskip("torch")
 
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
@@ -116,7 +116,7 @@ def test_wan22_meta_marks_unfit_on_tiny_card(monkeypatch):
     # An 8 GB host falls below the ~10 GB peak + 2 GB headroom budget.
     torch = pytest.importorskip("torch")
 
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
 
@@ -134,8 +134,8 @@ def test_meta_vram_null_on_cpu_only_host(monkeypatch):
     # inline when the user clicks 生成 instead of being silently hidden.
     torch = pytest.importorskip("torch")
 
-    from server.avatar import liveportrait
-    from server.avatar import wan22
+    from dh_server.avatar import liveportrait
+    from dh_server.avatar import wan22
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
 

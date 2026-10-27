@@ -11,8 +11,8 @@ import io
 from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
-from server.db.models import Avatar
-from server.db.session import get_engine
+from dh_server.db.models import Avatar
+from dh_server.db.session import get_engine
 
 
 def _png_bytes(w=640, h=800):
@@ -85,7 +85,7 @@ def test_an_avatar_with_an_unregistered_model_is_refused(client):
 def test_a_session_drives_the_avatar_with_its_own_model(client):
     """The engine comes from the avatar's model, not from whatever else
     the box happens to be running."""
-    from server.main import _app
+    from dh_server.main import _app
 
     avatar_id = _seed(client, "musetalk")
     resp = client.post("/api/v1/sessions", json={"avatar_id": avatar_id})

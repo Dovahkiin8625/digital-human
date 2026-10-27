@@ -7,8 +7,8 @@ resize untouched, so the centre pixel identifies which source frame was picked.
 import numpy as np
 import pytest
 
-from server.avatar import video
-from server.avatar.video import VideoError, decode_frames, is_video_suffix, probe_video
+from dh_server.avatar import video
+from dh_server.avatar.video import VideoError, decode_frames, is_video_suffix, probe_video
 
 CANVAS = (720, 1280)
 

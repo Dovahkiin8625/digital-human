@@ -68,8 +68,8 @@ class PortraitAnimator(Protocol):
 
 #: The registry. Populated by side-effect imports in each backend module:
 #:
-#:     from server.avatar.animators import ANIMATORS
-#:     from server.avatar.liveportrait import LivePortraitAnimator
+#:     from dh_server.avatar.animators import ANIMATORS
+#:     from dh_server.avatar.liveportrait import LivePortraitAnimator
 #:     ANIMATORS[LivePortraitAnimator.name] = LivePortraitAnimator()
 #:
 #: The endpoint imports this dict at request time; ordering is insertion

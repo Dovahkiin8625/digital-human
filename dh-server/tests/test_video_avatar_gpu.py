@@ -11,8 +11,8 @@ import pytest
 torch = pytest.importorskip("torch")
 cv2 = pytest.importorskip("cv2")
 
-from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline  # noqa: E402
-from server.engine.musetalk_engine import MuseTalkEngine  # noqa: E402
+from dh_server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline  # noqa: E402
+from dh_server.engine.musetalk_engine import MuseTalkEngine  # noqa: E402
 
 pytestmark = [pytest.mark.gpu, pytest.mark.musetalk]
 
@@ -53,7 +53,7 @@ def test_video_avatar_prepares_and_streams(tmp_path):
     assert cfg["musetalk"]["frame_count"] > 1
     assert (out / "musetalk" / "coords.json").exists()
 
-    from server.engine.base import AvatarPack
+    from dh_server.engine.base import AvatarPack
 
     pack = AvatarPack(
         avatar_id="v1",
@@ -89,7 +89,7 @@ def test_short_audio_session_does_not_kill_the_worker(tmp_path):
     src = _short_video(out / "clip.mp4")
     cfg = MuseTalkAvatarPipeline().process("v2", src, out, lambda s, p: None)
 
-    from server.engine.base import AvatarPack
+    from dh_server.engine.base import AvatarPack
 
     pack = AvatarPack(
         avatar_id="v2",
@@ -119,7 +119,7 @@ def test_idle_phase_carries_seamlessly_into_speech(tmp_path):
     src = _short_video(out / "clip.mp4")
     cfg = MuseTalkAvatarPipeline().process("v3", src, out, lambda s, p: None)
 
-    from server.engine.base import AvatarPack
+    from dh_server.engine.base import AvatarPack
 
     pack = AvatarPack(
         avatar_id="v3",

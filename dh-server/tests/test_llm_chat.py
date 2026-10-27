@@ -1,8 +1,8 @@
 """``POST /api/admin/llm/chat`` + ``POST /api/admin/llm/chat/stream``.
 
 The chat endpoint pair drives the console's chat panel. The non-streaming
-endpoint is a thin wrapper over :func:`server.llm.openai.chat`; the
-streaming one wraps :func:`server.llm.openai.stream_chat` and frames each
+endpoint is a thin wrapper over :func:`dh_server.llm.openai.chat`; the
+streaming one wraps :func:`dh_server.llm.openai.stream_chat` and frames each
 delta as an SSE event.
 
 All tests here drive the real parse path through ``httpx.MockTransport``
@@ -12,7 +12,7 @@ network call.
 
 LLM config lives entirely in the SQLite ``settings`` table (the operator
 wires it from the Models tab) -- there are no env defaults, so the tests
-write the config rows directly via :func:`server.llm.config.write_config`.
+write the config rows directly via :func:`dh_server.llm.config.write_config`.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import json
 import httpx
 import pytest
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 
 ADMIN = {"X-Admin-Token": "dev-admin-token"}
@@ -35,12 +35,12 @@ def _write_llm_config(db, *, api_key="test-key", base_url="https://api.example.t
     """Drop the three LLM settings rows directly so the chat path sees
     a wired config without going through the HTTP layer.
 
-    Bypasses :func:`server.llm.config.write_config` so tests can set
+    Bypasses :func:`dh_server.llm.config.write_config` so tests can set
     deliberately-invalid values (empty base_url etc.) without tripping
     the form-level validation -- the chat path is what we're testing.
     """
     import json as _json
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     rows = {
         "llm_api_key": api_key,
@@ -68,7 +68,7 @@ async def test_chat_sends_messages_and_returns_content(_fresh_db):
     itself doesn't have to know about it. ``api_key`` rides in the
     ``Authorization: Bearer ...`` header.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db)
     seen: dict = {}
@@ -112,7 +112,7 @@ async def test_chat_rejects_empty_messages():
     """An empty message list is a 400 ``empty_messages`` -- the chat
     panel must always send at least one user turn.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     with pytest.raises(AppError) as excinfo:
         await chat([], client=_mock_client(lambda r: httpx.Response(200, json={})))
@@ -125,7 +125,7 @@ async def test_chat_surfaces_not_configured_when_api_key_missing(_fresh_db):
     """Empty api_key means "not configured": ``chat()`` raises
     503 ``llm_not_configured`` rather than calling out.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     # Wire ONLY base_url -- api_key stays at the empty default.
     _write_llm_config(_fresh_db, api_key="")
@@ -157,7 +157,7 @@ async def test_chat_surfaces_not_configured_when_base_url_missing(_fresh_db):
     """Empty base_url is also a 503 -- the chat path appends
     ``/chat/completions`` so a missing base would 404 on the wire.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db, base_url="")
     with pytest.raises(AppError) as excinfo:
@@ -176,7 +176,7 @@ async def test_chat_surfaces_upstream_error(_fresh_db):
     upstream body so the operator can diagnose without flipping to a
     network debugger.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db)
 
@@ -203,7 +203,7 @@ async def test_chat_surfaces_upstream_error_block(_fresh_db):
     """Some providers echo an ``error`` block on HTTP 200; the chat path
     treats it as a 502 with the upstream message verbatim.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db)
 
@@ -234,7 +234,7 @@ async def test_chat_surfaces_transport_error(_fresh_db):
     502 ``llm_failed`` rather than letting the underlying exception 500
     the request.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db)
 
@@ -260,7 +260,7 @@ async def test_chat_rejects_empty_choices(_fresh_db):
     """An HTTP 200 with no ``choices`` array is a malformed reply --
     surface as 502 ``llm_failed`` rather than crashing on the shape.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     _write_llm_config(_fresh_db)
 
@@ -289,7 +289,7 @@ async def test_stream_chat_yields_deltas_and_terminates_on_done(_fresh_db):
     """``stream_chat`` reads the SSE stream line-by-line and yields each
     ``delta.content`` until ``[DONE]`` closes the upstream.
     """
-    from server.llm.openai import stream_chat
+    from dh_server.llm.openai import stream_chat
 
     _write_llm_config(_fresh_db)
 
@@ -330,7 +330,7 @@ async def test_stream_chat_surfaces_not_configured(_fresh_db):
     """Empty api_key means "not configured": ``stream_chat`` raises 503
     before opening the upstream connection.
     """
-    from server.llm.openai import stream_chat
+    from dh_server.llm.openai import stream_chat
 
     _write_llm_config(_fresh_db, api_key="")
     called = False
@@ -362,7 +362,7 @@ async def test_stream_chat_surfaces_upstream_http_error(_fresh_db):
     """Non-200 upstream closes the stream with 502 ``llm_failed`` -- the
     chat panel surfaces this via its single error frame.
     """
-    from server.llm.openai import stream_chat
+    from dh_server.llm.openai import stream_chat
 
     _write_llm_config(_fresh_db)
 
@@ -401,7 +401,7 @@ async def test_stream_chat_constructs_valid_timeout_when_client_is_none(
     All other stream tests inject a client and bypass the
     ``client = client or httpx.AsyncClient(timeout=...)`` line entirely.
     """
-    from server.llm import openai as openai_mod
+    from dh_server.llm import openai as openai_mod
 
     _write_llm_config(_fresh_db)
 
@@ -445,7 +445,7 @@ def test_admin_chat_endpoint_returns_content(client, monkeypatch):
     async def fake_chat(messages, **kwargs):
         return "fake reply"
 
-    monkeypatch.setattr("server.llm.openai.chat", fake_chat)
+    monkeypatch.setattr("dh_server.llm.openai.chat", fake_chat)
 
     resp = client.post(
         "/api/admin/llm/chat",
@@ -483,7 +483,7 @@ def test_admin_chat_stream_endpoint_emits_sse_frames(client, monkeypatch):
         for chunk in ["你", "好", "世界"]:
             yield chunk
 
-    monkeypatch.setattr("server.llm.openai.stream_chat", fake_stream_chat)
+    monkeypatch.setattr("dh_server.llm.openai.stream_chat", fake_stream_chat)
 
     resp = client.post(
         "/api/admin/llm/chat/stream",
@@ -513,7 +513,7 @@ def test_admin_chat_stream_endpoint_surfaces_error_frame(client, monkeypatch):
         raise AppError("llm_not_configured", "set LLM config via Models tab", 503)
         yield  # pragma: no cover -- makes this a generator
 
-    monkeypatch.setattr("server.llm.openai.stream_chat", fake_stream_chat)
+    monkeypatch.setattr("dh_server.llm.openai.stream_chat", fake_stream_chat)
 
     resp = client.post(
         "/api/admin/llm/chat/stream",
@@ -536,8 +536,8 @@ def _fresh_db(tmp_path, monkeypatch):
     directly to the settings table.
     """
     from tests.env import apply_env
-    from server.config import get_settings
-    from server.db.session import init_db, get_engine, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import init_db, get_engine, reset_engine
     from sqlalchemy.orm import sessionmaker
 
     apply_env(monkeypatch, tmp_path)

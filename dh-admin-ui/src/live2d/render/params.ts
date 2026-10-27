@@ -45,3 +45,30 @@ export function mapToRange(value01: number, range: { min: number; max: number })
 export function mapSigned(value: number, range: { min: number; max: number }): number {
   return mapToRange(0.5 + Math.min(1, Math.max(-1, value)) / 2, range);
 }
+
+/** Clamp a value back into a parameter's range. */
+export function clampToRange(value: number, range: { min: number; max: number }): number {
+  return Math.min(range.max, Math.max(range.min, value));
+}
+
+/** An ADDITIVE offset, expressed in the model's own units.
+ *
+ *  `amplitude` is the fraction of the range's half-span the offset may
+ *  reach. The fraction is the point: rigs disagree wildly on scale --
+ *  ParamAngleZ is -30..30 on one model and -1..1 on another -- so an
+ *  offset written as "2.5" means two and a half units on one rig and
+ *  more than the whole range on another. A fraction of the range means
+ *  the same amount of head turn everywhere.
+ *
+ *  Note this is deliberately NOT `mapSigned`: that maps across the whole
+ *  range, which is right for a value that stands alone and wrong for an
+ *  offset that is added to something Cubism already wrote. */
+export function offsetInRange(
+  value: number,
+  range: { min: number; max: number },
+  amplitude: number,
+): number {
+  const half = (range.max - range.min) / 2;
+  const clamped = Math.min(1, Math.max(-1, value));
+  return clamped * half * amplitude;
+}

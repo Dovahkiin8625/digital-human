@@ -23,7 +23,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.avatar import animators
+from dh_server.avatar import animators
 
 # The default .venv has no torch, so the tests that patch ``torch.cuda``
 # skip there instead of failing (``pytest.importorskip``).
@@ -38,7 +38,7 @@ def _png():
 @pytest.fixture()
 def stub_pipeline(monkeypatch):
     """Inject a deterministic 720x1280 frame stack in place of diffusers."""
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     def fake(self, source_image, *, prompt, num_frames, steps, out_dir):
         # Save the prompt + knob values into a sidecar so tests can read back
@@ -57,7 +57,7 @@ def stub_pipeline(monkeypatch):
 
 def _seed_weights(root, *, variant_name):
     """Drop a placeholder file where the animator looks for the snapshot."""
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     spec = wan22.Wan22I2VAnimator.VARIANTS[variant_name]
     d = root / "models" / spec["weights_subdir"]
@@ -85,7 +85,7 @@ def test_variant_registers_on_import():
     # The bf16 variant must be in the registry on import. A future variant
     # (e.g. fp8 once Wan-AI ships one) gets its line in this test when it
     # lands.
-    from server.avatar import wan22  # noqa: F401 -- side effect: registers the variant
+    from dh_server.avatar import wan22  # noqa: F401 -- side effect: registers the variant
 
     expected = {"wan22-i2v-5b-bf16"}
     registered = set(animators.ANIMATORS)
@@ -94,7 +94,7 @@ def test_variant_registers_on_import():
 
 
 def test_meta_lists_ui_keys():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     for animator in wan22.all_animators():
         meta = animator.meta()
@@ -117,7 +117,7 @@ def test_meta_lists_ui_keys():
 
 
 def test_meta_groups_under_oss_i2v():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     for animator in wan22.all_animators():
         group = animator.meta()["group_zh"]
@@ -127,7 +127,7 @@ def test_meta_groups_under_oss_i2v():
 
 
 def test_num_frames_bounds_land_on_grid():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     for animator in wan22.all_animators():
         m = animator.meta()
@@ -147,7 +147,7 @@ def test_num_frames_bounds_land_on_grid():
 def test_meta_pins_bf16_dtype():
     # A typo here would silently fall back to fp32 and OOM the consumer
     # card, so the spec pins the dtype explicitly.
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=None)
     assert a.spec["torch_dtype"] == "bfloat16"
@@ -157,7 +157,7 @@ def test_meta_pins_bf16_dtype():
 
 
 def test_is_ready_false_when_weights_missing(tmp_path, monkeypatch):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     monkeypatch.setattr(wan22, "WAN22_WEIGHTS_ROOT", tmp_path / "no-models", raising=False)
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path / "no-models")
@@ -165,7 +165,7 @@ def test_is_ready_false_when_weights_missing(tmp_path, monkeypatch):
 
 
 def test_is_ready_true_when_weights_and_gpu_match(tmp_path, monkeypatch):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     # The production layout is ``data_dir/models/<Wan2.2-...>``; mirror it
     # in tests by seeding under ``tmp_path/models``. 16 GB is the consumer
@@ -177,7 +177,7 @@ def test_is_ready_true_when_weights_and_gpu_match(tmp_path, monkeypatch):
 
 
 def test_is_ready_false_when_gpu_below_budget(tmp_path, monkeypatch):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     _seed_weights(tmp_path, variant_name="5b-bf16")
     _gpu_vram_gb(monkeypatch, 8.0)
@@ -192,7 +192,7 @@ def test_is_ready_false_when_gpu_below_budget(tmp_path, monkeypatch):
 
 
 def test_validate_rejects_num_frames_off_grid():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=None)
     # 50 is not 16N+1; 49 = 16*3+1 IS on the grid (sanity check below).
@@ -203,7 +203,7 @@ def test_validate_rejects_num_frames_off_grid():
 
 
 def test_validate_accepts_num_frames_on_grid():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=None)
     # 81 = 16*5 + 1; 17 = 16*1 + 1; 113 = 16*7 + 1 (the upper bound).
@@ -213,7 +213,7 @@ def test_validate_accepts_num_frames_on_grid():
 
 
 def test_validate_rejects_steps_out_of_range():
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=None)
     assert "steps" in a.validate(prompt="x", num_frames=81, steps=1)
@@ -224,7 +224,7 @@ def test_validate_rejects_steps_out_of_range():
 
 
 def test_animate_writes_mp4_and_forwards_knobs(stub_pipeline, tmp_path, monkeypatch):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     _seed_weights(tmp_path, variant_name="5b-bf16")
     _gpu_vram_gb(monkeypatch, 16.0)
@@ -251,7 +251,7 @@ def test_animate_writes_mp4_and_forwards_knobs(stub_pipeline, tmp_path, monkeypa
 
 
 def test_animate_raises_when_weights_missing(tmp_path, monkeypatch):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     monkeypatch.setattr(wan22, "WAN22_WEIGHTS_ROOT", tmp_path / "none", raising=False)
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path / "none")
@@ -265,7 +265,7 @@ def test_animate_raises_when_weights_missing(tmp_path, monkeypatch):
 
 
 def test_animate_raises_when_validation_fails(tmp_path):
-    from server.avatar import wan22
+    from dh_server.avatar import wan22
 
     a = wan22.Wan22I2VAnimator(variant="5b-bf16", weights_root=tmp_path)
     a._loaded = True  # bypass Models-tab gate; this test is about validate()

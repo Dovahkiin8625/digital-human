@@ -1,16 +1,16 @@
 """Start the digital-human backend with one command: ``python run.py``.
 
 This is the README's uvicorn line (``python -m uvicorn --factory
-server.main:create_app --host 0.0.0.0 --port 8000``) with the easy-to-get-wrong
+dh_server.main:create_app --host 0.0.0.0 --port 8000``) with the easy-to-get-wrong
 parts already done:
 
-* the working directory is pinned to the project root, so ``.env``, ``data/``
-  and ``admin-ui/dist`` resolve the same way no matter where the command was
+* the working directory is pinned to the repository root, so ``.env``, ``data/``
+  and ``dh-admin-ui/dist`` resolve the same way no matter where the command was
   invoked from;
-* ``server`` is importable even when Python was started somewhere else;
+* ``dh_server`` is importable even when Python was started somewhere else;
 * what this particular box can and cannot do -- no torch means no MuseTalk
   runtime, no CUDA means no GPU, missing weights means no avatar pipeline, a
-  missing ``admin-ui/dist`` means no console -- is reported *before* uvicorn
+  missing ``dh-admin-ui/dist`` means no console -- is reported *before* uvicorn
   takes the port, instead of surfacing as a failed avatar job minutes later.
 
 The interpreter that runs this file is the interpreter that runs the server.
@@ -27,12 +27,17 @@ import os
 import sys
 from pathlib import Path
 
-#: The project root -- the directory this file lives in.
-ROOT = Path(__file__).resolve().parent
+#: The server project directory -- the directory this file lives in.
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+#: The repository root: the parent of the project directory. ``data/`` and
+#: ``.env`` live here, and so do the sibling projects -- the console
+#: (``dh-admin-ui``) and the desktop pet (``dh-pet``).
+ROOT = PROJECT_ROOT.parent
 
 #: The venv that carries the GPU runtime, and the torch-free one for tests.
-GPU_VENV = ".venv-musetalk"
-CPU_VENV = ".venv"
+GPU_VENV = ROOT / ".venv-musetalk"
+CPU_VENV = ROOT / ".venv"
 
 #: Everything the server imports unconditionally. Checked by import machinery
 #: (not by importing) so a broken environment is reported as such instead of
@@ -68,7 +73,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--reload",
         action="store_true",
-        help="server/ 源码变化时自动重启（仅开发用）",
+        help="dh_server/ 源码变化时自动重启（仅开发用）",
     )
     parser.add_argument(
         "--log-level",
@@ -100,14 +105,14 @@ def _dependency_error(missing: list[str]) -> str:
         "请先激活一个运行环境，再在项目根目录执行 pip install -e \".[dev]\"：\n"
         f"  {GPU_VENV}\\Scripts\\activate    # 跑真实 MuseTalk（需要 GPU + 权重）\n"
         f"  {CPU_VENV}\\Scripts\\activate        # 只跑后台/单测（无 GPU）\n"
-        "Git Bash 里用 source .venv-musetalk/Scripts/activate。"
+        f"Git Bash 里用 source {GPU_VENV.as_posix()}/Scripts/activate。"
     )
 
 
 def _resolve_data_dir() -> tuple[Path, str | None]:
     """The configured data dir, and why it could not be read (if it could not)."""
     try:
-        from server.config import get_settings
+        from dh_server.config import get_settings
 
         data_dir = Path(get_settings().data_dir)
     except Exception as exc:  # noqa: BLE001 -- a broken config must not stop the server
@@ -130,7 +135,7 @@ def _preflight(data_dir: Path) -> tuple[list[str], str | None]:
     if importlib.util.find_spec("torch") is None:
         warnings.append(
             f"当前解释器没有 torch，MuseTalk 运行时不可用（Live2D 形象不受影响）。"
-            f"跑真实模型请用 {GPU_VENV}：source {GPU_VENV}/Scripts/activate"
+            f"跑真实模型请用 {GPU_VENV.as_posix()}：source {GPU_VENV.as_posix()}/Scripts/activate"
         )
     else:
         try:
@@ -146,7 +151,7 @@ def _preflight(data_dir: Path) -> tuple[list[str], str | None]:
     # The weights the engine loads; the same list the engine checks itself,
     # so the two cannot disagree about whether the runtime is loadable.
     try:
-        from server.avatar.musetalk_pipeline import RUNTIME_WEIGHTS
+        from dh_server.avatar.musetalk_pipeline import RUNTIME_WEIGHTS
 
         weights_dir = data_dir / "models" / "musetalk"
         absent = [w for w in RUNTIME_WEIGHTS if not (weights_dir / w).exists()]
@@ -158,23 +163,24 @@ def _preflight(data_dir: Path) -> tuple[list[str], str | None]:
     except Exception:  # noqa: BLE001 -- the weights list is a nicety, not a gate
         pass
 
-    # The lite (FeatherTalk) engine's weights are small and optional: the
-    # model is only usable if they were fetched, and the server boots fine
-    # without them.
+    # The wav2lip engine's weights are optional: the model is only usable if
+    # they were fetched, and the server boots fine without them.
     try:
-        from server.lite import vendor
+        from dh_server.wav2lip import vendor
 
         absent = vendor.missing_weights()
         if absent:
             warnings.append(
-                f"轻量引擎权重不完整（{vendor.weights_dir()}）：缺少 {', '.join(absent)}；"
-                "运行 scripts/fetch_lite_weights.sh 补齐（否则 lite 模型不可用）"
+                f"Wav2Lip 权重不完整（{vendor.weights_dir()}）：缺少 {', '.join(absent)}；"
+                "运行 scripts/fetch_wav2lip_weights.sh 补齐（否则 wav2lip 模型不可用）"
             )
     except Exception:  # noqa: BLE001 -- a nicety, not a gate
         pass
 
-    if not (ROOT / "admin-ui" / "dist" / "index.html").exists():
-        warnings.append("管理台尚未构建（admin-ui/dist/index.html 不存在）：cd admin-ui && npm run build")
+    if not (ROOT / "dh-admin-ui" / "dist" / "index.html").exists():
+        warnings.append(
+            "管理台尚未构建（dh-admin-ui/dist/index.html 不存在）：cd dh-admin-ui && npm run build"
+        )
 
     return warnings, gpu_name
 
@@ -221,8 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     # directory, and the console is mounted from admin-ui/dist. Running from
     # anywhere else would silently point all three somewhere else.
     os.chdir(ROOT)
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
 
     missing = _missing_dependencies()
     if missing:
@@ -240,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     uvicorn.run(
         # The import string (rather than the app object) is what makes
         # --reload work: uvicorn re-imports it in the reloader process.
-        "server.main:create_app",
+        "dh_server.main:create_app",
         factory=True,
         host=args.host,
         port=args.port,
@@ -248,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         reload=args.reload,
         # The default is the whole working directory, which includes data/
         # and admin-ui/node_modules; only the server package changes here.
-        reload_dirs=[str(ROOT / "server")] if args.reload else None,
+        reload_dirs=[str(PROJECT_ROOT / "dh_server")] if args.reload else None,
     )
     return 0
 

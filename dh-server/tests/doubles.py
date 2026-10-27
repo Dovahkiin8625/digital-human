@@ -1,11 +1,11 @@
 """Test doubles for the digital-human models.
 
-The server ships three models: MuseTalk, the lite CPU engine, and the
+The server ships three models: MuseTalk, the Wav2Lip CPU engine, and the
 client-rendered Live2D one. These doubles stand in for the two
 server-driven ones so the whole test suite can run in the torch-free
 ``.venv``: no GPU, no weights, no torch.
 
-They live here rather than in ``server/`` on purpose. A second
+They live here rather than in ``dh_server/`` on purpose. A second
 implementation in the production package would be a second deployment mode
 nobody asked for -- and the server would have to carry a switch to choose
 between them.
@@ -23,9 +23,9 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from server.avatar.pipeline import AvatarPipeline, PipelineError
-from server.config import get_settings
-from server.engine.base import AvatarPack, DriveEngine, DriveFrame
+from dh_server.avatar.pipeline import AvatarPipeline, PipelineError
+from dh_server.config import get_settings
+from dh_server.engine.base import AvatarPack, DriveEngine, DriveFrame
 
 
 class FakeEngine(DriveEngine):
@@ -130,7 +130,7 @@ class FakePipeline(AvatarPipeline):
         *,
         options: dict | None = None,
     ) -> dict:
-        from server.avatar import video
+        from dh_server.avatar import video
 
         progress("detect_face", 10)
         source_path = Path(source_path)
@@ -167,7 +167,7 @@ class FakePipeline(AvatarPipeline):
 def install_doubles(monkeypatch) -> None:
     """Point the server's model factories at the doubles.
 
-    ``server.engine.pool`` looks ``create_engine`` up on the module at call
+    ``dh_server.engine.pool`` looks ``create_engine`` up on the module at call
     time and ``create_pipeline`` is looked up as a module attribute at call
     time too, so patching the two module attributes swaps the whole model --
     engine and pipeline together, which is the invariant the registry exists
@@ -177,13 +177,13 @@ def install_doubles(monkeypatch) -> None:
     Cubism project touches neither torch nor the GPU, and the real thing
     is what the archive guards and the project validation are for.
     """
-    monkeypatch.setattr("server.engine.base.create_engine", lambda *a, **k: FakeEngine())
+    monkeypatch.setattr("dh_server.engine.base.create_engine", lambda *a, **k: FakeEngine())
 
     def _pipeline(name=None):
         if name == "live2d":
-            from server.avatar.live2d_pipeline import Live2DAvatarPipeline
+            from dh_server.avatar.live2d_pipeline import Live2DAvatarPipeline
 
             return Live2DAvatarPipeline()
         return FakePipeline()
 
-    monkeypatch.setattr("server.avatar.pipeline.create_pipeline", _pipeline)
+    monkeypatch.setattr("dh_server.avatar.pipeline.create_pipeline", _pipeline)

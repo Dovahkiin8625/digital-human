@@ -76,11 +76,11 @@ def test_admin_sweep_purges_closed_session_rows(client):
     # wedge — and what the operator is asking the button to clean up.
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.session import get_engine
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
-        from server.db.models import StreamSession
+        from dh_server.db.models import StreamSession
 
         row = db.get(StreamSession, sid)
         row.status = "closed"

@@ -16,8 +16,8 @@ from av import AudioFrame, VideoFrame
 from av.audio.resampler import AudioResampler
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from server.core.errors import AppError
-from server.core.stream_sink import NullSink, SinkClosed, StreamSink
+from dh_server.core.errors import AppError
+from dh_server.core.stream_sink import NullSink, SinkClosed, StreamSink
 
 
 class EngineVideoTrack(VideoStreamTrack):

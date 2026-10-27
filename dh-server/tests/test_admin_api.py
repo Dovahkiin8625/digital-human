@@ -30,7 +30,7 @@ def _admin_avatar(client, name="a", size=(640, 800)):
 def test_the_build_options_are_validated_and_kept(client):
     """The `options` field carries the model's build instructions.
 
-    The lite engine reads `train` / `checkpoint` from it; a malformed blob
+    The models that need one read their own keys from it; a malformed blob
     is a 400 rather than a job that fails minutes later.
     """
     ok = client.post(
@@ -44,8 +44,8 @@ def test_the_build_options_are_validated_and_kept(client):
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
@@ -75,8 +75,8 @@ def _set_status(avatar_id, status):
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
@@ -92,10 +92,10 @@ def test_system_info(client):
     # Several models may be resident at once, so the page is told about
     # each of them rather than about one "the" engine.
     by_name = {r["name"]: r for r in body["runtimes"]}
-    assert set(by_name) == {"musetalk", "live2d", "lite"}
+    assert set(by_name) == {"musetalk", "live2d", "wav2lip"}
     assert by_name["musetalk"]["client_rendered"] is False
     assert by_name["live2d"]["client_rendered"] is True
-    assert by_name["lite"]["client_rendered"] is False
+    assert by_name["wav2lip"]["client_rendered"] is False
     assert body["gpu"] is False
 
 
@@ -113,7 +113,7 @@ def test_avatar_config_endpoint_removed(client):
 
 def _make_video_mode(client, avatar_id):
     """Rewrite the uploaded avatar's pack.json into a video-mode pack."""
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     root = Path(get_settings().data_dir) / "avatars" / avatar_id
     (root / "pack.json").write_text(
@@ -142,7 +142,7 @@ def test_idle_mp4_is_generated_then_served_with_range(client, monkeypatch):
         out.write_bytes(b"FAKEMP4-DATA")
         return out
 
-    monkeypatch.setattr("server.avatar.video.build_idle_video", fake_build)
+    monkeypatch.setattr("dh_server.avatar.video.build_idle_video", fake_build)
 
     resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4")
     assert resp.status_code == 200
@@ -158,7 +158,7 @@ def test_idle_mp4_is_generated_then_served_with_range(client, monkeypatch):
 
 
 def test_idle_mp4_build_failure_is_503(client, monkeypatch):
-    from server.avatar.video import VideoError
+    from dh_server.avatar.video import VideoError
 
     avatar_id = _upload_avatar(client, "a")
     _make_video_mode(client, avatar_id)
@@ -166,7 +166,7 @@ def test_idle_mp4_build_failure_is_503(client, monkeypatch):
     def boom(avatar_dir, source, settings, **_):
         raise VideoError("decoder died")
 
-    monkeypatch.setattr("server.avatar.video.build_idle_video", boom)
+    monkeypatch.setattr("dh_server.avatar.video.build_idle_video", boom)
     resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4")
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "idle_video_unavailable"
@@ -212,7 +212,7 @@ def test_admin_create_avatar_pending_and_schedules_job(client, monkeypatch):
     # to assert both the pending row and that the job was actually scheduled.
     scheduled = []
     monkeypatch.setattr(
-        "server.api.admin.run_job_in_new_session",
+        "dh_server.api.admin.run_job_in_new_session",
         lambda job_id, store: scheduled.append(job_id),
     )
 
@@ -276,8 +276,8 @@ def test_admin_create_avatar_persists_idle_overrides(client):
 
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     Session = sessionmaker(bind=get_engine())
     session = Session()
@@ -329,8 +329,8 @@ def test_admin_create_avatar_rejects_unknown_idle_preset(client):
 
 
 def test_admin_delete_avatar(client):
-    from server.avatar.store import AvatarStore
-    from server.config import get_settings
+    from dh_server.avatar.store import AvatarStore
+    from dh_server.config import get_settings
 
     avatar_id = _upload_avatar(client, "a")
     store = AvatarStore(get_settings().data_dir)
@@ -357,8 +357,8 @@ def _seed_drivers_dir(monkeypatch, *stems):
     """Drop empty ``<stem>.mp4`` files so the registry has something to list."""
     import pickle
 
-    from server.avatar import liveportrait
-    from server.config import get_settings
+    from dh_server.avatar import liveportrait
+    from dh_server.config import get_settings
 
     drivers = get_settings().data_dir / "liveportrait_drivers"
     drivers.mkdir(parents=True, exist_ok=True)
@@ -393,7 +393,7 @@ def test_list_liveportrait_drivers_returns_present_files(client, monkeypatch):
 
 def liveportrait_canonicals():
     # Imported lazily so the test module doesn't pull the full chain.
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     return tuple(liveportrait._DRIVER_SOURCES)
 

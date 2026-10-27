@@ -3,8 +3,8 @@ import asyncio
 import numpy as np
 import pytest
 
-from server.core.stream_sink import SinkClosed
-from server.core.webrtc import EngineAudioTrack, EngineVideoTrack, WebRTCSink
+from dh_server.core.stream_sink import SinkClosed
+from dh_server.core.webrtc import EngineAudioTrack, EngineVideoTrack, WebRTCSink
 
 
 @pytest.mark.asyncio

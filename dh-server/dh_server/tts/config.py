@@ -8,7 +8,7 @@ server restart.
 
 There is deliberately **no env layer**: the Models tab's dialog is the
 single entry point -- the same shape the LLM uses (see
-``server/llm/config.py``).
+``dh_server/llm/config.py``).
 """
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def read_config(db) -> dict[str, Any]:
     """
     from sqlalchemy import select
 
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     out = dict(DEFAULTS)
     rows = db.execute(
@@ -134,11 +134,11 @@ def write_config(db, payload: dict[str, Any]) -> dict[str, Any]:
     so the caller sees the post-write view (including any fields they
     didn't touch).
 
-    Raises :class:`server.core.errors.AppError` with a ``detail`` mapping
+    Raises :class:`dh_server.core.errors.AppError` with a ``detail`` mapping
     of per-field messages so the API layer returns a 400 the UI can
     surface inline.
     """
-    from server.core.errors import AppError
+    from dh_server.core.errors import AppError
 
     errors = validate(payload)
     if errors:
@@ -149,7 +149,7 @@ def write_config(db, payload: dict[str, Any]) -> dict[str, Any]:
             detail=errors,
         )
 
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     for public_name, value in payload.items():
         wire_key = _PUBLIC_TO_KEY[public_name]

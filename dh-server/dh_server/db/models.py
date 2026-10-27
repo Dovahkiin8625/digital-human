@@ -39,10 +39,10 @@ class Avatar(Base):
     # by default; the column is NOT NULL so the pipeline can pass the
     # value through without a None-check.
     tunable_overrides: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    #: Free-form build options handed to the model's pipeline. The ``lite``
-    #: model reads ``train`` / ``checkpoint`` / ``epochs`` from here; other
-    #: models ignore it. Persisted on the row rather than in the job so a
-    #: retry rebuilds the avatar the same way.
+    #: Free-form build options handed to the model's pipeline. The models
+    #: that need them read their own keys from here; the others ignore it.
+    #: Persisted on the row rather than in the job so a retry rebuilds the
+    #: avatar the same way.
     build_options: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -74,7 +74,7 @@ class Setting(Base):
 
     The admin console writes via ``PATCH /api/admin/settings``; the avatar
     pipeline and idle-video encoder read through
-    ``server.avatar.tunables.effective(db)`` on every call so a runtime change
+    ``dh_server.avatar.tunables.effective(db)`` on every call so a runtime change
     takes effect on the next avatar without a server restart.
     """
 

@@ -3,13 +3,13 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from server.avatar.store import AvatarStore
-from server.config import get_settings
-from server.core.errors import AppError
-from server.core.render_session import RenderSession
-from server.core.stream_sink import NullSink, StreamSink
-from server.db.models import Avatar, StreamSession
-from server.engine.pool import EnginePool
+from dh_server.avatar.store import AvatarStore
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
+from dh_server.core.render_session import RenderSession
+from dh_server.core.stream_sink import NullSink, StreamSink
+from dh_server.db.models import Avatar, StreamSession
+from dh_server.engine.pool import EnginePool
 
 
 class SessionManager:

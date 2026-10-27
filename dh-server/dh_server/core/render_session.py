@@ -8,10 +8,10 @@ from pathlib import Path
 
 import numpy as np
 
-from server.core.audio_ingest import AudioIngest
-from server.core.errors import AppError
-from server.core.stream_sink import SinkClosed, StreamSink
-from server.engine.base import AvatarPack, DriveEngine
+from dh_server.core.audio_ingest import AudioIngest
+from dh_server.core.errors import AppError
+from dh_server.core.stream_sink import SinkClosed, StreamSink
+from dh_server.engine.base import AvatarPack, DriveEngine
 
 #: Debounce before flipping SPEAKING -> IDLE after the last audio block.
 #: Picked to roughly match the longest natural inter-sentence pause (~0.5 s),

@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.avatar import musetalk_pipeline as mp
-from server.avatar.musetalk_pipeline import FACE_CROP, MuseTalkAvatarPipeline
-from server.avatar.pipeline import PipelineError
+from dh_server.avatar import musetalk_pipeline as mp
+from dh_server.avatar.musetalk_pipeline import FACE_CROP, MuseTalkAvatarPipeline
+from dh_server.avatar.pipeline import PipelineError
 
 CANVAS = (720, 1280)
 
@@ -38,7 +38,7 @@ class StubPreparer:
 @pytest.fixture()
 def wired(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     get_settings.cache_clear()
     written = {}
@@ -63,7 +63,7 @@ def _video(monkeypatch, n_frames):
         frame[..., 0], frame[..., 1], frame[..., 2] = 10, 20, 30
         return np.broadcast_to(frame, (n_frames,) + frame.shape).copy(), 30.0
 
-    monkeypatch.setattr("server.avatar.video.decode_frames", fake_decode)
+    monkeypatch.setattr("dh_server.avatar.video.decode_frames", fake_decode)
 
 
 def test_video_pack_records_kept_indices(wired, monkeypatch):

@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 DATA_DIR="${DATA_DIR:-${DH_DATA_DIR:-$(pwd)/data}}"
@@ -34,7 +34,7 @@ elif command -v hf >/dev/null 2>&1; then
     # Fallback: ``hf-mirror.com`` is reachable when huggingface.co is not.
     echo "[fetch_liveportrait] modelscope not found; falling back to hf-mirror.com"
     # HF_ENDPOINT only redirects the HF API; hf_xet's CAS endpoint is
-    # hardcoded to cas-server.xethub.hf.co and 401s from this host, so
+    # hardcoded to cas-dh_server.xethub.hf.co and 401s from this host, so
     # disable xet to force regular HTTP downloads that *do* go through
     # the mirror.
     HF_ENDPOINT="https://hf-mirror.com" HF_HUB_DISABLE_XET=1 \
@@ -47,9 +47,9 @@ fi
 # Pull the canonical driving clips and pre-extracted motion templates from
 # the LivePortrait repo's example assets. We do not bundle a fresh clip
 # in-tree because every operator should be able to swap in their own driver
-# (smile / look-around / etc) without forking the server.
+# (smile / look-around / etc) without forking the dh_server.
 #
-# Source of truth is the upstream checkout at ``vendor/LivePortrait-upstream/``
+# Source of truth is the upstream checkout at ``dh-server/vendor/LivePortrait-upstream/``
 # -- populated by ``scripts/setup_liveportrait.sh``. Earlier revisions of
 # this script pulled from GitHub raw (which is unreliable on this host:
 # resolve, return a few KB, then stall -- see the xet + github notes in
@@ -58,7 +58,7 @@ fi
 # pre-extracted ``.pkl`` motion templates that upstream ships alongside
 # them in ``assets/examples/driving/``.
 #
-# The mapping is in ``server/avatar/liveportrait.py`` -- keep them in
+# The mapping is in ``dh_server/avatar/liveportrait.py`` -- keep them in
 # sync so the API and the fetch script don't drift.
 #
 # The pattern mirrors ``fetch_musetalk_weights.sh``: write the final
@@ -67,12 +67,12 @@ fi
 # next run).
 
 # Vendor upstream assets directory. ``scripts/setup_liveportrait.sh``
-# clones to ``vendor/LivePortrait-upstream``; reject if not present so
+# clones to ``dh-server/vendor/LivePortrait-upstream``; reject if not present so
 # we fail with a clear hint instead of pretending the copy succeeded.
-VENDOR_UPSTREAM="${ROOT:-$(pwd)}/vendor/LivePortrait-upstream"
+VENDOR_UPSTREAM="${ROOT:-$(pwd)}/dh-server/vendor/LivePortrait-upstream"
 VENDOR_DRIVING="$VENDOR_UPSTREAM/assets/examples/driving"
 
-# Mirror of the ``_DRIVER_SOURCES`` table in server/avatar/liveportrait.py.
+# Mirror of the ``_DRIVER_SOURCES`` table in dh_server/avatar/liveportrait.py.
 # Each row is "<source-filename>:<destination-stem>". ``.pkl`` rows skip
 # extraction; ``.mp4`` rows are copied as-is. The same stems land in
 # ``$DRIVERS_DIR`` and the API speaks them.

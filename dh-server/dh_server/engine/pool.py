@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import threading
 
-from server.engine.base import DriveEngine, EngineUnavailable
+from dh_server.engine.base import DriveEngine, EngineUnavailable
 
 
 class EnginePool:
@@ -32,10 +32,10 @@ class EnginePool:
         engine to hand out).
         """
         # Imported here so the module attribute is resolved at call time:
-        # the test suite replaces ``server.engine.base.create_engine`` with
+        # the test suite replaces ``dh_server.engine.base.create_engine`` with
         # a CPU-only double.
-        from server.engine.base import create_engine
-        from server.model_registry import ModelUnavailable, get_model
+        from dh_server.engine.base import create_engine
+        from dh_server.model_registry import ModelUnavailable, get_model
 
         try:
             model = get_model(model_name)

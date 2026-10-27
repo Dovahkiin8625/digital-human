@@ -14,9 +14,9 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.engine import musetalk_engine as me
-from server.engine.base import AvatarPack, EngineUnavailable, create_engine
-from server.engine.musetalk_engine import MuseTalkEngine, resample_to_16k
+from dh_server.engine import musetalk_engine as me
+from dh_server.engine.base import AvatarPack, EngineUnavailable, create_engine
+from dh_server.engine.musetalk_engine import MuseTalkEngine, resample_to_16k
 
 
 def _pack(tmp_path, prep=None):
@@ -574,7 +574,7 @@ def test_engine_can_reload_after_unload(tmp_path, monkeypatch):
     """
     import asyncio
 
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     warmup_calls = {"n": 0}
 
@@ -922,7 +922,7 @@ def _video_pack(tmp_path, monkeypatch, n_kept=3, decoded=4, kept=None):
     for i in range(decoded):
         decoded_frames[i] = i + 1
     monkeypatch.setattr(
-        "server.avatar.video.decode_frames",
+        "dh_server.avatar.video.decode_frames",
         lambda p, target_fps, max_frames, canvas: (decoded_frames, 25.0),
     )
     prep = {
@@ -994,7 +994,7 @@ def _image_pack(tmp_path, monkeypatch):
     def _no_decode(*a, **k):
         raise AssertionError("loading a photo must never re-decode the source")
 
-    monkeypatch.setattr("server.avatar.video.decode_frames", _no_decode)
+    monkeypatch.setattr("dh_server.avatar.video.decode_frames", _no_decode)
     prep = {
         "mode": "image",
         "dir": "musetalk",

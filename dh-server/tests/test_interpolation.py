@@ -8,7 +8,7 @@ the torch-free suite.
 import numpy as np
 import pytest
 
-from server.avatar.interpolation import (
+from dh_server.avatar.interpolation import (
     SUB25_WARNING,
     interpolate_timeline,
     rife_weights_path,
@@ -98,7 +98,7 @@ def test_interpolate_timeline_passes_through_and_blends():
 
 def test_weights_path_sits_under_the_data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path))
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     get_settings.cache_clear()
     assert rife_weights_path() == tmp_path / "models" / "rife" / "flownet.pkl"

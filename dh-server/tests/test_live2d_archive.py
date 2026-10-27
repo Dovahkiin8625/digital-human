@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from server.core.errors import AppError
-from server.live2d.archive import extract_archive, find_entries, resolve_entry
+from dh_server.core.errors import AppError
+from dh_server.live2d.archive import extract_archive, find_entries, resolve_entry
 
 LIMITS = dict(max_entries=512, max_unpacked_bytes=512_000_000, max_entry_bytes=64_000_000)
 

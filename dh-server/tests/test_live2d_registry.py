@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from server.core.errors import AppError
-from server.live2d.registry import validate_model_dir
+from dh_server.core.errors import AppError
+from dh_server.live2d.registry import validate_model_dir
 
 
 def _write_model(root: Path, *, with_moc: bool = True, expr_ids=("exp_01", "F01"),

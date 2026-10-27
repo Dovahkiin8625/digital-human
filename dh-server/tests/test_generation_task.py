@@ -18,8 +18,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     from sqlalchemy.orm import sessionmaker
 
-    from server.config import get_settings
-    from server.db.session import get_engine, init_db, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import get_engine, init_db, reset_engine
 
     get_settings.cache_clear()
     reset_engine()
@@ -34,7 +34,7 @@ def db(tmp_path, monkeypatch):
 
 
 def test_generation_task_round_trips_status_and_progress(db):
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     task = GenerationTask(
         id="t" * 32,
@@ -63,7 +63,7 @@ def test_generation_task_round_trips_status_and_progress(db):
 def test_generation_task_default_status_is_queued(db):
     # New tasks default to ``queued`` so the API caller can immediately
     # differentiate ``done`` from "not even started yet" without a NULL check.
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     task = GenerationTask(id="q" * 32, type="i2v", params_json="{}")
     db.add(task)
@@ -77,7 +77,7 @@ def test_generation_task_default_status_is_queued(db):
 def test_generation_task_records_failure(db):
     # Failed tasks carry the error message and keep their params around so an
     # operator can replay them from the Tasks tab.
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     task = GenerationTask(
         id="f" * 32,

@@ -22,8 +22,8 @@ def _fresh_db(tmp_path, monkeypatch):
     initialised SQLAlchemySession for the test to drive.
     """
     from tests.env import apply_env
-    from server.config import get_settings
-    from server.db.session import init_db, get_engine, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import init_db, get_engine, reset_engine
 
     apply_env(monkeypatch, tmp_path)
     reset_engine()
@@ -49,7 +49,7 @@ def test_read_config_returns_defaults_when_db_empty(_fresh_db):
     server-wide setting -- the operator picks it per session in the debug
     page -- so the config dict does not surface it.
     """
-    from server.tts.config import read_config
+    from dh_server.tts.config import read_config
 
     cfg = read_config(_fresh_db)
     assert cfg["api_key"] == ""
@@ -63,8 +63,8 @@ def test_read_config_layers_db_rows_over_defaults(_fresh_db):
     Other keys still come from the defaults so a partial update doesn't
     accidentally blank unrelated fields.
     """
-    from server.tts.config import read_config
-    from server.db.models import Setting
+    from dh_server.tts.config import read_config
+    from dh_server.db.models import Setting
 
     _fresh_db.add(Setting(key="minimax_model", value=json.dumps("speech-02-turbo")))
     _fresh_db.commit()
@@ -78,9 +78,9 @@ def test_read_config_layers_db_rows_over_defaults(_fresh_db):
 def test_write_config_persists_each_key(_fresh_db):
     """``write_config`` persists each non-empty field to the ``settings``
     table. A subsequent ``read_config`` returns the same values."""
-    from server.tts.config import read_config, write_config
+    from dh_server.tts.config import read_config, write_config
     from sqlalchemy import select
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     cfg = write_config(
         _fresh_db,
@@ -117,8 +117,8 @@ def test_write_config_rejects_invalid_sample_rate(_fresh_db):
     Out-of-range values raise a clear ``AppError`` carrying a per-field
     message so the UI can show it inline.
     """
-    from server.tts.config import write_config
-    from server.core.errors import AppError
+    from dh_server.tts.config import write_config
+    from dh_server.core.errors import AppError
 
     with pytest.raises(AppError) as excinfo:
         write_config(_fresh_db, {"sample_rate": 11025})  # not a MiniMax-supported rate
@@ -136,7 +136,7 @@ def test_write_config_rejects_voice_id_field(_fresh_db):
     stale client (still sending voice_id) gets a clear 400 rather than a
     silently dropped key.
     """
-    from server.tts.config import validate
+    from dh_server.tts.config import validate
 
     errors = validate({"voice_id": "female-shaonv"})
     assert "voice_id" in errors

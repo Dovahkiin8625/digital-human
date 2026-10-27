@@ -17,7 +17,7 @@ def test_internal_error_envelope_hides_exception_text():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from server.core.errors import register_handlers
+    from dh_server.core.errors import register_handlers
 
     app = FastAPI()
     register_handlers(app)

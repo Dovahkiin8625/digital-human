@@ -50,7 +50,7 @@ def _letterbox(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
 
     # Lazily imported: musetalk_pipeline imports this module (lazily) too, and a
     # module-level import here would close the cycle.
-    from server.avatar.musetalk_pipeline import fit_to_canvas
+    from dh_server.avatar.musetalk_pipeline import fit_to_canvas
 
     return np.asarray(fit_to_canvas(Image.fromarray(rgb), width, height))
 

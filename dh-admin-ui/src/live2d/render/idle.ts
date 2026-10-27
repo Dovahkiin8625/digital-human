@@ -49,10 +49,16 @@ export function idlePose(tMs: number, opts: IdleOptions = {}): IdlePose {
 
   // Mutually incommensurable periods, so the composite never visibly
   // repeats. Phase derives from t only.
+  //
+  // The head angles are NORMALIZED shapes, not degrees. Each is scaled to
+  // +-1 and the frame layer turns that into a fraction of the model's own
+  // range, so the same numbers read as a gentle sway on a -30..30 rig and
+  // would flail on a -1..1 one. The relative mix of the two sines is
+  // preserved: the old 1.2/0.6 and 1.0/0.5 are 2:1 and stay 2:1.
   const s = (2 * Math.PI * tMs) / BREATH_MS
-  const angleZ = Math.sin(s) * 2.5 * breathScale
-  const angleX = (Math.sin(s / 1.7 + 0.4) * 1.2 + Math.sin(s / 4.1) * 0.6) * breathScale
-  const angleY = (Math.sin(s / 2.3 + 1.1) * 1.0 + Math.sin(s / 3.3) * 0.5) * breathScale
+  const angleZ = Math.sin(s) * breathScale
+  const angleX = (Math.sin(s / 1.7 + 0.4) * 0.67 + Math.sin(s / 4.1) * 0.33) * breathScale
+  const angleY = (Math.sin(s / 2.3 + 1.1) * 0.67 + Math.sin(s / 3.3) * 0.33) * breathScale
 
   // One candidate blink per slot, taken with probability 0.45, positioned
   // inside the slot by hash. Eyes are open the rest of the time.

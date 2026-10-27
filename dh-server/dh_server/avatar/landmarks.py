@@ -9,7 +9,7 @@ COCO-WholeBody 68-point face subset (iBUG-68 order), using:
 
 We get the same geometry from mediapipe FaceMesh's 468-point mesh, so these are
 the mesh indices carrying the equivalent semantics. Kept in one place because
-`spike/detect.py` and `server/avatar/musetalk_pipeline.py` must agree -- if they
+`spike/detect.py` and `dh_server/avatar/musetalk_pipeline.py` must agree -- if they
 drift, the spike stops proving anything about production.
 """
 

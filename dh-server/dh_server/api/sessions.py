@@ -4,15 +4,15 @@ from fastapi import APIRouter, Depends, WebSocket
 from sqlalchemy import select
 from starlette.responses import Response
 
-from server.core.errors import AppError
-from server.db.models import Avatar, StreamSession
-from server.db.session import get_db
+from dh_server.core.errors import AppError
+from dh_server.db.models import Avatar, StreamSession
+from dh_server.db.session import get_db
 
 router = APIRouter(tags=["sessions"])
 
 
 def _manager():
-    from server.main import get_session_manager
+    from dh_server.main import get_session_manager
 
     return get_session_manager()
 
@@ -42,7 +42,7 @@ async def create_session(body: dict, db=Depends(get_db)) -> dict:
     # renders (Live2D) has no server engine, so there is no session to
     # create -- say so plainly instead of letting the engine fail later
     # with a message about a missing pack.
-    from server.model_registry import ModelUnavailable, get_model
+    from dh_server.model_registry import ModelUnavailable, get_model
 
     try:
         model = get_model(avatar.drive_model)
@@ -113,7 +113,7 @@ async def delete_session(session_id: str, db=Depends(get_db)) -> Response:
 async def signal_ws(websocket: WebSocket, session_id: str) -> None:
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.session import get_engine
+    from dh_server.db.session import get_engine
 
     # No auth/tenant checks after the no-tenant refactor: WS endpoints trust
     # anyone who knows the session id. Still, the session has to exist --
@@ -127,7 +127,7 @@ async def signal_ws(websocket: WebSocket, session_id: str) -> None:
             return
     finally:
         db.close()
-    from server.core.webrtc import handle_signal_websocket
+    from dh_server.core.webrtc import handle_signal_websocket
 
     await handle_signal_websocket(websocket, _manager(), session_id)
 
@@ -139,7 +139,7 @@ async def audio_ws(websocket: WebSocket, session_id: str) -> None:
     drains the ingest's partial tail block."""
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.session import get_engine
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:

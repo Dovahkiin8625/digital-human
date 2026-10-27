@@ -31,14 +31,14 @@ import pytest
 
 
 def test_liveportrait_constructor_is_not_loaded():
-    from server.avatar.liveportrait import LivePortraitAnimator
+    from dh_server.avatar.liveportrait import LivePortraitAnimator
 
     a = LivePortraitAnimator()
     assert a.is_loaded is False
 
 
 def test_liveportrait_load_flips_flag_and_calls_load_pipeline(monkeypatch, tmp_path):
-    from server.avatar.liveportrait import LivePortraitAnimator
+    from dh_server.avatar.liveportrait import LivePortraitAnimator
 
     a = LivePortraitAnimator()
     seen = {"calls": 0, "returned": None}
@@ -59,7 +59,7 @@ def test_liveportrait_load_is_idempotent(monkeypatch):
     # A second load() while already loaded is a no-op: the cost of the
     # heavy pipeline construction makes re-running it a real surprise
     # in a long-lived process.
-    from server.avatar.liveportrait import LivePortraitAnimator
+    from dh_server.avatar.liveportrait import LivePortraitAnimator
 
     a = LivePortraitAnimator()
 
@@ -74,7 +74,7 @@ def test_liveportrait_load_is_idempotent(monkeypatch):
 
 
 def test_liveportrait_unload_drops_pipeline_and_cache(monkeypatch):
-    from server.avatar.liveportrait import LivePortraitAnimator
+    from dh_server.avatar.liveportrait import LivePortraitAnimator
 
     a = LivePortraitAnimator()
     a._loaded = True
@@ -87,7 +87,7 @@ def test_liveportrait_unload_drops_pipeline_and_cache(monkeypatch):
     def fake_empty():
         cleared["n"] += 1
 
-    monkeypatch.setattr("server.avatar.liveportrait._try_empty_cuda_cache", fake_empty)
+    monkeypatch.setattr("dh_server.avatar.liveportrait._try_empty_cuda_cache", fake_empty)
     a.unload()
     assert a.is_loaded is False
     assert a._pipeline is None
@@ -98,8 +98,8 @@ def test_liveportrait_animate_raises_when_not_loaded(monkeypatch, tmp_path):
     # When the operator hasn't loaded the backend, the dispatch surface must
     # error with a hint at the Models tab -- NOT silently pay the cold-load
     # + produce output.
-    from server.avatar.animators import AnimatorError
-    from server.avatar.liveportrait import LivePortraitAnimator
+    from dh_server.avatar.animators import AnimatorError
+    from dh_server.avatar.liveportrait import LivePortraitAnimator
 
     a = LivePortraitAnimator()
     src = tmp_path / "src.png"
@@ -114,14 +114,14 @@ def test_liveportrait_animate_raises_when_not_loaded(monkeypatch, tmp_path):
 
 
 def test_wan22_constructor_is_not_loaded():
-    from server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
+    from dh_server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
 
     a = Wan22I2VAnimator(variant=next(iter(VARIANTS)))
     assert a.is_loaded is False
 
 
 def test_wan22_load_flips_flag_and_calls_load_pipeline(monkeypatch, tmp_path):
-    from server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
+    from dh_server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
 
     a = Wan22I2VAnimator(variant=next(iter(VARIANTS)))
     seen = {"calls": 0, "returned": object()}
@@ -139,7 +139,7 @@ def test_wan22_load_flips_flag_and_calls_load_pipeline(monkeypatch, tmp_path):
 def test_wan22_unload_drops_pipeline(monkeypatch):
     torch = pytest.importorskip("torch")
 
-    from server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
+    from dh_server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
 
     a = Wan22I2VAnimator(variant=next(iter(VARIANTS)))
     a._loaded = True
@@ -154,8 +154,8 @@ def test_wan22_unload_drops_pipeline(monkeypatch):
 
 
 def test_wan22_animate_raises_when_not_loaded(monkeypatch, tmp_path):
-    from server.avatar.animators import AnimatorError
-    from server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
+    from dh_server.avatar.animators import AnimatorError
+    from dh_server.avatar.wan22 import Wan22I2VAnimator, VARIANTS
 
     a = Wan22I2VAnimator(variant=next(iter(VARIANTS)))
     src = tmp_path / "src.png"

@@ -7,10 +7,10 @@ One surface:
   configured.
 
 Registering a Live2D avatar is not here any more: Live2D is a
-digital-human *model* like any other (see ``server/model_registry``), so
+digital-human *model* like any other (see ``dh_server/model_registry``), so
 its avatars are created through the one console upload endpoint
 (``POST /api/admin/avatars``) and its project is built by the Live2D
-avatar pipeline (``server/avatar/live2d_pipeline.py``).
+avatar pipeline (``dh_server/avatar/live2d_pipeline.py``).
 
 The server never renders a Cubism model. It owns three things only: the
 row that says a model exists, the files on disk, and the bytes to hand
@@ -23,13 +23,13 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from server.api.avatars import _require_uuid_hex
-from server.avatar.store import AvatarStore
-from server.config import get_settings
-from server.core.auth import require_v1_token
-from server.core.errors import AppError
-from server.db.models import Avatar
-from server.db.session import get_db
+from dh_server.api.avatars import _require_uuid_hex
+from dh_server.avatar.store import AvatarStore
+from dh_server.config import get_settings
+from dh_server.core.auth import require_v1_token
+from dh_server.core.errors import AppError
+from dh_server.db.models import Avatar
+from dh_server.db.session import get_db
 
 router = APIRouter(prefix="/api", tags=["live2d"])
 
@@ -89,7 +89,7 @@ def _is_client_rendered(row) -> bool:
     the server only hosts its files. A model that is no longer registered
     is not client-rendered either -- it has no files to serve.
     """
-    from server.model_registry import ModelUnavailable, get_model
+    from dh_server.model_registry import ModelUnavailable, get_model
 
     try:
         return get_model(row.drive_model).client_rendered

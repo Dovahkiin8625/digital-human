@@ -15,7 +15,7 @@ Rules:
   the operator wrote through the console always wins, so re-running is
   safe and never clobbers a newer edit.
 * Empty env values are skipped: an empty row and no row behave the same
-  (``server.tts.config.DEFAULTS`` already covers them).
+  (``dh_server.tts.config.DEFAULTS`` already covers them).
 * Never prints a value. It reports the key names and whether each one
   was carried over.
 """
@@ -68,8 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     sys.path.insert(0, str(REPO_ROOT))
-    from server.db.models import Setting
-    from server.db.session import get_engine, init_db, reset_engine
+    from dh_server.db.models import Setting
+    from dh_server.db.session import get_engine, init_db, reset_engine
 
     reset_engine()
     engine = get_engine()

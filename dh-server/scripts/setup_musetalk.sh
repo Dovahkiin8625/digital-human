@@ -40,11 +40,11 @@ MUSETALK_REMOTES=(
 # first kernel launch with "no kernel image is available for execution".
 TORCH_INDEX="https://download.pytorch.org/whl/cu128"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 VENV=".venv-musetalk"
-VENDOR="vendor/MuseTalk"
+VENDOR="dh-server/vendor/MuseTalk"
 WEIGHTS="data/models/musetalk"
 FETCH_WEIGHTS=1
 # `$#` guard: bare `"$@"` under `set -u` is an error on bash 3.2, which is
@@ -116,7 +116,7 @@ ensure_source() {
     printf 'try: %s\n' "$url"
     if [ -d "$VENDOR/.git" ]; then
       # Fetch into the existing clone rather than re-cloning; the weights and
-      # any local build products inside vendor/ survive a re-run this way.
+      # any local build products inside dh-server/vendor/ survive a re-run this way.
       if git "${git_slow[@]}" -C "$VENDOR" fetch --tags "$url" >/dev/null 2>&1 &&
          git -C "$VENDOR" checkout --detach "$MUSETALK_SHA" >/dev/null 2>&1; then
         git -C "$VENDOR" remote set-url origin "$url"

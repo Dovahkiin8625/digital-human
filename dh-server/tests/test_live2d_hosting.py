@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from server.config import get_settings
+from dh_server.config import get_settings
 
 LIVE2D_ID = "a" * 32
 
@@ -134,8 +134,8 @@ def _write_model(root):
 def _seed_live2d(client):
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     root = client.app.state.session_manager.store.avatar_dir(LIVE2D_ID)
     _write_model(root)

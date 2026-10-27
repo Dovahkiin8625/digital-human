@@ -16,7 +16,7 @@ def _musetalk_engine():
     tests that stub an engine's methods reach it through the pool rather
     than through a single process-wide engine.
     """
-    from server.main import _app
+    from dh_server.main import _app
 
     return _app.state.session_manager.engines.engine_for("musetalk")
 
@@ -48,12 +48,12 @@ def test_list_models_includes_models_gpu_and_active_sessions(client):
     assert body["active_sessions"] == 0
 
     # One row per digital-human model: the server-driven ones (MuseTalk
-    # and the CPU-only lite engine) and the client-rendered one. Portrait
+    # and the CPU-only Wav2Lip engine) and the client-rendered one. Portrait
     # animators are merged in too (test env registers LivePortrait + Wan 2.2
     # via side-effect imports). The operator sees one row per
     # thing-that-can-go-on-the-GPU in the Models tab.
     engine_rows = [m for m in body["models"] if m["kind"] == "drive_runtime"]
-    assert {m["id"] for m in engine_rows} == {"musetalk", "lite"}
+    assert {m["id"] for m in engine_rows} == {"musetalk", "wav2lip"}
     m = next(row for row in engine_rows if row["id"] == "musetalk")
     # The row is addressed by the MODEL name -- that is what an avatar
     # records and what the load / unload buttons act on.
@@ -214,8 +214,8 @@ def test_unload_409_when_active_sessions_exist(client, monkeypatch):
 
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import StreamSession
-    from server.db.session import get_engine
+    from dh_server.db.models import StreamSession
+    from dh_server.db.session import get_engine
     engine = _musetalk_engine()
 
     def fake_describe():
@@ -387,7 +387,7 @@ def test_load_service_for_animation_backend_without_load_is_400(client):
     # method (the future TTS-shaped entries) must surface 400, not a
     # silent 200-no-op. Today the registered backends all expose
     # ``load``, so we test by registering a stripped stub.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         name = "no_load_backend"
@@ -440,7 +440,7 @@ def test_load_model_dispatches_animator_ids_to_anims(client, monkeypatch):
     left their load button wired to the engine-slot dispatcher and the
     UI surfaced ``model 'animator:liveportrait' not found``.
     """
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         def __init__(self):
@@ -488,7 +488,7 @@ def test_unload_model_dispatches_animator_ids_to_anims(client, monkeypatch):
     """Same dispatch as load: ``/models/<id>/unload`` resolves
     ``animator:<name>`` to the registered instance's ``unload`` method.
     """
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         def __init__(self):
@@ -536,7 +536,7 @@ def test_load_service_calls_animator_load(client, monkeypatch):
     # When the dispatch lands on a real animator (LivePortrait /
     # Wan), the endpoint must call its ``load`` method. ``is_loaded``
     # is mocked False so the gate yields, and the spy records the call.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         def __init__(self):
@@ -581,7 +581,7 @@ def test_load_service_calls_animator_load(client, monkeypatch):
 
 
 def test_load_service_409_when_already_loaded(client, monkeypatch):
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         name = "liveportrait"
@@ -623,7 +623,7 @@ def test_load_service_409_when_already_loaded(client, monkeypatch):
 
 
 def test_load_service_503_when_load_raises(client):
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         name = "liveportrait"
@@ -664,7 +664,7 @@ def test_load_service_503_when_load_raises(client):
 
 
 def test_unload_service_calls_animator_unload(client, monkeypatch):
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         def __init__(self):
@@ -709,7 +709,7 @@ def test_unload_service_calls_animator_unload(client, monkeypatch):
 
 
 def test_unload_service_409_when_not_loaded(client):
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         name = "liveportrait"
@@ -755,7 +755,7 @@ def test_unload_service_400_when_no_unload_method(client):
     # future TTS-shaped backends) can't release VRAM, so the endpoint
     # returns 400. The Models tab hides the button on the client side;
     # the dispatch gives a clean refusal if it ever races.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Spy:
         name = "liveportrait"
@@ -842,7 +842,7 @@ def test_models_list_includes_portrait_animators(client):
     # musetalk on the GPU host). We only assert one engine slot exists,
     # not which specific id, because the test env uses the double.
     engine_rows = [m for m in body["models"] if m.get("kind") == "drive_runtime"]
-    assert {m["id"] for m in engine_rows} == {"musetalk", "lite"}, (
+    assert {m["id"] for m in engine_rows} == {"musetalk", "wav2lip"}, (
         f"expected one drive_runtime row per server-driven model, got {engine_rows}"
     )
     # Portrait animators are merged in.
@@ -952,7 +952,7 @@ def test_list_services_llm_configured_flips_with_keys(client, monkeypatch):
     """The configured flag flips only when BOTH api_key AND base_url
     are wired -- ``model`` has a default so it doesn't gate readiness.
     """
-    from server.api import admin as admin_module
+    from dh_server.api import admin as admin_module
 
     # Unconfigured (test default).
     body = client.get("/api/admin/models").json()
@@ -992,16 +992,16 @@ def test_drive_models_endpoint_lists_every_model(client):
     body = client.get("/api/admin/drive-models").json()
 
     by_name = {m["name"]: m for m in body}
-    assert set(by_name) == {"musetalk", "live2d", "lite"}
+    assert set(by_name) == {"musetalk", "live2d", "wav2lip"}
     assert all(m["label_zh"] for m in body)
     assert by_name["musetalk"]["client_rendered"] is False
     assert by_name["musetalk"]["source_kind"] == "image_video"
     assert by_name["live2d"]["client_rendered"] is True
     assert by_name["live2d"]["source_kind"] == "archive"
-    # The lite engine is server-driven and takes a photo/video source, like
-    # MuseTalk -- only its weights are small enough for a CPU.
-    assert by_name["lite"]["client_rendered"] is False
-    assert by_name["lite"]["source_kind"] == "image_video"
+    # The Wav2Lip engine is server-driven and takes a photo/video source,
+    # like MuseTalk -- only its weights are small enough for a CPU.
+    assert by_name["wav2lip"]["client_rendered"] is False
+    assert by_name["wav2lip"]["source_kind"] == "image_video"
 
 
 def test_the_models_payload_has_no_active_model(client):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from server.avatar import tunables
+from dh_server.avatar import tunables
 
 
 @pytest.fixture()
@@ -18,8 +18,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     from sqlalchemy.orm import sessionmaker
 
-    from server.config import get_settings
-    from server.db.session import get_engine, init_db, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import get_engine, init_db, reset_engine
 
     get_settings.cache_clear()
     reset_engine()
@@ -84,8 +84,8 @@ def test_effective_accepts_overrides_that_beat_db_rows(db):
     # Per-avatar overrides (used by the create form's idle_crf/idle_preset
     # fields) must win over both the module defaults and any operator-pushed
     # Setting rows. Missing keys in the override dict keep falling through.
-    from server.avatar.tunables import dump_json
-    from server.db.models import Setting
+    from dh_server.avatar.tunables import dump_json
+    from dh_server.db.models import Setting
 
     db.add(Setting(key="idle_crf", value=dump_json(22)))
     db.commit()
@@ -115,8 +115,8 @@ def test_init_db_adds_tunable_overrides_to_existing_avatars_table(tmp_path, monk
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     from sqlalchemy import Column, MetaData, String, Table, create_engine
 
-    from server.config import get_settings
-    from server.db.session import init_db
+    from dh_server.config import get_settings
+    from dh_server.db.session import init_db
 
     get_settings.cache_clear()
     engine = create_engine(
@@ -142,7 +142,7 @@ def test_init_db_adds_tunable_overrides_to_existing_avatars_table(tmp_path, monk
 
     # The migration must add the new column to an already-present table.
     # Round-trip an Avatar through the ORM to confirm the schema is usable.
-    from server.db.models import Avatar
+    from dh_server.db.models import Avatar
     from sqlalchemy.orm import sessionmaker
 
     Session = sessionmaker(bind=engine)
@@ -167,7 +167,7 @@ def test_init_db_is_idempotent(tmp_path):
     # The migration helper must swallow the "duplicate column" case.
     from sqlalchemy import create_engine
 
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False}

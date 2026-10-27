@@ -35,7 +35,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 #: Voice-friendly persona bolted on to every chat request. Kept short on
 #: purpose: TTS round-trip + driving the avatar already adds latency; the
@@ -44,6 +44,8 @@ SYSTEM_PROMPT = (
     "你是一个数字人，正在与用户语音对话。"
     "请用简洁、口语化的中文回复（30-80 字），"
     "不要使用表情符号、列表或 Markdown。"
+    "可以用 [smile] [sad] [think] [surprise] [neutral] 这样的行内标记表达情绪，"
+    "标记放在对应句子前面；客户端会把它转成数字人的表情。"
 )
 
 
@@ -53,7 +55,7 @@ def _read_cfg(db) -> dict[str, Any]:
     Falls back to the built-in defaults when ``db`` is None (the test
     path) so unit tests can stub the config without spinning up a DB.
     """
-    from server.llm.config import read_config
+    from dh_server.llm.config import read_config
 
     if db is not None:
         return read_config(db)

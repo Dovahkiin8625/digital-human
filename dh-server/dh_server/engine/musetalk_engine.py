@@ -36,9 +36,9 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar.musetalk_pipeline import IMPORT_LOCK, RUNTIME_WEIGHTS, VENDOR_DIR
-from server.config import get_settings
-from server.engine.base import (
+from dh_server.avatar.musetalk_pipeline import IMPORT_LOCK, RUNTIME_WEIGHTS, VENDOR_DIR
+from dh_server.config import get_settings
+from dh_server.engine.base import (
     AvatarPack,
     DriveEngine,
     DriveFrame,
@@ -110,7 +110,7 @@ def _estimated_bytes(models_dir: Path) -> int:
     VRAM card (it moves with workload). The on-disk sum is stable across
     reboots, so the operator can match it against `du -sh models/musetalk`.
     """
-    from server.avatar.musetalk_pipeline import RUNTIME_WEIGHTS
+    from dh_server.avatar.musetalk_pipeline import RUNTIME_WEIGHTS
 
     total = 0
     for rel in RUNTIME_WEIGHTS:
@@ -1098,7 +1098,7 @@ class MuseTalkEngine(DriveEngine):
 
         from PIL import Image
 
-        from server.avatar.video import decode_frames
+        from dh_server.avatar.video import decode_frames
 
         settings = get_settings()
         meta = json.loads((root / prep["dir"] / "meta.json").read_text())

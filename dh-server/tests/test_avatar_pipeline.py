@@ -5,9 +5,9 @@ import pytest
 from PIL import Image
 
 from doubles import FakePipeline
-from server.avatar.pipeline import PipelineError, create_pipeline, run_avatar_job
-from server.avatar.store import AvatarStore
-from server.db.models import Avatar, AvatarJob
+from dh_server.avatar.pipeline import PipelineError, create_pipeline, run_avatar_job
+from dh_server.avatar.store import AvatarStore
+from dh_server.db.models import Avatar, AvatarJob
 
 
 @pytest.fixture()
@@ -16,8 +16,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     from sqlalchemy.orm import sessionmaker
 
-    from server.config import get_settings
-    from server.db.session import get_engine, init_db, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import get_engine, init_db, reset_engine
 
     get_settings.cache_clear()
     reset_engine()
@@ -125,7 +125,7 @@ def test_save_source_validates_decodable(tmp_path):
     assert path == store.avatar_dir("a1") / "source.png"
     assert path.exists()
 
-    from server.core.errors import AppError
+    from dh_server.core.errors import AppError
 
     with pytest.raises(AppError) as ei:
         store.save_source("a2", io.BytesIO(b"not an image"), ".png")
@@ -145,7 +145,7 @@ def test_delete_assets_removes_avatar_dir(tmp_path):
 def test_create_pipeline_builds_the_registered_model():
     # The factory has no env layer: the pipeline comes from the
     # registered digital-human model, and an unregistered name is refused.
-    from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
+    from dh_server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
 
     assert isinstance(create_pipeline("musetalk"), MuseTalkAvatarPipeline)
     with pytest.raises(PipelineError):

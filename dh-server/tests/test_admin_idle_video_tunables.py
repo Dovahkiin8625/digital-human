@@ -24,7 +24,7 @@ def _upload_avatar(client, name):
 def _make_video_mode(client, avatar_id):
     from pathlib import Path
 
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     root = Path(get_settings().data_dir) / "avatars" / avatar_id
     (root / "pack.json").write_text(
@@ -34,7 +34,7 @@ def _make_video_mode(client, avatar_id):
 
 
 def test_admin_idle_video_uses_tuned_preset(client, monkeypatch):
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     avatar_id = _upload_avatar(client, "a")
     _make_video_mode(client, avatar_id)
@@ -49,7 +49,7 @@ def test_admin_idle_video_uses_tuned_preset(client, monkeypatch):
         out.write_bytes(b"FAKEMP4-DATA")
         return out
 
-    monkeypatch.setattr("server.avatar.video.build_idle_video", fake_build)
+    monkeypatch.setattr("dh_server.avatar.video.build_idle_video", fake_build)
     resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4")
     assert resp.status_code == 200
     assert calls, "build_idle_video was not called"
@@ -70,9 +70,9 @@ def test_admin_idle_video_honours_per_avatar_overrides(client, monkeypatch):
     # Stamp per-avatar overrides directly (the create endpoint wires this).
     from sqlalchemy.orm import sessionmaker
 
-    from server.config import get_settings
-    from server.db.session import get_engine
-    from server.db.models import Avatar
+    from dh_server.config import get_settings
+    from dh_server.db.session import get_engine
+    from dh_server.db.models import Avatar
 
     engine = get_engine()
     Session = sessionmaker(bind=engine)
@@ -92,7 +92,7 @@ def test_admin_idle_video_honours_per_avatar_overrides(client, monkeypatch):
         out.write_bytes(b"FAKEMP4-DATA")
         return out
 
-    monkeypatch.setattr("server.avatar.video.build_idle_video", fake_build)
+    monkeypatch.setattr("dh_server.avatar.video.build_idle_video", fake_build)
     resp = client.get(f"/api/admin/avatars/{avatar_id}/idle.mp4")
     assert resp.status_code == 200
     assert calls, "build_idle_video was not called"

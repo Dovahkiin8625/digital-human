@@ -1,4 +1,9 @@
-import type { DriveModelInfo, Live2DHealth } from "./types";
+import type {
+  AvatarInfo,
+  DriveModelInfo,
+  Live2DHealth,
+  Live2DModelInventory,
+} from "./types";
 import { modelFileUrl } from "./live2d/cubism/core";
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
@@ -88,9 +93,9 @@ interface CreateAvatarIn {
   /** Idle-video knobs, for the models that produce an idle clip. */
   idle_crf?: number;
   idle_preset?: string;
-  /** Build options for the model's pipeline, as a JSON object. The lite
-   *  engine reads `train` and `checkpoint` from here; the other models
-   *  ignore them. */
+  /** Build options for the model's pipeline, as a JSON object. The models
+   *  that need them read their own keys from here; the other models ignore
+   *  them. */
   options?: Record<string, unknown>;
 }
 
@@ -127,8 +132,38 @@ export function deleteAvatar(avatarId: string): Promise<void> {
   return api<void>(`/api/admin/avatars/${avatarId}`, { method: "DELETE" });
 }
 
+/**
+ * Whether the Cubism SDK is staged.
+ *
+ * The console is served from the same origin as the API, so this is a
+ * relative path -- there is no server root to configure.
+ */
 export function live2dHealth(): Promise<Live2DHealth> {
   return api<Live2DHealth>("/api/admin/live2d/health");
+}
+
+/**
+ * What the model itself declares: its expression names and motion groups.
+ *
+ * The emotion map is written in terms of positions in the model's
+ * expression list, so the console needs the names behind those positions
+ * to offer a choice. Read from the project on disk rather than from the
+ * stored config, so an avatar uploaded without a map can still be given
+ * one.
+ */
+export function live2dModelInventory(avatarId: string): Promise<Live2DModelInventory> {
+  return api<Live2DModelInventory>(`/api/admin/avatars/${avatarId}/live2d/model`);
+}
+
+/** Change a Live2D avatar's emotion map. */
+export function updateLive2DConfig(
+  avatarId: string,
+  body: { expressions?: Record<string, number>; entry?: string },
+): Promise<AvatarInfo> {
+  return api<AvatarInfo>(`/api/admin/avatars/${avatarId}/live2d`, {
+    method: "PATCH",
+    body,
+  });
 }
 
 /**

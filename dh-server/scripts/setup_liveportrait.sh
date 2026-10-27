@@ -2,8 +2,8 @@
 # Set up the LivePortrait runtime inside ``.venv-musetalk``.
 #
 # Mirrors ``scripts/setup_musetalk.sh``: clones the upstream repo at a
-# pinned commit under ``vendor/``, writes a thin shim package under
-# ``vendor/LivePortrait/`` that re-exports the upstream pipeline under the
+# pinned commit under ``dh-server/vendor/``, writes a thin shim package under
+# ``dh-server/vendor/LivePortrait/`` that re-exports the upstream pipeline under the
 # ``LivePortrait`` namespace our adapter expects, then ``uv pip install -e``s
 # it into the ``.venv-musetalk`` interpreter. The heavy runtime deps
 # (``insightface``, ``onnxruntime-gpu``, ``tyro``, ...) come in the same
@@ -41,17 +41,17 @@ LIVEPORTRAIT_REMOTES=(
 )
 
 VENV=".venv-musetalk"
-VENDOR_UPSTREAM="vendor/LivePortrait-upstream"
-SHIM_DIR="vendor/LivePortrait"
+VENDOR_UPSTREAM="dh-server/vendor/LivePortrait-upstream"
+SHIM_DIR="dh-server/vendor/LivePortrait"
 SHIM_PKG_DIR="$SHIM_DIR/LivePortrait"
 SHIM_INIT="$SHIM_PKG_DIR/__init__.py"
 SHIM_PYPROJECT="$SHIM_DIR/pyproject.toml"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 # Refuse to clobber a hand-placed tree at the upstream path -- same
-# pre-flight check setup_musetalk.sh runs against vendor/MuseTalk.
+# pre-flight check setup_musetalk.sh runs against dh-server/vendor/MuseTalk.
 if [ -e "$VENDOR_UPSTREAM" ] && [ ! -d "$VENDOR_UPSTREAM/.git" ]; then
   echo "ERROR: $VENDOR_UPSTREAM exists but is not a git clone." >&2
   echo "       move it aside, or check it out at $LIVEPORTRAIT_SHA yourself." >&2
@@ -80,7 +80,7 @@ ensure_upstream() {
     if [ -d "$VENDOR_UPSTREAM/.git" ]; then
       # Existing checkout is at the wrong SHA: fetch the new one and reset.
       # Fetch into the existing clone rather than re-cloning; any local
-      # build products inside vendor/LivePortrait-upstream/ survive this.
+      # build products inside dh-server/vendor/LivePortrait-upstream/ survive this.
       if git "${git_slow[@]}" -C "$VENDOR_UPSTREAM" fetch --tags "$url" "$LIVEPORTRAIT_SHA" >/dev/null 2>&1 \
          && git -C "$VENDOR_UPSTREAM" checkout --detach "$LIVEPORTRAIT_SHA" >/dev/null 2>&1; then
         git -C "$VENDOR_UPSTREAM" remote set-url origin "$url"
@@ -113,7 +113,7 @@ echo "upstream at $(git -C "$VENDOR_UPSTREAM" rev-parse --short HEAD)"
 
 # ------------------------------------------------------------------ 2. shim
 step "2/4  shim package at $SHIM_DIR"
-# The shim's source is embedded in this script on purpose: ``vendor/`` is
+# The shim's source is embedded in this script on purpose: ``dh-server/vendor/`` is
 # gitignored, so the files cannot live in the repo. Any edit here is the
 # new canonical version; re-running the script regenerates them.
 mkdir -p "$SHIM_PKG_DIR"
@@ -123,7 +123,7 @@ cat > "$SHIM_INIT" <<'PY'
 
 The upstream ``KwaiVGI/LivePortrait`` exposes its pipeline at
 ``src.live_portrait_pipeline``; our adapter in
-``server.avatar.liveportrait`` imports ``LivePortrait.live_portrait_pipeline``.
+``dh_server.avatar.liveportrait`` imports ``LivePortrait.live_portrait_pipeline``.
 This shim bridges the gap so the adapter's import keeps working unchanged.
 
 Import-resolution notes (this matters for the lazy-looking API):
@@ -149,8 +149,8 @@ __all__ = ["__version__", "LivePortraitPipeline"]
 __version__ = "0.1.0"
 
 # Path to the vendored upstream checkout. The shim lives at
-# ``vendor/LivePortrait/LivePortrait/__init__.py``; the upstream checkout
-# is at ``vendor/LivePortrait-upstream/`` (kept one level up so a clean
+# ``dh-server/vendor/LivePortrait/LivePortrait/__init__.py``; the upstream checkout
+# is at ``dh-server/vendor/LivePortrait-upstream/`` (kept one level up so a clean
 # delete of either does not take the other with it). The PARENT must be
 # on ``sys.path`` -- not ``src/`` itself -- so Python's namespace-package
 # discovery can resolve ``import src.live_portrait_pipeline``.
@@ -276,7 +276,7 @@ LivePortrait ready.
   smoke test  : $VENV/Scripts/python.exe -c \\
                   "from LivePortrait.live_portrait_pipeline import LivePortraitPipeline; \\
                    print(LivePortraitPipeline)"
-  run server  : $VENV/Scripts/python.exe -m uvicorn --factory server.main:create_app
+  run server  : $VENV/Scripts/python.exe -m uvicorn --factory dh_server.main:create_app
 
   LivePortrait is an animator backend, not a digital-human model -- it does
   not appear in the 模型 list of the admin console and there is nothing to

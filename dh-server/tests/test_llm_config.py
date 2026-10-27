@@ -2,7 +2,7 @@
 
 The endpoint pair surfaces the OpenAI-compatible LLM configuration to the
 Models tab and persists operator edits to the SQLite ``settings`` table.
-The chat path reads through :func:`server.llm.config.read_config` on every
+The chat path reads through :func:`dh_server.llm.config.read_config` on every
 call so a successful PUT takes effect on the next request without a server
 restart.
 """

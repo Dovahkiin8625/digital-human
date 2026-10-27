@@ -34,7 +34,13 @@ import { api, live2dModelUrl } from "../api";
 import StatusTag from "../components/StatusTag";
 import Live2DStage from "../live2d/Live2DStage";
 import { useDriveModels } from "../avatars/driveModels";
-import { expressionIndex } from "../live2d/render/expressions";
+import {
+  expressionIndex,
+  neutralIndex,
+  NO_EXPRESSION,
+  strippableTags,
+} from "../live2d/render/expressions";
+import { CUSTOM_VOICE, VOICES } from "../voices";
 import type { AvatarInfo, Live2DModelConfig, SessionInfo } from "../types";
 import { DigitalHumanClient } from "../webrtc";
 import {
@@ -46,18 +52,8 @@ import {
 } from "../llm";
 
 // MiniMax's Chinese system voices, plus a custom escape hatch for a
-// cloned voice. The list mirrors what the Debug page offers so a
-// voice chosen once works across both tabs.
-const VOICES = [
-  { id: "male-qn-qingse", label: "青涩青年（男）" },
-  { id: "male-qn-jingying", label: "精英青年（男）" },
-  { id: "male-qn-badao", label: "霸道青年（男）" },
-  { id: "female-shaonv", label: "少女（女）" },
-  { id: "female-yujie", label: "御姐（女）" },
-  { id: "female-chengshu", label: "成熟女性（女）" },
-  { id: "female-tianmei", label: "甜美女性（女）" },
-];
-const CUSTOM_VOICE = "__custom__";
+// cloned voice. The list lives in ../voices so the desktop pet, which has
+// no room for a picker, takes the same default.
 
 // Avatar display name from the list, falling back to the bare id
 // when an avatar has been deleted since the session started.
@@ -110,7 +106,7 @@ export default function Chat() {
   // so start() branches before the POST rather than after it.
   const [live2d, setLive2d] = useState(false);
   const [live2dAudio, setLive2dAudio] = useState<AudioBuffer | null>(null);
-  const [exprIndex, setExprIndex] = useState(0);
+  const [exprIndex, setExprIndex] = useState(NO_EXPRESSION);
   const actxRef = useRef<AudioContext | null>(null);
   const [sessionId, setSessionId] = useState("");
   const [status, setStatus] = useState("idle");
@@ -298,7 +294,7 @@ export default function Chat() {
         try {
           if (live2d) {
             if (result.tags.length > 0) {
-              setExprIndex(expressionIndex(result.tags, expressionMap, 0));
+              setExprIndex(expressionIndex(result.tags, expressionMap, neutralIndex(expressionMap)));
             }
             // Play locally and hand the SAME buffer to the stage. There is
             // no WS audio channel in this mode, and reading the envelope
@@ -401,7 +397,14 @@ export default function Chat() {
             out.newThoughts.length > 0
               ? [...(prev.thoughts ?? []), ...out.newThoughts]
               : prev.thoughts;
-          next[lastIdx] = { ...prev, content: step.displayText, thoughts: mergedThoughts };
+          // The bubble shows the reply WITHOUT the emotion markers. They
+          // are markup for the avatar, not something to read: the pet
+          // would say "smile" out loud and the bubble would show it.
+          next[lastIdx] = {
+            ...prev,
+            content: stripEmotionTags(step.displayText, expressionTags).text,
+            thoughts: mergedThoughts,
+          };
           return next;
         });
         for (const s of step.flushed) scheduleSentence(s);
@@ -444,7 +447,16 @@ export default function Chat() {
     if (!selectedAvatar?.client_rendered) return {};
     return (selectedAvatar.config as Live2DModelConfig)?.expressions ?? {};
   }, [selectedAvatar]);
-  const expressionTags = useMemo(() => Object.keys(expressionMap), [expressionMap]);
+  // The tags to strip from a reply: the model's own mapping plus the
+  // fixed vocabulary. The vocabulary is in there so a tag the model does
+  // not map is still removed -- otherwise the pet says "think" out loud.
+  const expressionTags = useMemo(() => strippableTags(expressionMap), [expressionMap]);
+  // A different model means a different expression map, so the face goes
+  // back to that model's neutral rather than keeping the last model's
+  // expression.
+  useEffect(() => {
+    setExprIndex(neutralIndex(expressionMap));
+  }, [expressionMap]);
   const l2dUrl =
     selectedAvatar?.client_rendered
       ? live2dModelUrl(

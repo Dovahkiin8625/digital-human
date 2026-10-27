@@ -14,7 +14,7 @@ import struct
 
 import httpx
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 _WAV_HEADER = struct.Struct("<4sI4s4sIHHIIHH4sI")
 
@@ -81,7 +81,7 @@ async def synthesize(text: str, voice_id: str, *, db, client: httpx.AsyncClient 
             400,
         )
 
-    from server.tts.config import read_config
+    from dh_server.tts.config import read_config
 
     cfg = read_config(db)
 

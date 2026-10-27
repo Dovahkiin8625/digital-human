@@ -3,8 +3,8 @@ from collections.abc import Iterator
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from server.config import get_settings
-from server.db.models import Base
+from dh_server.config import get_settings
+from dh_server.db.models import Base
 
 _engine = None
 
@@ -38,14 +38,14 @@ _SCHEMA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
         "ALTER TABLE avatars ADD COLUMN tunable_overrides JSON NOT NULL DEFAULT '{}'",
     ),
     (
-        # The registered model name from ``server.model_registry``.
+        # The registered model name from ``dh_server.model_registry``.
         "avatars",
         "drive_model",
         "ALTER TABLE avatars ADD COLUMN drive_model VARCHAR(32) NOT NULL DEFAULT 'musetalk'",
     ),
     (
-        # Free-form build options for the model's pipeline. The ``lite``
-        # model reads ``train`` / ``checkpoint`` from here.
+        # Free-form build options for the model's pipeline. The models that
+        # need them read their own keys from here.
         "avatars",
         "build_options",
         "ALTER TABLE avatars ADD COLUMN build_options JSON NOT NULL DEFAULT '{}'",

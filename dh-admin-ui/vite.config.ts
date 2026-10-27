@@ -2,15 +2,10 @@ import path from "node:path";
 import { defineConfig, configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   // The console is mounted by FastAPI at /admin, so hashed asset URLs must
   // be emitted under that prefix or the browser 404s them.
-  //
-  // The Electron pet loads the same bundle from file://, where an absolute
-  // "/admin/assets/..." resolves to "file:///admin/assets/..." and silently
-  // 404s -- a blank transparent window with no error. Its build therefore
-  // uses relative asset URLs.
-  base: mode === "pet" ? "./" : "/admin/",
+  base: "/admin/",
   plugins: [react()],
   resolve: {
     // Vite's default list already covers .tsx. Naming it explicitly is a

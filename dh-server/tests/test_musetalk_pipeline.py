@@ -12,14 +12,14 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.avatar import musetalk_pipeline as mp
-from server.avatar.musetalk_pipeline import (
+from dh_server.avatar import musetalk_pipeline as mp
+from dh_server.avatar.musetalk_pipeline import (
     FACE_CROP,
     MuseTalkAvatarPipeline,
     fit_to_canvas,
 )
-from server.avatar.pipeline import PipelineError, create_pipeline
-from server.avatar.store import AvatarStore
+from dh_server.avatar.pipeline import PipelineError, create_pipeline
+from dh_server.avatar.store import AvatarStore
 
 SIDECARS = ["latents.pt", "coords.json", "meta.json"]
 
@@ -46,7 +46,7 @@ class StubPreparer:
 def wired(tmp_path, monkeypatch):
     """Pipeline + a stub preparer, with `latents.pt` written by numpy."""
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     get_settings.cache_clear()
 
@@ -128,7 +128,7 @@ def test_detection_runs_on_the_canvas_not_the_raw_photo(wired):
 
 
 def test_load_pack_exposes_prep_block(tmp_path):
-    from server.db.models import Avatar
+    from dh_server.db.models import Avatar
 
     store = AvatarStore(tmp_path / "data")
     d = store.avatar_dir("a3")
@@ -151,7 +151,7 @@ def test_create_pipeline_builds_the_registered_model(tmp_path, monkeypatch):
 
 def test_musetalk_pipeline_rejects_tiny_image(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     get_settings.cache_clear()
     tiny = tmp_path / "tiny.png"

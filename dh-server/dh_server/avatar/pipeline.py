@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from server.avatar.store import AvatarStore
+    from dh_server.avatar.store import AvatarStore
 
 
 class PipelineError(Exception):
@@ -45,13 +45,13 @@ def create_pipeline(name: str | None = None) -> AvatarPipeline:
     """Build the avatar pipeline of a registered digital-human model.
 
     ``name`` defaults to the fallback model (see
-    ``server.model_registry``). The pipeline always comes from the model
+    ``dh_server.model_registry``). The pipeline always comes from the model
     that owns the avatar, so a pack can never be written by one model and
     driven by another.
 
     Raises :class:`PipelineError` for a name that is not registered.
     """
-    from server.model_registry import ModelUnavailable, get_model
+    from dh_server.model_registry import ModelUnavailable, get_model
 
     try:
         model = get_model(name)
@@ -61,7 +61,7 @@ def create_pipeline(name: str | None = None) -> AvatarPipeline:
 
 
 def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
-    from server.db.models import Avatar, AvatarJob
+    from dh_server.db.models import Avatar, AvatarJob
 
     job = db.get(AvatarJob, job_id)
     if job is None:
@@ -78,7 +78,7 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
     try:
         avatar.status = "processing"
         db.commit()
-        from server.avatar.tunables import effective
+        from dh_server.avatar.tunables import effective
 
         # Per-avatar overrides captured by the create form beat both module
         # defaults and operator-pushed Setting rows. The audit row reflects
@@ -91,8 +91,8 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
             store.avatar_dir(avatar.id),
             progress,
             # The per-avatar build options the create form captured. The
-            # ``lite`` model reads them (train / checkpoint / epochs); the
-            # others ignore them.
+            # models that need them read their own keys; the others ignore
+            # them.
             options=avatar.build_options or None,
         )
         pack_json = store.avatar_dir(avatar.id) / "pack.json"
@@ -123,8 +123,8 @@ def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
     """
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar, AvatarJob
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar, AvatarJob
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:

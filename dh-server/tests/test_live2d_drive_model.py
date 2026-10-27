@@ -15,8 +15,8 @@ import io
 from PIL import Image
 from sqlalchemy import inspect
 
-from server.db import session as session_mod
-from server.db.session import get_engine, init_db
+from dh_server.db import session as session_mod
+from dh_server.db.session import get_engine, init_db
 
 
 def _png_bytes(w=640, h=800):
@@ -55,8 +55,8 @@ def test_tenant_rebuild_whitelist_includes_drive_model():
 def test_drive_model_filter_partitions_the_listing(client):
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:

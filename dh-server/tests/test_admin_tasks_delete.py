@@ -20,8 +20,8 @@ def _seed_task(task_id, status="done", error=None):
 
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import GenerationTask
-    from server.db.session import get_engine
+    from dh_server.db.models import GenerationTask
+    from dh_server.db.session import get_engine
 
     session = sessionmaker(bind=get_engine())()
     try:
@@ -51,7 +51,7 @@ def test_admin_delete_task_not_found_returns_404(client):
 
 
 def test_admin_delete_task_removes_row_and_scratch_dir(client):
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     task_id = uuid4().hex
     scratch_root = get_settings().data_dir / "tmp" / "anim"
@@ -87,7 +87,7 @@ def test_admin_delete_task_works_for_failed_and_queued_rows(client):
 def test_admin_delete_task_does_not_remove_other_tasks_scratch_dirs(client):
     # Guard against the obvious bug: an ``rmtree`` aimed at one task id
     # wiping the whole scratch root or a sibling task's dir.
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     scratch_root = get_settings().data_dir / "tmp" / "anim"
     keep_id = uuid4().hex

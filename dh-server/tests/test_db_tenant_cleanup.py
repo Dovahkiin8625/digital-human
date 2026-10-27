@@ -53,7 +53,7 @@ def _build_old_schema(engine) -> None:
 
 
 def test_init_db_drops_tenants_table(tmp_path):
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}",
@@ -68,7 +68,7 @@ def test_init_db_drops_tenants_table(tmp_path):
 
 
 def test_init_db_drops_tenant_id_from_avatars_and_sessions(tmp_path):
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}",
@@ -90,10 +90,10 @@ def test_init_db_after_cleanup_allows_session_insert(tmp_path):
     model has no tenant_id, so a CREATE TABLE without that column is the
     only state where INSERT succeeds.
     """
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import StreamSession
+    from dh_server.db.models import StreamSession
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}",
@@ -114,7 +114,7 @@ def test_init_db_after_cleanup_allows_session_insert(tmp_path):
 
 def test_init_db_cleanup_is_idempotent(tmp_path):
     """Running init_db on an already-clean DB must not raise."""
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}",
@@ -131,10 +131,10 @@ def test_init_db_cleanup_is_idempotent(tmp_path):
 
 def test_init_db_cleanup_preserves_existing_data(tmp_path):
     """The cleanup must drop tenant columns without touching avatar rows."""
-    from server.db.session import init_db
+    from dh_server.db.session import init_db
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
+    from dh_server.db.models import Avatar
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'test.db'}",

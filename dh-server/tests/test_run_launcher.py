@@ -4,9 +4,9 @@ The launcher exists so that starting the backend is one command that cannot
 be run from the wrong directory with the wrong environment. Three of those
 guarantees are worth a test:
 
-* the working directory is pinned to the project root, so ``.env``, ``data/``
-  and ``admin-ui/dist`` resolve the same way no matter where the command was
-  typed;
+* the working directory is pinned to the repository root, so ``.env``,
+  ``data/`` and ``dh-admin-ui/dist`` resolve the same way no matter where the
+  command was typed;
 * uvicorn is handed the app *factory* rather than an app object, which is
   what makes ``--reload`` work -- uvicorn re-imports the string in the
   reloader process;
@@ -22,8 +22,9 @@ from pathlib import Path
 
 import pytest
 
-# ``run.py`` lives in the project root, not in the installed ``server``
-# package, so the root has to be importable however pytest was invoked.
+# ``run.py`` lives in the project directory, not in the installed
+# ``dh_server`` package, so the directory has to be importable however
+# pytest was invoked.
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -48,7 +49,7 @@ def no_uvicorn(monkeypatch):
 @pytest.fixture()
 def clean_settings():
     """The settings cache is process-wide; do not leak this test's env."""
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     yield
     get_settings.cache_clear()
@@ -87,13 +88,15 @@ def test_main_pins_the_project_root_and_serves_the_factory(
     assert run.main([]) == 0
 
     assert os.getcwd() == str(run.ROOT)
-    assert str(run.ROOT) in sys.path
+    # The package is importable, not the repository root: ``dh_server``
+    # lives in the project directory.
+    assert str(run.PROJECT_ROOT) in sys.path
 
     assert len(no_uvicorn) == 1
     args, kwargs = no_uvicorn[0]
     # The import string, not the app object: uvicorn re-imports it in the
     # reloader process, which is what --reload needs.
-    assert args == ("server.main:create_app",)
+    assert args == ("dh_server.main:create_app",)
     assert kwargs["factory"] is True
     assert kwargs["host"] == "0.0.0.0"
     assert kwargs["port"] == 8000
@@ -112,7 +115,7 @@ def test_reload_watches_only_the_server_package(
 
     _, kwargs = no_uvicorn[0]
     assert kwargs["reload"] is True
-    assert kwargs["reload_dirs"] == [str(run.ROOT / "server")]
+    assert kwargs["reload_dirs"] == [str(run.PROJECT_ROOT / "dh_server")]
     assert kwargs["port"] == 8099
 
 
@@ -145,7 +148,7 @@ def test_preflight_names_the_missing_weights(monkeypatch, tmp_path, clean_settin
 
 def test_preflight_gpu_agrees_with_the_probe(monkeypatch, tmp_path, clean_settings):
     from env import apply_env
-    from server.engine.base import gpu_available
+    from dh_server.engine.base import gpu_available
 
     apply_env(monkeypatch, tmp_path)
 

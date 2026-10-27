@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
+from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 
 #: Cheek-to-cheek face width on the 720-wide canvas below which the 256x256
 #: generation is upscaling more detail than the source held.

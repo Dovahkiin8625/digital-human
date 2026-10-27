@@ -20,10 +20,10 @@ Two source kinds are registered today:
   no server-side engine at all (the browser renders it), so the model
   registers a pipeline and no ``engine_factory``.
 
-MuseTalk, Live2D and the CPU-only ``lite`` engine are the registered models.
+MuseTalk, Live2D and the CPU-only ``wav2lip`` engine are the registered models.
 Adding another is one class pair plus one :func:`register_model` call::
 
-    from server.model_registry import DigitalHumanModel, register_model
+    from dh_server.model_registry import DigitalHumanModel, register_model
 
     register_model(
         DigitalHumanModel(
@@ -44,8 +44,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from server.avatar.pipeline import AvatarPipeline
-    from server.engine.base import DriveEngine
+    from dh_server.avatar.pipeline import AvatarPipeline
+    from dh_server.engine.base import DriveEngine
 
 #: The operator uploads a photo or a clip; the server drives the avatar.
 SOURCE_IMAGE_VIDEO = "image_video"
@@ -72,9 +72,8 @@ class DigitalHumanModel:
     no engine to hold weights and no session to drive.
 
     ``max_video_seconds`` / ``max_video_frames`` override the global upload
-    limits for this model's source. The ``lite`` model needs minutes of
-    footage (the visual model is trained per person) while the default is
-    fifteen seconds; ``None`` means "use the global setting".
+    limits for this model's source. The default is fifteen seconds;
+    ``None`` means "use the global setting".
     """
 
     name: str
@@ -171,33 +170,33 @@ def is_client_rendered(name: str) -> bool:
 
 
 def _musetalk_engine() -> "DriveEngine":
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     return MuseTalkEngine()
 
 
 def _musetalk_pipeline() -> "AvatarPipeline":
-    from server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
+    from dh_server.avatar.musetalk_pipeline import MuseTalkAvatarPipeline
 
     return MuseTalkAvatarPipeline()
 
 
 def _live2d_pipeline() -> "AvatarPipeline":
-    from server.avatar.live2d_pipeline import Live2DAvatarPipeline
+    from dh_server.avatar.live2d_pipeline import Live2DAvatarPipeline
 
     return Live2DAvatarPipeline()
 
 
-def _lite_engine() -> "DriveEngine":
-    from server.engine.lite_engine import LiteEngine
+def _wav2lip_engine() -> "DriveEngine":
+    from dh_server.engine.wav2lip_engine import Wav2LipEngine
 
-    return LiteEngine()
+    return Wav2LipEngine()
 
 
-def _lite_pipeline() -> "AvatarPipeline":
-    from server.avatar.lite_pipeline import LiteAvatarPipeline
+def _wav2lip_pipeline() -> "AvatarPipeline":
+    from dh_server.avatar.wav2lip_pipeline import Wav2LipAvatarPipeline
 
-    return LiteAvatarPipeline()
+    return Wav2LipAvatarPipeline()
 
 
 register_model(
@@ -224,14 +223,10 @@ register_model(
 
 register_model(
     DigitalHumanModel(
-        name="lite",
-        label_zh="轻量引擎 (FeatherTalk)",
-        pipeline_factory=_lite_pipeline,
-        engine_factory=_lite_engine,
+        name="wav2lip",
+        label_zh="Wav2Lip",
+        pipeline_factory=_wav2lip_pipeline,
+        engine_factory=_wav2lip_engine,
         source_kind=SOURCE_IMAGE_VIDEO,
-        # The visual model is personalised: it is trained from this person's
-        # own footage, so the source is minutes of video rather than seconds.
-        max_video_seconds=300.0,
-        max_video_frames=7500,
     )
 )

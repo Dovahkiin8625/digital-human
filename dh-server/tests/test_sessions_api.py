@@ -76,7 +76,7 @@ def test_sweep_idle_closes_stale_sessions(client):
 
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.session import get_engine
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
@@ -90,7 +90,7 @@ def test_sweep_idle_closes_stale_sessions(client):
 
 
 def test_attach_sink_receives_frames(client):
-    from server.core.stream_sink import FrameBufferSink
+    from dh_server.core.stream_sink import FrameBufferSink
 
     avatar_id = _seed(client)
     sid = _new_session(client, avatar_id)
@@ -112,18 +112,18 @@ class _CloseTrackingEngine(FakeEngine):
 
 
 def test_session_close_does_not_close_engine_but_shutdown_does(tmp_path, monkeypatch):
-    from server.avatar.store import AvatarStore
-    from server.core.render_session import RenderSession
-    from server.core.session_manager import SessionManager
-    from server.core.stream_sink import NullSink
-    from server.engine.base import AvatarPack
-    from server.engine.pool import EnginePool
+    from dh_server.avatar.store import AvatarStore
+    from dh_server.core.render_session import RenderSession
+    from dh_server.core.session_manager import SessionManager
+    from dh_server.core.stream_sink import NullSink
+    from dh_server.engine.base import AvatarPack
+    from dh_server.engine.pool import EnginePool
 
     img = tmp_path / "src.png"
     Image.new("RGB", (64, 64), (10, 20, 30)).save(img)
     pack = AvatarPack(avatar_id="a1", root=tmp_path, source_image_path=img, config={})
     engine = _CloseTrackingEngine()
-    monkeypatch.setattr("server.engine.base.create_engine", lambda *a, **k: engine)
+    monkeypatch.setattr("dh_server.engine.base.create_engine", lambda *a, **k: engine)
 
     # A RenderSession close must NOT tear down the shared engine.
     render = RenderSession("s1", pack, engine, NullSink())
@@ -149,8 +149,8 @@ def _build_app(tmp_path, monkeypatch, **env):
     # Same swap the ``client`` fixture does: the app's engine and pipeline
     # are the doubles, not the GPU-backed MuseTalk model.
     install_doubles(monkeypatch)
-    from server.db.session import get_engine, init_db, reset_engine
-    from server.main import create_app
+    from dh_server.db.session import get_engine, init_db, reset_engine
+    from dh_server.main import create_app
 
     reset_engine()
     app = create_app()
@@ -159,8 +159,8 @@ def _build_app(tmp_path, monkeypatch, **env):
 
 
 def test_session_honors_configured_fps_and_sample_rate(tmp_path, monkeypatch):
-    from server.config import get_settings
-    from server.db.session import reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import reset_engine
 
     app = _build_app(tmp_path, monkeypatch, DH_FPS="30", DH_SAMPLE_RATE="16000")
     try:
@@ -186,8 +186,8 @@ def test_lifespan_sweeper_reclaims_idle_and_stops_cleanly(tmp_path, monkeypatch)
         tmp_path, monkeypatch,
         DH_SESSION_IDLE_TIMEOUT="0.05", DH_SESSION_SWEEP_INTERVAL="0.02",
     )
-    from server.config import get_settings
-    from server.db.session import reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import reset_engine
 
     try:
         with TestClient(app) as c:
@@ -219,8 +219,8 @@ def test_sweep_loop_survives_transient_failure(tmp_path, monkeypatch):
         tmp_path, monkeypatch,
         DH_SESSION_IDLE_TIMEOUT="0.05", DH_SESSION_SWEEP_INTERVAL="0.02",
     )
-    from server.config import get_settings
-    from server.db.session import reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import reset_engine
 
     try:
         with TestClient(app) as c:

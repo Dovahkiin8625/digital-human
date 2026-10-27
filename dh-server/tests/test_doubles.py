@@ -7,7 +7,7 @@ exact frame arithmetic and on the pack they write.
 import numpy as np
 import pytest
 
-from server.engine.base import AvatarPack
+from dh_server.engine.base import AvatarPack
 from doubles import FakeEngine
 
 
@@ -54,7 +54,7 @@ async def test_loud_audio_opens_mouth_more(tmp_path):
 def test_fake_engine_is_not_a_registered_model():
     # The double is a test artefact, not a deployment mode: the registry
     # has no entry for it, so the server can never be pointed at it.
-    from server.model_registry import ModelUnavailable, get_model
+    from dh_server.model_registry import ModelUnavailable, get_model
 
     with pytest.raises(ModelUnavailable):
         get_model("fake")

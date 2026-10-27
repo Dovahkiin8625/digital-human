@@ -14,7 +14,7 @@ def test_configure_h264_bitrate_raises_default_and_ceiling(monkeypatch):
     monkeypatch.setattr(h264, "DEFAULT_BITRATE", h264.DEFAULT_BITRATE)
     monkeypatch.setattr(h264, "MAX_BITRATE", h264.MAX_BITRATE)
 
-    from server.core.webrtc import configure_h264_bitrate
+    from dh_server.core.webrtc import configure_h264_bitrate
 
     configure_h264_bitrate(3_500_000, 4_000_000)
 
@@ -28,7 +28,7 @@ def test_configure_h264_bitrate_ceiling_never_below_target(monkeypatch):
     monkeypatch.setattr(h264, "DEFAULT_BITRATE", h264.DEFAULT_BITRATE)
     monkeypatch.setattr(h264, "MAX_BITRATE", h264.MAX_BITRATE)
 
-    from server.core.webrtc import configure_h264_bitrate
+    from dh_server.core.webrtc import configure_h264_bitrate
 
     configure_h264_bitrate(4_000_000, 1_000_000)
 
@@ -39,7 +39,7 @@ def test_configure_h264_bitrate_ceiling_never_below_target(monkeypatch):
 
 
 def test_settings_default_is_well_above_aiortc_default():
-    from server.config import Settings
+    from dh_server.config import Settings
 
     s = Settings()
     assert s.video_bitrate >= 3_000_000

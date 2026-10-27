@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # Outbound H.264. aiortc's OpenH264 defaults to 1 Mbps with a 3 Mbps REMB
     # ceiling; at 720x1280@25 the talking mouth is the busiest region in the
     # frame and 1 Mbps turns it into blocky noise. Raised to 3.5/4 Mbps at
-    # startup (see server.core.webrtc.configure_h264_bitrate).
+    # startup (see dh_server.core.webrtc.configure_h264_bitrate).
     video_bitrate: int = 3_500_000
     video_max_bitrate: int = 4_000_000
 
@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     live2d_max_unpacked_bytes: int = 512_000_000
     live2d_max_entry_bytes: int = 64_000_000
 
+    # The console's build, mounted at /admin so one process serves the whole
+    # product. The console is a separate project (``dh-admin-ui``), so this
+    # is where its build output lives. Empty means "the sibling project in
+    # this repository", which is the default layout.
+    admin_ui_dir: Path | None = None
+
     # ``extra="ignore"`` rather than the pydantic-settings default of
     # ``"forbid"``: a .env carrying DH_* keys this box does not read must
     # not stop the server from starting. Unknown DH_* vars are inert; they
@@ -80,7 +86,7 @@ class Settings(BaseSettings):
     # Which digital-human model drives an avatar is NOT an env concern:
     # each avatar records its own model (``avatars.drive_model``), and the
     # Models tab loads / unloads the weights of each model on its own.
-    # See ``server/model_registry.py``.
+    # See ``dh_server/model_registry.py``.
     model_config = SettingsConfigDict(env_prefix="DH_", env_file=".env", extra="ignore")
 
 

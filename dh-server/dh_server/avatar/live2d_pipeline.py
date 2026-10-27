@@ -18,11 +18,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from server.avatar.pipeline import AvatarPipeline
-from server.config import get_settings
-from server.core.errors import AppError
-from server.live2d.archive import extract_archive, resolve_entry
-from server.live2d.registry import validate_model_dir
+from dh_server.avatar.pipeline import AvatarPipeline
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
+from dh_server.live2d.archive import extract_archive, resolve_entry
+from dh_server.live2d.registry import validate_model_dir
 
 
 def parse_expressions(raw: str | None) -> dict:

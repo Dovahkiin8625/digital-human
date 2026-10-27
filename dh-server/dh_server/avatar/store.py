@@ -4,11 +4,11 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
-from server.avatar import video
-from server.config import get_settings
-from server.core.errors import AppError
-from server.db.models import Avatar
-from server.engine.base import AvatarPack
+from dh_server.avatar import video
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
+from dh_server.db.models import Avatar
+from dh_server.engine.base import AvatarPack
 
 
 class AvatarStore:
@@ -39,8 +39,7 @@ class AvatarStore:
 
         ``max_seconds`` / ``max_frames`` override the global video limits
         for models whose source is legitimately longer than the default
-        fifteen seconds (the ``lite`` model trains from minutes of footage).
-        ``None`` means "use the global setting".
+        fifteen seconds. ``None`` means "use the global setting".
         """
         d = self.avatar_dir(avatar_id)
         d.mkdir(parents=True, exist_ok=True)
@@ -143,10 +142,10 @@ class AvatarStore:
         normalized = root / "normalized.png"
         # The pack's own block is named after the model that wrote it, so a
         # pack is never read by the wrong engine. ("musetalk" for the MuseTalk
-        # packs, "lite" for the FeatherTalk ones.) An avatar that has not
+        # packs, "wav2lip" for the Wav2Lip ones.) An avatar that has not
         # been flushed yet has no drive_model in Python -- the column's
         # default is what the database would say.
-        from server.model_registry import DEFAULT_MODEL
+        from dh_server.model_registry import DEFAULT_MODEL
 
         prep = config.get(avatar.drive_model or DEFAULT_MODEL) or {}
         return AvatarPack(

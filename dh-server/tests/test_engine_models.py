@@ -33,7 +33,7 @@ def test_fake_engine_describe_lists_a_single_loaded_model():
 
 
 def test_musetalk_engine_describe_lists_unloaded_slot_when_no_weights(tmp_path):
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     eng = MuseTalkEngine(models_dir=tmp_path / "missing")
     d = eng.describe()
@@ -66,7 +66,7 @@ def test_musetalk_engine_describe_reports_can_load_after_unload(tmp_path, monkey
     so the UI stuck. ``unload()`` is a checkpoint that the round-trip is
     observable through describe().
     """
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     class _StubRuntime:
         def __init__(self):
@@ -113,7 +113,7 @@ def test_musetalk_engine_describe_reports_loaded_with_stub_runtime(tmp_path):
     # weight, which is the whole point of having a stable describe. We
     # simulate the warmup path by setting ``_runtime`` directly under the
     # lock the engine already holds (real ``warmup()`` would touch torch).
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     class _StubRuntime:
         def __init__(self):
@@ -140,7 +140,7 @@ def test_musetalk_engine_unload_drops_runtime_and_avatar_cache(tmp_path, monkeyp
     # ``loaded=False`` so the UI flips back to "加载".
     from collections import OrderedDict
 
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     class _StubRuntime:
         pass
@@ -169,7 +169,7 @@ def test_musetalk_model_size_is_sum_of_weight_files_on_disk(tmp_path):
     # stable, reproducible lower bound (the runtime's actual VRAM peak is
     # higher; the operator reads the VRAM card for that). Sums every weight
     # file under models_dir that the runtime actually loads.
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     sizes = {
         "musetalkV15/unet.pth": 100,
@@ -203,7 +203,7 @@ def test_musetalk_engine_exposes_load_after_unload(tmp_path, monkeypatch):
     # ``loaded=True``.
     import asyncio
 
-    from server.engine.musetalk_engine import MuseTalkEngine
+    from dh_server.engine.musetalk_engine import MuseTalkEngine
 
     eng = MuseTalkEngine(models_dir=tmp_path / "m")
     # Stub out _ensure_runtime so the test runs without torch weights;

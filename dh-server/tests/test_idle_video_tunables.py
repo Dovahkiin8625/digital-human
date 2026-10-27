@@ -11,8 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar import video
-from server.avatar.video import build_idle_video
+from dh_server.avatar import video
+from dh_server.avatar.video import build_idle_video
 
 CANVAS = (720, 1280)
 SETTINGS = types.SimpleNamespace(

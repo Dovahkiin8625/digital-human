@@ -1,7 +1,7 @@
 from sqlalchemy.engine import make_url
 
-from server.config import get_settings
-from server.db.session import get_engine
+from dh_server.config import get_settings
+from dh_server.db.session import get_engine
 
 
 def _assert_engine_matches_settings():

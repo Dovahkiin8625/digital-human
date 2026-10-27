@@ -15,8 +15,8 @@ import secrets
 
 from fastapi import Header
 
-from server.config import get_settings
-from server.core.errors import AppError
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
 
 
 async def require_v1_token(x_v1_token: str | None = Header(default=None)) -> None:

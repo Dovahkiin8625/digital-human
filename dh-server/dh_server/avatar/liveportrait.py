@@ -35,8 +35,8 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar.animators import ANIMATORS, AnimatorError
-from server.config import get_settings
+from dh_server.avatar.animators import ANIMATORS, AnimatorError
+from dh_server.config import get_settings
 
 
 #: Directory containing bundled driving clips. ``scripts/fetch_liveportrait_weights.sh``
@@ -289,7 +289,7 @@ class LivePortraitAnimator:
         Models tab's portrait-animator row can render it without re-
         implementing the path logic.
         """
-        from server.config import get_settings
+        from dh_server.config import get_settings
 
         return Path(get_settings().data_dir) / "models" / "liveportrait"
 
@@ -313,7 +313,7 @@ class LivePortraitAnimator:
                 "run scripts/setup_liveportrait.sh, then scripts/fetch_liveportrait_weights.sh"
             )
 
-        from server.config import get_settings
+        from dh_server.config import get_settings
 
         settings = get_settings()
         weights = Path(settings.data_dir) / "models" / "liveportrait"
@@ -346,7 +346,7 @@ class LivePortraitAnimator:
     # ----- introspection (used by /api/admin/backends) -----
 
     def meta(self) -> dict:
-        from server.avatar.vram import get_vram_gb
+        from dh_server.avatar.vram import get_vram_gb
 
         free_gb = get_vram_gb()
         needed = 6
@@ -475,8 +475,8 @@ class LivePortraitAnimator:
 
         # ``_run_pipeline`` returns RGB uint8 at the project canvas (720x1280);
         # encode via the shared PyAV helper so the output plays back in <video>.
-        from server.avatar.video import _encode_h264
-        from server.config import get_settings as _gs
+        from dh_server.avatar.video import _encode_h264
+        from dh_server.config import get_settings as _gs
 
         settings = _gs()
         rgb_stack = np.ascontiguousarray(frames)
@@ -521,10 +521,10 @@ class LivePortraitAnimator:
 
         Tests stub this method via ``monkeypatch`` so CI does not need any
         of it; the wrapper still encodes the returned ndarray to mp4 via
-        :func:`server.avatar.video._encode_h264`.
+        :func:`dh_server.avatar.video._encode_h264`.
         """
         from src.config.argument_config import ArgumentConfig  # type: ignore[import-not-found]
-        from server.config import get_settings
+        from dh_server.config import get_settings
 
         settings = get_settings()
         # ``LivePortraitPipeline`` is heavy -- 1.5 GB of weights + the
@@ -548,7 +548,7 @@ class LivePortraitAnimator:
 
         wfp, _wfp_concat = pipe.execute(args)
 
-        from server.avatar.video import decode_frames
+        from dh_server.avatar.video import decode_frames
 
         arr, _src_fps = decode_frames(
             Path(wfp),
@@ -583,7 +583,7 @@ class LivePortraitAnimator:
 
             with open(clip, "rb") as f:
                 return int(pickle.load(f)["n_frames"])
-        from server.avatar.video import decode_frames
+        from dh_server.avatar.video import decode_frames
 
         arr, _ = decode_frames(
             clip,

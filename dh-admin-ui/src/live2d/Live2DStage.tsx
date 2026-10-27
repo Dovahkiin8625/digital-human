@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { CubismStage } from "./cubism/stage";
 import { mountStage } from "./mountStage";
+import { NO_EXPRESSION } from "./render/expressions";
+import type { GazeTarget } from "./render/gaze";
 import type { ParameterReport } from "./cubism/types";
 
 interface Live2DStageProps {
@@ -12,10 +14,16 @@ interface Live2DStageProps {
    *  which is what makes drift impossible. */
   audio: AudioBuffer | null
   /** Index into the model's own expression list, driven by the emotion tags
-   *  in the reply. Wired through but inert: Cubism 5 drives expressions
-   *  through a motion queue rather than by index, so the adapter inside the
-   *  stage is a no-op. */
+   *  in the reply. -1 (the default) applies no expression, which leaves
+   *  the model in its rest pose -- NOT expression 0, which on a real model
+   *  is whatever the author happened to put first. */
   expressionIndex?: number
+  /** Where the pet is looking, in the model's eye-ball units. Null lets
+   *  the eyes saccade on their own. */
+  gaze?: GazeTarget | null
+  /** Called when the model is clicked, after the interaction motion has
+   *  been asked for. */
+  onTap?: () => void
   width?: number
   height?: number
   onReady?: (params: ParameterReport[]) => void
@@ -33,7 +41,9 @@ interface Live2DStageProps {
 export default function Live2DStage({
   modelUrl,
   audio,
-  expressionIndex = 0,
+  expressionIndex = NO_EXPRESSION,
+  gaze = null,
+  onTap,
   width = 480,
   height = 720,
   onReady,
@@ -45,8 +55,10 @@ export default function Live2DStage({
   // stage down and rebuild the model on every render.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
+  const onTapRef = useRef(onTap);
   onReadyRef.current = onReady;
   onErrorRef.current = onError;
+  onTapRef.current = onTap;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -76,5 +88,18 @@ export default function Live2DStage({
     stageRef.current?.setExpression(expressionIndex);
   }, [expressionIndex]);
 
-  return <canvas ref={canvasRef} style={{ width, height, display: "block" }} />;
+  useEffect(() => {
+    stageRef.current?.setGaze(gaze);
+  }, [gaze]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{ width, height, display: "block" }}
+      onClick={() => {
+        stageRef.current?.tap();
+        onTapRef.current?.();
+      }}
+    />
+  );
 }

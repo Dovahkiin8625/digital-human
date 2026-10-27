@@ -42,7 +42,7 @@ VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "RIFE"
 
 
 def rife_weights_path() -> Path:
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     return Path(get_settings().data_dir) / "models" / "rife" / "flownet.pkl"
 

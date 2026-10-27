@@ -1,0 +1,268 @@
+Date : 2026-10-26 10:42:59
+Directory : e:\project\digital-human
+Total : 202 files,  28520 codes, 7851 comments, 5546 blanks, all 41917 lines
+
+Languages
++--------------------+------------+------------+------------+------------+------------+
+| language           | files      | code       | comment    | blank      | total      |
++--------------------+------------+------------+------------+------------+------------+
+| Python             |        130 |     15,392 |      5,898 |      4,320 |     25,610 |
+| TypeScript JSX     |         18 |      5,232 |        736 |        295 |      6,263 |
+| JSON               |          2 |      3,673 |          0 |          2 |      3,675 |
+| TypeScript         |         29 |      1,965 |        808 |        270 |      3,043 |
+| Markdown           |          7 |      1,359 |          0 |        490 |      1,849 |
+| Shell Script       |          8 |        653 |        305 |        134 |      1,092 |
+| JavaScript         |          3 |        124 |         63 |         22 |        209 |
+| TOML               |          1 |         55 |         32 |          5 |         92 |
+| JSON with Comments |          2 |         30 |          2 |          2 |         34 |
+| PostCSS            |          1 |         25 |          7 |          5 |         37 |
+| HTML               |          1 |         12 |          0 |          1 |         13 |
++--------------------+------------+------------+------------+------------+------------+
+
+Directories
++----------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                               | files      | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                  |        202 |     28,520 |      7,851 |      5,546 |     41,917 |
+| . (Files)                                                                                          |          3 |        458 |         82 |         99 |        639 |
+| .claude                                                                                            |          1 |          5 |          0 |          1 |          6 |
+| admin-ui                                                                                           |         55 |     11,056 |      1,616 |        596 |     13,268 |
+| admin-ui (Files)                                                                                   |          5 |      3,729 |         24 |          6 |      3,759 |
+| admin-ui\electron                                                                                  |          2 |        105 |         51 |         16 |        172 |
+| admin-ui\scripts                                                                                   |          1 |         19 |         12 |          6 |         37 |
+| admin-ui\src                                                                                       |         47 |      7,203 |      1,529 |        568 |      9,300 |
+| admin-ui\src (Files)                                                                               |         11 |      1,135 |        511 |        145 |      1,791 |
+| admin-ui\src\avatars                                                                               |          5 |        185 |         61 |         29 |        275 |
+| admin-ui\src\components                                                                            |          2 |         48 |         12 |          7 |         67 |
+| admin-ui\src\live2d                                                                                |         17 |        897 |        272 |        126 |      1,295 |
+| admin-ui\src\live2d (Files)                                                                        |          3 |        173 |         42 |         23 |        238 |
+| admin-ui\src\live2d\audio                                                                          |          2 |        119 |         36 |         22 |        177 |
+| admin-ui\src\live2d\cubism                                                                         |          4 |        258 |         92 |         37 |        387 |
+| admin-ui\src\live2d\render                                                                         |          8 |        347 |        102 |         44 |        493 |
+| admin-ui\src\pages                                                                                 |         12 |      4,938 |        673 |        261 |      5,872 |
+| docs                                                                                               |          6 |      1,128 |          0 |        434 |      1,562 |
+| docs\superpowers                                                                                   |          6 |      1,128 |          0 |        434 |      1,562 |
+| docs\superpowers\specs                                                                             |          6 |      1,128 |          0 |        434 |      1,562 |
+| scripts                                                                                            |          9 |        729 |        329 |        151 |      1,209 |
+| server                                                                                             |         60 |      6,868 |      3,544 |      1,489 |     11,901 |
+| server (Files)                                                                                     |          4 |        261 |        174 |         94 |        529 |
+| server\api                                                                                         |          5 |      1,800 |        779 |        324 |      2,903 |
+| server\avatar                                                                                      |         16 |      1,819 |        978 |        397 |      3,194 |
+| server\core                                                                                        |          8 |        551 |        171 |        103 |        825 |
+| server\db                                                                                          |          3 |        163 |        107 |         49 |        319 |
+| server\engine                                                                                      |          5 |      1,086 |        556 |        221 |      1,863 |
+| server\lite                                                                                        |         10 |        612 |        415 |        167 |      1,194 |
+| server\live2d                                                                                      |          3 |        147 |        101 |         40 |        288 |
+| server\llm                                                                                         |          3 |        253 |        165 |         54 |        472 |
+| server\tts                                                                                         |          3 |        176 |         98 |         40 |        314 |
+| tests                                                                                              |         68 |      8,276 |      2,280 |      2,776 |     13,332 |
++----------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++----------------------------------------------------------------------------------------------------+--------------------+------------+------------+------------+------------+
+| filename                                                                                           | language           | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------------------------+--------------------+------------+------------+------------+------------+
+| e:\project\digital-human\.claude\settings.json                                                     | JSON with Comments |          5 |          0 |          1 |          6 |
+| e:\project\digital-human\README.md                                                                 | Markdown           |        231 |          0 |         56 |        287 |
+| e:\project\digital-human\admin-ui\electron\main.cjs                                                | JavaScript         |         99 |         36 |         14 |        149 |
+| e:\project\digital-human\admin-ui\electron\preload.cjs                                             | JavaScript         |          6 |         15 |          2 |         23 |
+| e:\project\digital-human\admin-ui\index.html                                                       | HTML               |         12 |          0 |          1 |         13 |
+| e:\project\digital-human\admin-ui\package-lock.json                                                | JSON               |      3,641 |          0 |          1 |      3,642 |
+| e:\project\digital-human\admin-ui\package.json                                                     | JSON               |         32 |          0 |          1 |         33 |
+| e:\project\digital-human\admin-ui\scripts\typecheck.mjs                                            | JavaScript         |         19 |         12 |          6 |         37 |
+| e:\project\digital-human\admin-ui\src\App.tsx                                                      | TypeScript JSX     |        140 |         14 |          6 |        160 |
+| e:\project\digital-human\admin-ui\src\api.ts                                                       | TypeScript         |        111 |         45 |         14 |        170 |
+| e:\project\digital-human\admin-ui\src\avatars\DriveModelTag.tsx                                    | TypeScript JSX     |         17 |          7 |          3 |         27 |
+| e:\project\digital-human\admin-ui\src\avatars\UploadField.tsx                                      | TypeScript JSX     |         35 |          9 |          3 |         47 |
+| e:\project\digital-human\admin-ui\src\avatars\describe.test.ts                                     | TypeScript         |         61 |         11 |         12 |         84 |
+| e:\project\digital-human\admin-ui\src\avatars\describe.ts                                          | TypeScript         |         37 |         24 |          7 |         68 |
+| e:\project\digital-human\admin-ui\src\avatars\driveModels.ts                                       | TypeScript         |         35 |         10 |          4 |         49 |
+| e:\project\digital-human\admin-ui\src\components\LatencyHistogram.tsx                              | TypeScript JSX     |         26 |          6 |          4 |         36 |
+| e:\project\digital-human\admin-ui\src\components\StatusTag.tsx                                     | TypeScript JSX     |         22 |          6 |          3 |         31 |
+| e:\project\digital-human\admin-ui\src\format.ts                                                    | TypeScript         |          5 |          7 |          1 |         13 |
+| e:\project\digital-human\admin-ui\src\live2d\Live2DStage.tsx                                       | TypeScript JSX     |         53 |         19 |          8 |         80 |
+| e:\project\digital-human\admin-ui\src\live2d\audio\analyze.test.ts                                 | TypeScript         |         54 |          8 |          8 |         70 |
+| e:\project\digital-human\admin-ui\src\live2d\audio\analyze.ts                                      | TypeScript         |         65 |         28 |         14 |        107 |
+| e:\project\digital-human\admin-ui\src\live2d\cubism\core.ts                                        | TypeScript         |         44 |         35 |          9 |         88 |
+| e:\project\digital-human\admin-ui\src\live2d\cubism\model.ts                                       | TypeScript         |        122 |         36 |         16 |        174 |
+| e:\project\digital-human\admin-ui\src\live2d\cubism\stage.ts                                       | TypeScript         |         81 |         21 |         11 |        113 |
+| e:\project\digital-human\admin-ui\src\live2d\cubism\types.ts                                       | TypeScript         |         11 |          0 |          1 |         12 |
+| e:\project\digital-human\admin-ui\src\live2d\mountStage.test.ts                                    | TypeScript         |         79 |          8 |          8 |         95 |
+| e:\project\digital-human\admin-ui\src\live2d\mountStage.ts                                         | TypeScript         |         41 |         15 |          7 |         63 |
+| e:\project\digital-human\admin-ui\src\live2d\render\expressions.test.ts                            | TypeScript         |         16 |          3 |          4 |         23 |
+| e:\project\digital-human\admin-ui\src\live2d\render\expressions.ts                                 | TypeScript         |         11 |          8 |          0 |         19 |
+| e:\project\digital-human\admin-ui\src\live2d\render\frame.test.ts                                  | TypeScript         |        113 |         13 |          8 |        134 |
+| e:\project\digital-human\admin-ui\src\live2d\render\frame.ts                                       | TypeScript         |         50 |         20 |          5 |         75 |
+| e:\project\digital-human\admin-ui\src\live2d\render\idle.test.ts                                   | TypeScript         |         42 |         10 |          7 |         59 |
+| e:\project\digital-human\admin-ui\src\live2d\render\idle.ts                                        | TypeScript         |         53 |         25 |          9 |         87 |
+| e:\project\digital-human\admin-ui\src\live2d\render\params.test.ts                                 | TypeScript         |         39 |          4 |          6 |         49 |
+| e:\project\digital-human\admin-ui\src\live2d\render\params.ts                                      | TypeScript         |         23 |         19 |          5 |         47 |
+| e:\project\digital-human\admin-ui\src\llm.test.ts                                                  | TypeScript         |        202 |         60 |         34 |        296 |
+| e:\project\digital-human\admin-ui\src\llm.ts                                                       | TypeScript         |        230 |        186 |         31 |        447 |
+| e:\project\digital-human\admin-ui\src\main.tsx                                                     | TypeScript JSX     |         43 |          8 |          4 |         55 |
+| e:\project\digital-human\admin-ui\src\pages\ActivatePortrait.tsx                                   | TypeScript JSX     |        806 |         99 |         51 |        956 |
+| e:\project\digital-human\admin-ui\src\pages\AvatarDetail.tsx                                       | TypeScript JSX     |        541 |         42 |         34 |        617 |
+| e:\project\digital-human\admin-ui\src\pages\Avatars.tsx                                            | TypeScript JSX     |        512 |        111 |         24 |        647 |
+| e:\project\digital-human\admin-ui\src\pages\Chat.tsx                                               | TypeScript JSX     |        655 |        178 |         25 |        858 |
+| e:\project\digital-human\admin-ui\src\pages\Debug.tsx                                              | TypeScript JSX     |        501 |         52 |         23 |        576 |
+| e:\project\digital-human\admin-ui\src\pages\Live2dAvatarDetail.tsx                                 | TypeScript JSX     |         86 |         18 |          5 |        109 |
+| e:\project\digital-human\admin-ui\src\pages\LivePortraits.tsx                                      | TypeScript JSX     |        357 |          7 |         20 |        384 |
+| e:\project\digital-human\admin-ui\src\pages\Models.tsx                                             | TypeScript JSX     |        932 |        122 |         42 |      1,096 |
+| e:\project\digital-human\admin-ui\src\pages\Pet.tsx                                                | TypeScript JSX     |        194 |         27 |         17 |        238 |
+| e:\project\digital-human\admin-ui\src\pages\System.tsx                                             | TypeScript JSX     |        279 |          7 |         12 |        298 |
+| e:\project\digital-human\admin-ui\src\pages\reentryGuard.test.ts                                   | TypeScript         |         56 |          5 |          6 |         67 |
+| e:\project\digital-human\admin-ui\src\pages\reentryGuard.ts                                        | TypeScript         |         19 |          5 |          2 |         26 |
+| e:\project\digital-human\admin-ui\src\styles.css                                                   | PostCSS            |         25 |          7 |          5 |         37 |
+| e:\project\digital-human\admin-ui\src\theme.tsx                                                    | TypeScript JSX     |         33 |          4 |         11 |         48 |
+| e:\project\digital-human\admin-ui\src\types.ts                                                     | TypeScript         |        210 |        150 |         21 |        381 |
+| e:\project\digital-human\admin-ui\src\vite-env.d.ts                                                | TypeScript         |          0 |          1 |          1 |          2 |
+| e:\project\digital-human\admin-ui\src\webrtc.ts                                                    | TypeScript         |        136 |         29 |         17 |        182 |
+| e:\project\digital-human\admin-ui\tsconfig.json                                                    | JSON with Comments |         25 |          2 |          1 |         28 |
+| e:\project\digital-human\admin-ui\vite.config.ts                                                   | TypeScript         |         19 |         22 |          2 |         43 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-08-digital-human-service-design.md         | Markdown           |        114 |          0 |         36 |        150 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-10-idle-video-playback-design.md           | Markdown           |        316 |          0 |         94 |        410 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-10-video-driven-avatar-design.md           | Markdown           |        157 |          0 |         62 |        219 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-22-live2d-digital-human-design.md          | Markdown           |        235 |          0 |        127 |        362 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-23-avatar-management-unification-design.md | Markdown           |        143 |          0 |         65 |        208 |
+| e:\project\digital-human\docs\superpowers\specs\2026-10-25-lite-cpu-engine-design.md               | Markdown           |        163 |          0 |         50 |        213 |
+| e:\project\digital-human\pyproject.toml                                                            | TOML               |         55 |         32 |          5 |         92 |
+| e:\project\digital-human\run.py                                                                    | Python             |        172 |         50 |         38 |        260 |
+| e:\project\digital-human\scripts\fetch_lite_weights.sh                                             | Shell Script       |         64 |         18 |         13 |         95 |
+| e:\project\digital-human\scripts\fetch_liveportrait_weights.sh                                     | Shell Script       |         85 |         62 |         14 |        161 |
+| e:\project\digital-human\scripts\fetch_musetalk_weights.sh                                         | Shell Script       |         44 |         27 |         10 |         81 |
+| e:\project\digital-human\scripts\fetch_rife_weights.sh                                             | Shell Script       |         50 |         14 |         10 |         74 |
+| e:\project\digital-human\scripts\fetch_wan22_weights.sh                                            | Shell Script       |         43 |         18 |          6 |         67 |
+| e:\project\digital-human\scripts\migrate_minimax_env_to_db.py                                      | Python             |         76 |         24 |         17 |        117 |
+| e:\project\digital-human\scripts\setup_lite.sh                                                     | Shell Script       |         81 |         23 |         17 |        121 |
+| e:\project\digital-human\scripts\setup_liveportrait.sh                                             | Shell Script       |        166 |         83 |         37 |        286 |
+| e:\project\digital-human\scripts\setup_musetalk.sh                                                 | Shell Script       |        120 |         60 |         27 |        207 |
+| e:\project\digital-human\server\__init__.py                                                        | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\api\__init__.py                                                    | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\api\admin.py                                                       | Python             |      1,437 |        639 |        243 |      2,319 |
+| e:\project\digital-human\server\api\avatars.py                                                     | Python             |        137 |         35 |         26 |        198 |
+| e:\project\digital-human\server\api\live2d.py                                                      | Python             |         95 |         94 |         28 |        217 |
+| e:\project\digital-human\server\api\sessions.py                                                    | Python             |        131 |         11 |         26 |        168 |
+| e:\project\digital-human\server\avatar\__init__.py                                                 | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\avatar\animators.py                                                | Python             |         23 |         42 |         13 |         78 |
+| e:\project\digital-human\server\avatar\interpolation.py                                            | Python             |         74 |         47 |         23 |        144 |
+| e:\project\digital-human\server\avatar\landmarks.py                                                | Python             |          4 |         14 |          2 |         20 |
+| e:\project\digital-human\server\avatar\lite_pipeline.py                                            | Python             |        264 |         71 |         49 |        384 |
+| e:\project\digital-human\server\avatar\live2d_pipeline.py                                          | Python             |         56 |         31 |         11 |         98 |
+| e:\project\digital-human\server\avatar\liveportrait.py                                             | Python             |        298 |        238 |         66 |        602 |
+| e:\project\digital-human\server\avatar\loop.py                                                     | Python             |         37 |         44 |         11 |         92 |
+| e:\project\digital-human\server\avatar\musetalk_pipeline.py                                        | Python             |        266 |        100 |         54 |        420 |
+| e:\project\digital-human\server\avatar\pipeline.py                                                 | Python             |         77 |         40 |         21 |        138 |
+| e:\project\digital-human\server\avatar\quality.py                                                  | Python             |         79 |         38 |         22 |        139 |
+| e:\project\digital-human\server\avatar\store.py                                                    | Python             |        113 |         37 |         14 |        164 |
+| e:\project\digital-human\server\avatar\tunables.py                                                 | Python             |         88 |         58 |         22 |        168 |
+| e:\project\digital-human\server\avatar\video.py                                                    | Python             |        164 |         59 |         31 |        254 |
+| e:\project\digital-human\server\avatar\vram.py                                                     | Python             |         38 |         35 |          5 |         78 |
+| e:\project\digital-human\server\avatar\wan22.py                                                    | Python             |        238 |        124 |         52 |        414 |
+| e:\project\digital-human\server\config.py                                                          | Python             |         28 |         50 |         12 |         90 |
+| e:\project\digital-human\server\core\__init__.py                                                   | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\core\audio_ingest.py                                               | Python             |         25 |          0 |          6 |         31 |
+| e:\project\digital-human\server\core\auth.py                                                       | Python             |         10 |         17 |          5 |         32 |
+| e:\project\digital-human\server\core\errors.py                                                     | Python             |         27 |          0 |         11 |         38 |
+| e:\project\digital-human\server\core\render_session.py                                             | Python             |        216 |         87 |         23 |        326 |
+| e:\project\digital-human\server\core\session_manager.py                                            | Python             |         68 |         10 |         11 |         89 |
+| e:\project\digital-human\server\core\stream_sink.py                                                | Python             |         27 |         11 |         15 |         53 |
+| e:\project\digital-human\server\core\webrtc.py                                                     | Python             |        178 |         46 |         31 |        255 |
+| e:\project\digital-human\server\db\__init__.py                                                     | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\db\models.py                                                       | Python             |         55 |         43 |         24 |        122 |
+| e:\project\digital-human\server\db\session.py                                                      | Python             |        108 |         64 |         24 |        196 |
+| e:\project\digital-human\server\engine\__init__.py                                                 | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\engine\base.py                                                     | Python             |         63 |         44 |         25 |        132 |
+| e:\project\digital-human\server\engine\lite_engine.py                                              | Python             |        345 |        114 |         66 |        525 |
+| e:\project\digital-human\server\engine\musetalk_engine.py                                          | Python             |        647 |        374 |        119 |      1,140 |
+| e:\project\digital-human\server\engine\pool.py                                                     | Python             |         31 |         24 |         10 |         65 |
+| e:\project\digital-human\server\lite\__init__.py                                                   | Python             |          0 |         23 |          1 |         24 |
+| e:\project\digital-human\server\lite\audio.py                                                      | Python             |        173 |        118 |         31 |        322 |
+| e:\project\digital-human\server\lite\causal_dataset.py                                             | Python             |         15 |         26 |          8 |         49 |
+| e:\project\digital-human\server\lite\dataset.py                                                    | Python             |         64 |         38 |         15 |        117 |
+| e:\project\digital-human\server\lite\frames.py                                                     | Python             |         57 |         28 |         13 |         98 |
+| e:\project\digital-human\server\lite\geometry.py                                                   | Python             |         73 |         61 |         22 |        156 |
+| e:\project\digital-human\server\lite\landmarks.py                                                  | Python             |         92 |         25 |         18 |        135 |
+| e:\project\digital-human\server\lite\pack.py                                                       | Python             |         52 |         26 |         26 |        104 |
+| e:\project\digital-human\server\lite\vendor.py                                                     | Python             |         42 |         42 |         19 |        103 |
+| e:\project\digital-human\server\lite\visual.py                                                     | Python             |         44 |         28 |         14 |         86 |
+| e:\project\digital-human\server\live2d\__init__.py                                                 | Python             |          0 |          1 |          0 |          1 |
+| e:\project\digital-human\server\live2d\archive.py                                                  | Python             |         94 |         66 |         20 |        180 |
+| e:\project\digital-human\server\live2d\registry.py                                                 | Python             |         53 |         34 |         20 |        107 |
+| e:\project\digital-human\server\llm\__init__.py                                                    | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\llm\config.py                                                      | Python             |         81 |         66 |         24 |        171 |
+| e:\project\digital-human\server\llm\openai.py                                                      | Python             |        172 |         99 |         29 |        300 |
+| e:\project\digital-human\server\main.py                                                            | Python             |        133 |         34 |         33 |        200 |
+| e:\project\digital-human\server\model_registry.py                                                  | Python             |        100 |         90 |         48 |        238 |
+| e:\project\digital-human\server\tts\__init__.py                                                    | Python             |          0 |          0 |          1 |          1 |
+| e:\project\digital-human\server\tts\config.py                                                      | Python             |         93 |         64 |         22 |        179 |
+| e:\project\digital-human\server\tts\minimax.py                                                     | Python             |         83 |         34 |         17 |        134 |
+| e:\project\digital-human\tests\conftest.py                                                         | Python             |         18 |          3 |          3 |         24 |
+| e:\project\digital-human\tests\doubles.py                                                          | Python             |        116 |         54 |         20 |        190 |
+| e:\project\digital-human\tests\env.py                                                              | Python             |          8 |         10 |          4 |         22 |
+| e:\project\digital-human\tests\test_admin_animators.py                                             | Python             |        280 |         69 |         79 |        428 |
+| e:\project\digital-human\tests\test_admin_api.py                                                   | Python             |        309 |         53 |         97 |        459 |
+| e:\project\digital-human\tests\test_admin_artifacts.py                                             | Python             |         57 |         11 |         21 |         89 |
+| e:\project\digital-human\tests\test_admin_enrichment.py                                            | Python             |         37 |          6 |         12 |         55 |
+| e:\project\digital-human\tests\test_admin_idle_video_tunables.py                                   | Python             |         65 |         14 |         22 |        101 |
+| e:\project\digital-human\tests\test_admin_models.py                                                | Python             |        629 |        193 |        198 |      1,020 |
+| e:\project\digital-human\tests\test_admin_sessions_close.py                                        | Python             |         65 |         18 |         28 |        111 |
+| e:\project\digital-human\tests\test_admin_settings.py                                              | Python             |         59 |         21 |         18 |         98 |
+| e:\project\digital-human\tests\test_admin_tasks_delete.py                                          | Python             |         64 |         24 |         20 |        108 |
+| e:\project\digital-human\tests\test_admin_tts_config.py                                            | Python             |         70 |         51 |         17 |        138 |
+| e:\project\digital-human\tests\test_admin_ui.py                                                    | Python             |        375 |        167 |         95 |        637 |
+| e:\project\digital-human\tests\test_animator_loadable.py                                           | Python             |         89 |         33 |         44 |        166 |
+| e:\project\digital-human\tests\test_animator_vram.py                                               | Python             |         63 |         38 |         46 |        147 |
+| e:\project\digital-human\tests\test_auth.py                                                        | Python             |         24 |          4 |          8 |         36 |
+| e:\project\digital-human\tests\test_avatar_job_audit.py                                            | Python             |         94 |         16 |         25 |        135 |
+| e:\project\digital-human\tests\test_avatar_pipeline.py                                             | Python             |        112 |          2 |         39 |        153 |
+| e:\project\digital-human\tests\test_avatar_store_video.py                                          | Python             |         66 |          6 |         19 |         91 |
+| e:\project\digital-human\tests\test_avatars_api.py                                                 | Python             |        211 |         13 |         64 |        288 |
+| e:\project\digital-human\tests\test_db_isolation.py                                                | Python             |          7 |          0 |          6 |         13 |
+| e:\project\digital-human\tests\test_db_tenant_cleanup.py                                           | Python             |        119 |         22 |         29 |        170 |
+| e:\project\digital-human\tests\test_doubles.py                                                     | Python             |         39 |          8 |         14 |         61 |
+| e:\project\digital-human\tests\test_drive_model_pairing.py                                         | Python             |         60 |         14 |         23 |         97 |
+| e:\project\digital-human\tests\test_e2e_smoke.py                                                   | Python             |         25 |         13 |          8 |         46 |
+| e:\project\digital-human\tests\test_engine_models.py                                               | Python             |        124 |         73 |         48 |        245 |
+| e:\project\digital-human\tests\test_generation_task.py                                             | Python             |         63 |         14 |         16 |         93 |
+| e:\project\digital-human\tests\test_h264_bitrate.py                                                | Python             |         21 |         10 |         16 |         47 |
+| e:\project\digital-human\tests\test_healthz.py                                                     | Python             |         12 |          5 |          2 |         19 |
+| e:\project\digital-human\tests\test_idle_video.py                                                  | Python             |        140 |         26 |         49 |        215 |
+| e:\project\digital-human\tests\test_idle_video_tunables.py                                         | Python             |         78 |          7 |         28 |        113 |
+| e:\project\digital-human\tests\test_interpolation.py                                               | Python             |         64 |         21 |         27 |        112 |
+| e:\project\digital-human\tests\test_lite_audio.py                                                  | Python             |         72 |         34 |         35 |        141 |
+| e:\project\digital-human\tests\test_lite_causal_dataset.py                                         | Python             |         49 |         28 |         24 |        101 |
+| e:\project\digital-human\tests\test_lite_engine.py                                                 | Python             |         87 |         17 |         34 |        138 |
+| e:\project\digital-human\tests\test_lite_geometry.py                                               | Python             |         48 |         19 |         28 |         95 |
+| e:\project\digital-human\tests\test_lite_pack.py                                                   | Python             |         48 |         14 |         22 |         84 |
+| e:\project\digital-human\tests\test_lite_pipeline.py                                               | Python             |         97 |         18 |         29 |        144 |
+| e:\project\digital-human\tests\test_live2d_archive.py                                              | Python             |        147 |         37 |         46 |        230 |
+| e:\project\digital-human\tests\test_live2d_console_contract.py                                     | Python             |         35 |         15 |         15 |         65 |
+| e:\project\digital-human\tests\test_live2d_drive_model.py                                          | Python             |         66 |         20 |         23 |        109 |
+| e:\project\digital-human\tests\test_live2d_hosting.py                                              | Python             |        322 |         83 |         95 |        500 |
+| e:\project\digital-human\tests\test_live2d_registry.py                                             | Python             |        120 |         32 |         39 |        191 |
+| e:\project\digital-human\tests\test_liveportrait_animator.py                                       | Python             |        244 |        104 |         99 |        447 |
+| e:\project\digital-human\tests\test_llm_chat.py                                                    | Python             |        340 |        109 |        106 |        555 |
+| e:\project\digital-human\tests\test_llm_config.py                                                  | Python             |         61 |         45 |         16 |        122 |
+| e:\project\digital-human\tests\test_loop_sequence.py                                               | Python             |         51 |         17 |         25 |         93 |
+| e:\project\digital-human\tests\test_model_registry.py                                              | Python             |        107 |         27 |         36 |        170 |
+| e:\project\digital-human\tests\test_musetalk_engine.py                                             | Python             |        728 |        200 |        236 |      1,164 |
+| e:\project\digital-human\tests\test_musetalk_engine_gpu.py                                         | Python             |         62 |         15 |         16 |         93 |
+| e:\project\digital-human\tests\test_musetalk_pipeline.py                                           | Python             |        111 |         19 |         46 |        176 |
+| e:\project\digital-human\tests\test_quality.py                                                     | Python             |         46 |         20 |         19 |         85 |
+| e:\project\digital-human\tests\test_quality_thresholds.py                                          | Python             |         43 |         13 |         19 |         75 |
+| e:\project\digital-human\tests\test_render_session.py                                              | Python             |        405 |         64 |        111 |        580 |
+| e:\project\digital-human\tests\test_run_launcher.py                                                | Python             |         92 |         25 |         44 |        161 |
+| e:\project\digital-human\tests\test_sessions_api.py                                                | Python             |        185 |         12 |         51 |        248 |
+| e:\project\digital-human\tests\test_signal_ws.py                                                   | Python             |        173 |         28 |         70 |        271 |
+| e:\project\digital-human\tests\test_tts_api.py                                                     | Python             |        187 |         39 |         69 |        295 |
+| e:\project\digital-human\tests\test_tts_config.py                                                  | Python             |         77 |         44 |         22 |        143 |
+| e:\project\digital-human\tests\test_tunables.py                                                    | Python             |        106 |         36 |         35 |        177 |
+| e:\project\digital-human\tests\test_video_avatar_gpu.py                                            | Python             |        103 |         24 |         26 |        153 |
+| e:\project\digital-human\tests\test_video_decode.py                                                | Python             |         83 |         10 |         31 |        124 |
+| e:\project\digital-human\tests\test_video_pipeline.py                                              | Python             |         80 |         11 |         27 |        118 |
+| e:\project\digital-human\tests\test_vram_snapshot.py                                               | Python             |         40 |         21 |         22 |         83 |
+| e:\project\digital-human\tests\test_wan22_animator.py                                              | Python             |        160 |         49 |         70 |        279 |
+| e:\project\digital-human\tests\test_webrtc_track.py                                                | Python             |         84 |          6 |         23 |        113 |
+| e:\project\digital-human\tests\test_ws_audio.py                                                    | Python             |         54 |          6 |         22 |         82 |
+| Total                                                                                              |                    |     28,520 |      7,851 |      5,546 |     41,917 |
++----------------------------------------------------------------------------------------------------+--------------------+------------+------------+------------+------------+

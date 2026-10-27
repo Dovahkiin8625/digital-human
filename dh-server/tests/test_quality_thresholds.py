@@ -1,4 +1,4 @@
-"""Tunable thresholds for ``server.avatar.quality.assess``.
+"""Tunable thresholds for ``dh_server.avatar.quality.assess``.
 
 The four module constants are also exposed as admin tunables; the operator
 widening ``min_face_width_px`` should silence the "small face" warning on a
@@ -7,12 +7,12 @@ changes behaviour, not just the audit row.
 """
 import numpy as np
 
-from server.avatar.quality import assess
+from dh_server.avatar.quality import assess
 
 
 def _landmarks(w=200, cx=360, top=300, chin=620, nose_x=None, nose_y=None):
     pts = np.zeros((478, 2), dtype=np.float32)
-    from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
+    from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 
     pts[LEFT_CHEEK] = (cx - w / 2, (top + chin) / 2)
     pts[RIGHT_CHEEK] = (cx + w / 2, (top + chin) / 2)

@@ -32,11 +32,11 @@ from typing import Callable
 import numpy as np
 from PIL import Image
 
-from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
-from server.avatar.pipeline import AvatarPipeline, PipelineError
-from server.avatar.quality import assess as assess_quality
-from server.avatar.video import is_video_suffix
-from server.config import get_settings
+from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
+from dh_server.avatar.pipeline import AvatarPipeline, PipelineError
+from dh_server.avatar.quality import assess as assess_quality
+from dh_server.avatar.video import is_video_suffix
+from dh_server.config import get_settings
 
 SUBDIR = "musetalk"
 FACE_CROP = 256
@@ -405,7 +405,7 @@ class MuseTalkAvatarPipeline(AvatarPipeline):
         return [np.ascontiguousarray(np.asarray(canvas)[:, :, ::-1])], float(settings.fps)
 
     def _video_frames(self, source_path: Path, settings) -> tuple[list[np.ndarray], float]:
-        from server.avatar.video import decode_frames
+        from dh_server.avatar.video import decode_frames
 
         frames, source_fps = decode_frames(
             source_path,

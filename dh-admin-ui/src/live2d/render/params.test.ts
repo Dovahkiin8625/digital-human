@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { mapToRange, resolveMouthRange } from "./params"
+import { clampToRange, mapToRange, offsetInRange, resolveMouthRange } from "./params"
 
 function fakeModel(specs: Record<string, { min: number; max: number }>) {
   const names = Object.keys(specs)
@@ -45,5 +45,32 @@ describe("mapToRange", () => {
   it("clamps out-of-range input", () => {
     expect(mapToRange(1.4, { min: 0, max: 1 })).toBe(1)
     expect(mapToRange(-0.2, { min: 0, max: 1 })).toBe(0)
+  })
+})
+
+describe("offsetInRange", () => {
+  // An offset is a FRACTION of the range, because rigs disagree wildly on
+  // scale: ParamAngleZ is -30..30 on one model and -1..1 on another, and
+  // "three degrees of head tilt" is not a portable quantity.
+  it("reaches a fraction of the range's half-span", () => {
+    expect(offsetInRange(1, { min: -30, max: 30 }, 0.15)).toBeCloseTo(4.5, 6)
+    expect(offsetInRange(1, { min: -1, max: 1 }, 0.15)).toBeCloseTo(0.15, 6)
+  })
+
+  it("is signed", () => {
+    expect(offsetInRange(-1, { min: -30, max: 30 }, 0.15)).toBeCloseTo(-4.5, 6)
+  })
+
+  it("clamps out-of-range input", () => {
+    expect(offsetInRange(4, { min: -30, max: 30 }, 0.15)).toBeCloseTo(4.5, 6)
+    expect(offsetInRange(-4, { min: -30, max: 30 }, 0.15)).toBeCloseTo(-4.5, 6)
+  })
+})
+
+describe("clampToRange", () => {
+  it("keeps a value inside the range", () => {
+    expect(clampToRange(5, { min: -1, max: 1 })).toBe(1)
+    expect(clampToRange(-5, { min: -1, max: 1 })).toBe(-1)
+    expect(clampToRange(0.5, { min: -1, max: 1 })).toBe(0.5)
   })
 })

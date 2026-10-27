@@ -9,9 +9,9 @@ from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from server.config import get_settings
-from server.db.session import get_engine, init_db
-from server.engine.base import gpu_available
+from dh_server.config import get_settings
+from dh_server.db.session import get_engine, init_db
+from dh_server.engine.base import gpu_available
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ async def _warmup(manager) -> None:
     fetched the weights yet -- must still boot, and the first session will
     surface the real error through its own prepare().
     """
-    from server.engine.base import EngineUnavailable
-    from server.model_registry import DEFAULT_MODEL
+    from dh_server.engine.base import EngineUnavailable
+    from dh_server.model_registry import DEFAULT_MODEL
 
     try:
         engine = manager.engines.engine_for(DEFAULT_MODEL)
@@ -88,7 +88,7 @@ def create_app() -> FastAPI:
     # Before any RTCPeerConnection exists: encoders read the aiortc module
     # globals at construction, so doing this lazily on the first session would
     # miss that session's encoder. Idempotent and cheap.
-    from server.core.webrtc import configure_h264_bitrate
+    from dh_server.core.webrtc import configure_h264_bitrate
 
     configure_h264_bitrate(settings.video_bitrate, settings.video_max_bitrate)
 
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz() -> dict:
-        from server.model_registry import list_models
+        from dh_server.model_registry import list_models
 
         engines = app.state.session_manager.engines.engines()
         models = []
@@ -153,14 +153,14 @@ def create_app() -> FastAPI:
             "models": models,
         }
 
-    from server.api.admin import router as admin_router
-    from server.api.avatars import router as avatars_router
-    from server.api.live2d import router as live2d_router
-    from server.api.sessions import router as sessions_router
-    from server.avatar.store import AvatarStore
-    from server.core.errors import register_handlers
-    from server.core.session_manager import SessionManager
-    from server.engine.pool import EnginePool
+    from dh_server.api.admin import router as admin_router
+    from dh_server.api.avatars import router as avatars_router
+    from dh_server.api.live2d import router as live2d_router
+    from dh_server.api.sessions import router as sessions_router
+    from dh_server.avatar.store import AvatarStore
+    from dh_server.core.errors import register_handlers
+    from dh_server.core.session_manager import SessionManager
+    from dh_server.engine.pool import EnginePool
 
     register_handlers(app)
     app.include_router(admin_router)
@@ -178,7 +178,15 @@ def create_app() -> FastAPI:
 
     from pathlib import Path
 
-    dist = Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
+    # The console is a separate project (``dh-admin-ui``); the server mounts
+    # its build so one process serves the whole product. The default is the
+    # sibling project in this repository -- the package sits one level below
+    # the project directory, so the repository root is two levels up.
+    # DH_ADMIN_UI_DIR points it elsewhere for a deployment that serves the
+    # console itself.
+    dist = Path(settings.admin_ui_dir) if settings.admin_ui_dir else (
+        Path(__file__).resolve().parents[2] / "dh-admin-ui" / "dist"
+    )
     if dist.exists():
         app.mount("/admin", SPAStaticFiles(directory=str(dist), html=True), name="admin")
 

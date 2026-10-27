@@ -12,7 +12,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from server.engine import musetalk_engine as me  # noqa: E402
+from dh_server.engine import musetalk_engine as me  # noqa: E402
 
 # Both markers, because this file needs both halves of the heavy environment:
 # the .venv-musetalk interpreter (torch, diffusers) and a CUDA device. The

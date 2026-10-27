@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-DIST = pathlib.Path(__file__).resolve().parent.parent / "admin-ui" / "dist"
+DIST = pathlib.Path(__file__).resolve().parent.parent.parent / "dh-admin-ui" / "dist"
 INDEX = DIST / "index.html"
 _MINIMAL = '<!doctype html><html><body><div id="root"></div></body></html>'
 
@@ -72,8 +72,8 @@ def test_browser_router_uses_admin_basename():
     # mount; otherwise refresh/deep-links escape it. Not observable from the
     # server, so guard the source directly.
     source = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui"
         / "src"
         / "main.tsx"
     ).read_text(encoding="utf-8")
@@ -82,8 +82,8 @@ def test_browser_router_uses_admin_basename():
 
 def _avatars_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui"
         / "src"
         / "pages"
         / "Avatars.tsx"
@@ -92,8 +92,8 @@ def _avatars_source():
 
 def _api_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "api.ts"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "api.ts"
     ).read_text(encoding="utf-8")
 
 
@@ -159,7 +159,7 @@ def test_reentry_guard_blocks_double_submit_behaviorally():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is required for the behavioral re-entry guard test")
-    ui_root = pathlib.Path(__file__).resolve().parent.parent / "admin-ui"
+    ui_root = pathlib.Path(__file__).resolve().parent.parent.parent / "dh-admin-ui"
     result = subprocess.run(
         [node, "--test", "src/pages/reentryGuard.test.ts"],
         cwd=ui_root,
@@ -235,8 +235,8 @@ def test_avatar_upload_drops_animate_toggle():
 
 def _activate_portrait_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "pages" / "ActivatePortrait.tsx"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "pages" / "ActivatePortrait.tsx"
     ).read_text(encoding="utf-8")
 
 
@@ -374,8 +374,8 @@ def test_tasks_page_file_is_removed():
     # around) along with the route. An orphaned page file would still
     # compile, but a stale import in App.tsx would 404 the operator.
     pages_dir = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "pages"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "pages"
     )
     assert not (pages_dir / "Tasks.tsx").exists(), "Tasks.tsx must be deleted"
 
@@ -497,8 +497,8 @@ def test_activate_portrait_is_first_tab():
     # entry; a regression that re-sorts the nav back to "形象管理" first
     # must fail.
     app_source = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "App.tsx"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "App.tsx"
     ).read_text(encoding="utf-8")
     # The /activate-portrait key comes first among the menu entries.
     activate_idx = app_source.find('"/activate-portrait"')
@@ -530,15 +530,15 @@ def test_nav_label_is_图生视频_not_形象活化():
 
 def _app_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "App.tsx"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "App.tsx"
     ).read_text(encoding="utf-8")
 
 
 def _types_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "types.ts"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "types.ts"
     ).read_text(encoding="utf-8")
 
 
@@ -548,8 +548,8 @@ def test_settings_page_is_gone():
     # route it. The nav entry must also be gone so the tab doesn't render
     # as an empty row.
     pages_dir = (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "pages"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "pages"
     )
     assert not (pages_dir / "Settings.tsx").exists(), "Settings.tsx must be removed"
     app = _app_source()
@@ -582,8 +582,8 @@ def test_types_drops_non_idle_tunables():
 
 def _detail_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "pages" / "AvatarDetail.tsx"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "pages" / "AvatarDetail.tsx"
     ).read_text(encoding="utf-8")
 
 
@@ -603,8 +603,8 @@ def test_detail_has_no_drive_level_slider():
 
 def _models_page_source():
     return (
-        pathlib.Path(__file__).resolve().parent.parent
-        / "admin-ui" / "src" / "pages" / "Models.tsx"
+        pathlib.Path(__file__).resolve().parent.parent.parent
+        / "dh-admin-ui" / "src" / "pages" / "Models.tsx"
     ).read_text(encoding="utf-8")
 
 

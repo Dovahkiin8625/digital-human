@@ -8,8 +8,8 @@
 构建商用数字人服务，对外提供**实时交互数字人视频流**，并提供**后台调试页面**（形象制作、数字人调试）。
 
 **产品形态**：实时交互数字人（2D 照片驱动）。
-**服务边界**：只做「音频驱动 + 渲染 + 视频流输出」。服务 API 收**音频 + 形象 ID**，出口是 WebRTC 视频流。ASR 仍由调用方自建；LLM 与 TTS 后来收回服务内（`server/llm/`、`server/tts/`），管理台据此提供「数字人对话」链路。
-**算力**：自有 GPU 自部署口型驱动推理；引擎层可插拔，无 GPU 时可用纯 CPU 的 `lite` 引擎。
+**服务边界**：只做「音频驱动 + 渲染 + 视频流输出」。服务 API 收**音频 + 形象 ID**，出口是 WebRTC 视频流。ASR 仍由调用方自建；LLM 与 TTS 后来收回服务内（`dh-server/dh_server/llm/`、`dh-server/dh_server/tts/`），管理台据此提供「数字人对话」链路。
+**算力**：自有 GPU 自部署口型驱动推理；引擎层可插拔，无 GPU 时可用纯 CPU 的 `wav2lip` 引擎。
 
 ### 非目标（YAGNI）
 
@@ -27,7 +27,7 @@
        │                   │
        ├──WS 信令────────► 信令/媒体(aiortc) ──► RenderSession ×N
        │                                        ├ AudioIngest（RTP 或 WS 音频）
-       └──WebRTC 媒体──────────────────────────►├ DriveEngine（MuseTalk | lite）
+       └──WebRTC 媒体──────────────────────────►├ DriveEngine（MuseTalk | wav2lip）
                                                 └ StreamSink（WebRTC video track）
 后台调试台(React) ──REST/WS──► Admin API / AvatarStore（SQLite + 磁盘资产）
 ```
@@ -38,14 +38,14 @@
 |---|---|---|
 | API 层 | 形象 CRUD、会话生命周期、业务面 API（目前无鉴权） | REST `/api/v1/*` |
 | SessionManager / RenderSession | 会话编排与状态机（idle/listening/speaking/closed） | 信令 WS + WebRTC track |
-| DriveEngine | 口型驱动引擎抽象：`drive(avatar_pack, audio_chunk) -> frames` | Python 接口，`musetalk`/`lite` 实现 |
+| DriveEngine | 口型驱动引擎抽象：`drive(avatar_pack, audio_chunk) -> frames` | Python 接口，`musetalk`/`wav2lip` 实现 |
 | AvatarStore | 形象包管理：元数据（SQLite）+ 资产文件 | 内部 API |
 | Admin 调试台 | 形象制作、会话调试、系统监控 | 复用 Admin API + WS 事件流 |
 
 **关键决策**
 
-1. 引擎可插拔是第一公民：每个形象记录自己所属的**数字人模型**（`avatars.drive_model`），服务端按这个模型取引擎，多个模型可以同时驻留。引擎不再由环境变量切换（`DRIVE_ENGINE` 已移除），无 GPU 时可用纯 CPU 的 `lite` 引擎跑通全链路。
-2. 形象制作 = 异步预处理任务（AvatarJob）：上传照片 → 人脸检测/对齐/裁剪归一化 → 形象包（归一化图 + 特征缓存 + 元数据）。流水线与引擎在 `server/model_registry.py` 里成对注册（一个模型 = 一条流水线 + 一个引擎）。
+1. 引擎可插拔是第一公民：每个形象记录自己所属的**数字人模型**（`avatars.drive_model`），服务端按这个模型取引擎，多个模型可以同时驻留。引擎不再由环境变量切换（`DRIVE_ENGINE` 已移除），无 GPU 时可用纯 CPU 的 `wav2lip` 引擎跑通全链路。
+2. 形象制作 = 异步预处理任务（AvatarJob）：上传照片 → 人脸检测/对齐/裁剪归一化 → 形象包（归一化图 + 特征缓存 + 元数据）。流水线与引擎在 `dh-server/dh_server/model_registry.py` 里成对注册（一个模型 = 一条流水线 + 一个引擎）。
 3. 进程内 aiortc 而非独立 SFU；`StreamSink` 隔离媒体出口，未来可换推 SFU（方案 B 演化路径）。
 4. 音频双通道进同一 `AudioIngest`：RTP audio track 为主，WS 音频分片为备；引擎无感知。
 5. 会话短生命周期：显式 DELETE 或 60s 无音频自动关闭。
@@ -57,7 +57,7 @@ SQLite 起步（SQLAlchemy ORM，可平滑换 Postgres）。资产存 `data/avat
 ```
 Avatar      id, name, status(pending|processing|ready|failed),
             drive_model, source_image_path, pack_path, config_json, created_at
-            -- drive_model: 驱动这个形象的数字人模型（musetalk / lite / live2d）
+            -- drive_model: 驱动这个形象的数字人模型（musetalk / wav2lip / live2d）
             -- config_json: 归一化参数、口型幅度、表情强度等引擎参数
 AvatarJob   id, avatar_id, stage, progress, error, created_at
 Session     id, avatar_id, status(idle|listening|speaking|closed|error),
@@ -108,7 +108,7 @@ React + Vite + TS SPA，挂 FastAPI 静态服务（单进程部署，无跨域�
 
 ## 7. 测试策略
 
-- 引擎以桩替换，全链路无 GPU 可测（`lite` 引擎本身就是纯 CPU 的真实实现）
+- 引擎以桩替换，全链路无 GPU 可测（`wav2lip` 引擎本身就是纯 CPU 的真实实现）
 - 单测：引擎接口契约、形象管线、会话状态机、token 校验
 - 集成：FastAPI TestClient（REST + WS）
 - 人工 E2E：后台调试台走通「上传照片 → 制作 → 调试会话看流」
@@ -121,19 +121,19 @@ Python 3.11 / FastAPI / aiortc / SQLAlchemy + SQLite；React + Vite + TS；生�
 ```
 digital-human/
 ├─ run.py                   # 启动入口（钉工作目录、import 路径、启动前体检）
-├─ server/                  # Python 包
+├─ dh-server/dh_server/                  # Python 包
 │  ├─ main.py               # FastAPI app factory
 │  ├─ config.py
 │  ├─ model_registry.py     # 数字人模型注册表：一个模型 = 一条流水线 + 一个引擎
 │  ├─ api/                  # REST + WS：avatars, sessions, admin, live2d
 │  ├─ core/                 # session_manager, render_session, audio_ingest, stream_sink, auth, errors
-│  ├─ engine/               # base(接口), musetalk_engine, lite_engine, pool
-│  ├─ avatar/               # store, pipeline, musetalk_pipeline, lite_pipeline, live2d_pipeline, video
+│  ├─ engine/               # base(接口), musetalk_engine, wav2lip_engine, pool
+│  ├─ avatar/               # store, pipeline, musetalk_pipeline, wav2lip_pipeline, live2d_pipeline, video
 │  ├─ db/                   # models, session
 │  ├─ llm/  tts/            # OpenAI 兼容大模型 / MiniMax TTS
 │  ├─ live2d/               # registry（模型校验）, archive（安全解压）
-│  └─ lite/                 # FeatherTalk 的音频、几何、包与训练侧
-├─ admin-ui/                # React + Vite 调试台（含 Electron 桌宠外壳）
+│  └─ wav2lip/              # Wav2Lip 的音频、几何、检测与包
+├─ dh-admin-ui/                # React + Vite 调试台（含 Electron 桌宠外壳）
 ├─ scripts/                 # 环境与权重的准备脚本
 ├─ data/                    # 运行时资产（gitignore）
 ├─ tests/

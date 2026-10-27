@@ -2,7 +2,7 @@
 
 A single 5 B dense checkpoint (``Wan-AI/Wan2.2-TI2V-5B-Diffusers``) drives
 the OSS I2V backend, registered as ``wan22-i2v-5b-bf16`` in
-:data:`server.avatar.animators.ANIMATORS`.
+:data:`dh_server.avatar.animators.ANIMATORS`.
 
 Wan-AI did not release an officially-quantised FP8 variant of this
 checkpoint on either Hugging Face or ModelScope, so there is no fp8
@@ -29,8 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
-from server.avatar.animators import ANIMATORS, AnimatorError
-from server.config import get_settings
+from dh_server.avatar.animators import ANIMATORS, AnimatorError
+from dh_server.config import get_settings
 
 
 #: Root directory under which the weights live.
@@ -197,7 +197,7 @@ class Wan22I2VAnimator:
     # ----- meta (used by /api/admin/backends) -----
 
     def meta(self) -> dict:
-        from server.avatar.vram import get_vram_gb
+        from dh_server.avatar.vram import get_vram_gb
 
         s = self.spec
         needed = int(s["vram_min_gb"])
@@ -322,7 +322,7 @@ class Wan22I2VAnimator:
         except Exception as exc:  # noqa: BLE001 -- surface verbatim to the operator
             raise AnimatorError(f"Wan 2.2 inference failed: {exc}")
 
-        from server.avatar.video import _encode_h264
+        from dh_server.avatar.video import _encode_h264
 
         # ``_run_pipeline`` returns RGB uint8 at canvas size (1280x720 Wan I2V
         # default; we resize below if it doesn't match the project canvas).

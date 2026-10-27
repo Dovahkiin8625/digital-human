@@ -13,7 +13,7 @@ import stat
 import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 _BAD = "live2d_invalid_model"
 

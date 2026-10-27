@@ -88,7 +88,7 @@ def test_signal_ws_unknown_session_closes_4404(client):
 
 
 def test_signal_ws_bye_restores_null_sink(client):
-    from server.core.stream_sink import NullSink
+    from dh_server.core.stream_sink import NullSink
 
     avatar_id = _seed(client)
     sid = _new_session(client, avatar_id)
@@ -104,7 +104,7 @@ def test_signal_ws_bye_restores_null_sink(client):
 
 
 def test_signal_ws_owner_key_attaches_sink(client):
-    from server.core.webrtc import WebRTCSink
+    from dh_server.core.webrtc import WebRTCSink
 
     avatar_id = _seed(client)
     sid = _new_session(client, avatar_id)
@@ -121,7 +121,7 @@ def test_signal_ws_owner_key_attaches_sink(client):
 def test_recvonly_offer_enables_server_audio_return(client):
     # The console offers audio recvonly: the answer must send audio back on the
     # same peer connection as video, and the sink must start feeding its track.
-    from server.core.webrtc import WebRTCSink
+    from dh_server.core.webrtc import WebRTCSink
 
     avatar_id = _seed(client)
     sid = _new_session(client, avatar_id)
@@ -176,7 +176,7 @@ def test_legacy_sendonly_offer_disables_audio_return(client):
 
 def test_signal_ws_teardown_closes_pc_when_session_vanished(client, monkeypatch):
     """If the session is swept/deleted mid-connection, teardown must still close the pc."""
-    from server.core import webrtc
+    from dh_server.core import webrtc
 
     instances = []
 
@@ -225,8 +225,8 @@ def test_signal_ws_teardown_survives_client_disconnect(monkeypatch):
     """
     import asyncio
 
-    from server.core import webrtc
-    from server.core.stream_sink import NullSink
+    from dh_server.core import webrtc
+    from dh_server.core.stream_sink import NullSink
 
     class _StubPC:
         def addTrack(self, track):

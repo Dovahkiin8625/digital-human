@@ -26,7 +26,7 @@
 
 ## 2. 背景：现状与差距
 
-现状（见 `server/engine/musetalk_engine.py`）：
+现状（见 `dh-server/dh_server/engine/musetalk_engine.py`）：
 
 - `_AvatarState` 持有**单帧** `base_rgb`（720×1280 画布）+ **单个** `latents`（`[1,8,32,32]`）+ 单组 `bbox`/`mask`/`mask_crop_box`。
 - `_render` 把 UNet 解出的下半脸融合回这张固定底图；`_device_assets` 把底图/掩码**一次性**搬到显存。
@@ -95,7 +95,7 @@ data/avatars/<avatar_id>/
 
 `bbox` / `mask_crop_box` 保留为**第 0 个有效帧**（`coords.json` 第一行）的值，供旧读取方与缩略图使用；引擎改读 `coords.json`。
 
-## 5. 引擎改动（`server/engine/musetalk_engine.py`）
+## 5. 引擎改动（`dh-server/dh_server/engine/musetalk_engine.py`）
 
 **`_AvatarState` 改为循环形态**
 
@@ -132,7 +132,7 @@ cycle_len:   int = N
 
 ### 6.1 解码函数（新增）
 
-`server/avatar/video.py`：
+`dh-server/dh_server/avatar/video.py`：
 
 ```
 decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, int])
@@ -164,7 +164,7 @@ decode_frames(path: Path, target_fps: int, max_frames: int, canvas: tuple[int, i
 
 **API**：路由不变。`POST /api/v1/avatars` 与 `POST /api/admin/avatars` 仍收 `name` + `file`，共用 `_create_avatar_rows`。仅放宽可接受后缀并加上述校验。新增错误码 `invalid_video`、`video_too_long`。
 
-**前端**（`admin-ui/src/pages/Avatars.tsx`）：
+**前端**（`dh-admin-ui/src/pages/Avatars.tsx`）：
 
 - `Upload.Dragger` 的 `accept` 改为 `image/*,video/*`。
 - 提示文案：「支持 JPG / PNG / MP4 / MOV，视频 ≤15 秒，建议清晰正脸半身」。

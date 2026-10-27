@@ -10,17 +10,17 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from starlette.responses import FileResponse, Response
 
-from server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
-from server.avatar import liveportrait  # noqa: F401 -- side-effect: registers the liveportrait backend
-from server.avatar import wan22  # noqa: F401 -- side-effect: registers the two Wan 2.2 I2V variants
-from server.avatar.pipeline import run_job_in_new_session
-from server.avatar import video
-from server.avatar.store import AvatarStore
-from server.config import get_settings
-from server.core.errors import AppError
-from server.db.models import Avatar, AvatarJob, StreamSession
-from server.db.session import get_db
-from server.model_registry import (
+from dh_server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
+from dh_server.avatar import liveportrait  # noqa: F401 -- side-effect: registers the liveportrait backend
+from dh_server.avatar import wan22  # noqa: F401 -- side-effect: registers the two Wan 2.2 I2V variants
+from dh_server.avatar.pipeline import run_job_in_new_session
+from dh_server.avatar import video
+from dh_server.avatar.store import AvatarStore
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
+from dh_server.db.models import Avatar, AvatarJob, StreamSession
+from dh_server.db.session import get_db
+from dh_server.model_registry import (
     DEFAULT_MODEL,
     SOURCE_ARCHIVE,
     ModelUnavailable,
@@ -76,7 +76,7 @@ def _pipeline_timeline(avatar: Avatar, raw_meta: dict | None) -> dict:
     """Compose the admin-side timeline view from ``Avatar.config_json``.
 
     Each model writes its own block into ``pack.json`` -- ``musetalk`` for
-    MuseTalk, ``lite`` for FeatherTalk -- carrying ``mode``, plus ``crop``,
+    MuseTalk, ``wav2lip`` for Wav2Lip -- carrying ``mode``, plus ``crop``,
     ``detector``, ``version``, ``fps``, ``source_fps``, ``frame_count``, and
     an optional ``warnings`` list. The block is addressed by the avatar's
     own model, so a pack is never read through another model's key.
@@ -123,8 +123,8 @@ class TtsIn(BaseModel):
 
 @router.get("/system")
 def system_info() -> dict:
-    from server.main import get_gpu_flag, get_session_manager
-    from server.model_registry import list_models
+    from dh_server.main import get_gpu_flag, get_session_manager
+    from dh_server.model_registry import list_models
 
     # The engines this pool already holds, not fresh ones per request: a
     # real engine's describe() is cheap, but constructing one per request
@@ -176,7 +176,7 @@ def system_info() -> dict:
 @router.get("/settings")
 def admin_get_settings(db=Depends(get_db)) -> dict:
     """Effective tunables as a flat dict; defaults overridden by stored keys."""
-    from server.avatar.tunables import effective
+    from dh_server.avatar.tunables import effective
 
     return effective(db)
 
@@ -191,8 +191,8 @@ def admin_patch_settings(payload: dict, db=Depends(get_db)) -> dict:
     """
     from datetime import datetime, timezone
 
-    from server.avatar.tunables import dump_json, validate
-    from server.db.models import Setting
+    from dh_server.avatar.tunables import dump_json, validate
+    from dh_server.db.models import Setting
 
     errors = validate(payload)
     if errors:
@@ -207,7 +207,7 @@ def admin_patch_settings(payload: dict, db=Depends(get_db)) -> dict:
             row.updated_at = datetime.now(timezone.utc)
     db.commit()
     # Re-read defaults + overrides for a single coherent response.
-    from server.avatar.tunables import effective
+    from dh_server.avatar.tunables import effective
 
     return effective(db)
 
@@ -234,7 +234,7 @@ def admin_generate_i2v(
     ``/api/admin/tasks/{id}/result.mp4``.
 
     ``backend`` selects one of the portrait animators in
-    ``server/avatar/animators.ANIMATORS``; per-call knobs
+    ``dh_server/avatar/animators.ANIMATORS``; per-call knobs
     (``prompt`` / ``num_frames`` / ``steps`` / ``driver``) are dispatched
     into the chosen backend's own handler so each one sees the constraints
     it understands. ``driver`` is LivePortrait-specific -- other backends
@@ -242,8 +242,8 @@ def admin_generate_i2v(
     knob) still surfaces as 400 -- a doomed task should never enter the
     table.
     """
-    from server.avatar.animators import ANIMATORS, AnimatorError
-    from server.db.models import GenerationTask
+    from dh_server.avatar.animators import ANIMATORS, AnimatorError
+    from dh_server.db.models import GenerationTask
 
     if backend not in ANIMATORS:
         # Surface the *known* names so the operator (or the page's stale
@@ -318,10 +318,10 @@ def _run_i2v_task(task_id: str, subdir: Path, source_path: Path) -> None:
 
     from sqlalchemy.orm import sessionmaker
 
-    from server.avatar.animators import ANIMATORS, AnimatorError
-    from server.config import get_settings
-    from server.db.models import GenerationTask
-    from server.db.session import get_engine
+    from dh_server.avatar.animators import ANIMATORS, AnimatorError
+    from dh_server.config import get_settings
+    from dh_server.db.models import GenerationTask
+    from dh_server.db.session import get_engine
 
     session = sessionmaker(bind=get_engine())()
     try:
@@ -419,7 +419,7 @@ def admin_list_tasks(db=Depends(get_db)) -> dict:
     tasks are pinned to the top so the operator always sees what's running
     first.
     """
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     rows = (
         db.execute(select(GenerationTask).order_by(GenerationTask.created_at.desc()).limit(200))
@@ -432,7 +432,7 @@ def admin_list_tasks(db=Depends(get_db)) -> dict:
 @router.get("/tasks/{task_id}")
 def admin_get_task(task_id: str, db=Depends(get_db)) -> dict:
     """One task by id. Used by the i2v page's progress poll."""
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     _require_uuid_hex(task_id)
     row = db.get(GenerationTask, task_id)
@@ -453,7 +453,7 @@ def admin_delete_task(task_id: str, db=Depends(get_db)) -> Response:
     None), so deleting a still-running task is safe -- the runner just
     no-ops.
     """
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     _require_uuid_hex(task_id)
     row = db.get(GenerationTask, task_id)
@@ -475,7 +475,7 @@ def admin_get_task_result(task_id: str, db=Depends(get_db)) -> Response:
     nothing. The bytes are read from the on-disk path the background runner
     recorded in ``result_json``.
     """
-    from server.db.models import GenerationTask
+    from dh_server.db.models import GenerationTask
 
     _require_uuid_hex(task_id)
     row = db.get(GenerationTask, task_id)
@@ -518,7 +518,7 @@ def admin_list_liveportrait_drivers() -> dict:
       ``scripts/fetch_liveportrait_weights.sh``; user-uploaded extras
       surface here too so the UI doesn't have to fork the registry.
     """
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     return {"drivers": liveportrait.list_drivers()}
 
@@ -662,7 +662,7 @@ def admin_extract_liveportrait_driver_template(
     with an existing driver file, or if the extraction pipeline can't
     process the upload (no face in the source, weights missing, ...).
     """
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     _validate_template_name(name)
     if max_seconds < 0:
@@ -707,7 +707,7 @@ def admin_extract_liveportrait_driver_template(
         raise
 
     try:
-        from server.avatar.liveportrait import LivePortraitAnimator  # noqa: F401 -- side-effect import
+        from dh_server.avatar.liveportrait import LivePortraitAnimator  # noqa: F401 -- side-effect import
     except Exception as exc:  # noqa: BLE001 -- setup path
         target_mp4.unlink(missing_ok=True)
         raise AppError(
@@ -717,7 +717,7 @@ def admin_extract_liveportrait_driver_template(
             503,
         )
 
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     settings = get_settings()
     # Vendored placeholder source. Upstream's ``make_abs_path`` joins
@@ -725,7 +725,7 @@ def admin_extract_liveportrait_driver_template(
     # that and gives us a stable, version-controlled face for the
     # extraction pass.
     placeholder_src = (
-        Path(settings.data_dir).parent  # project root, since data_dir is under it
+        Path(__file__).resolve().parents[2]  # the project directory, next to vendor/
         / "vendor"
         / "LivePortrait-upstream"
         / "assets"
@@ -856,7 +856,7 @@ def admin_get_liveportrait_driver_preview(name: str) -> Response:
     added; the operator can re-run ``scripts/fetch_liveportrait_weights.sh``
     to backfill them).
     """
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     drivers_dir = liveportrait.LIVE_PORTRAIT_DRIVERS_DIR
     # Path-traversal guard: only accept the same name shape the create
@@ -888,7 +888,7 @@ def admin_delete_liveportrait_driver(name: str) -> Response:
     fetch script and the operator should re-run that script to restore
     them, not edit them piecemeal here.
     """
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     if name in liveportrait._DRIVER_SOURCES:
         raise AppError(
@@ -921,7 +921,7 @@ def admin_list_backends() -> dict:
     listing as the operator loads / unloads entries on the Models tab,
     so a freshly-loaded LivePortrait row appears here within one poll.
     """
-    from server.avatar.animators import ANIMATORS
+    from dh_server.avatar.animators import ANIMATORS
 
     out: list[dict] = []
     for name, animator in ANIMATORS.items():
@@ -1000,7 +1000,7 @@ def _create_archived_avatar(db, model, name: str, file, entry: str, expressions:
     try:
         # Imported here so the module attribute is resolved at call time --
         # the test suite replaces ``create_pipeline`` with a double.
-        from server.avatar.pipeline import create_pipeline
+        from dh_server.avatar.pipeline import create_pipeline
 
         config = create_pipeline(model.name).process(
             avatar_id,
@@ -1057,10 +1057,8 @@ def admin_create_avatar(
     ``entry`` / ``expressions`` belong to the archive models (Live2D's
     entry point and emotion map); the other models ignore them.
 
-    ``options`` is a JSON object handed to the model's pipeline. The ``lite``
-    model reads ``train`` (bool) and ``checkpoint`` (path) from it: its
-    visual model is personalised, so a build either trains one or imports
-    one that was trained elsewhere.
+    ``options`` is a JSON object handed to the model's pipeline. The models
+    that need one read their own keys from it; the others ignore it.
     """
     try:
         dh_model = get_model(model)
@@ -1088,7 +1086,7 @@ def admin_create_avatar(
     overrides: dict = {}
     field_errors: dict[str, str] = {}
     if idle_crf != "":
-        from server.avatar.tunables import validate
+        from dh_server.avatar.tunables import validate
 
         try:
             crf_val = int(idle_crf)
@@ -1101,7 +1099,7 @@ def admin_create_avatar(
             else:
                 overrides["idle_crf"] = crf_val
     if idle_preset != "":
-        from server.avatar.tunables import validate
+        from dh_server.avatar.tunables import validate
 
         errs = validate({"idle_preset": idle_preset})
         if errs:
@@ -1164,6 +1162,81 @@ def admin_get_avatar(avatar_id: str, db=Depends(get_db)) -> dict:
     return _admin_avatar_row(db, avatar)
 
 
+class Live2DConfigIn(BaseModel):
+    """The editable part of a Live2D avatar's configuration.
+
+    ``extra='forbid'`` so a typo is a 422 rather than a silently ignored
+    key -- the console sends exactly these two.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    #: Emotion tag -> position in the model's own expression list.
+    expressions: dict[str, int] | None = None
+    #: The project's entry file, relative to the avatar's directory.
+    entry: str | None = None
+
+
+def _live2d_avatar(db, avatar_id: str) -> Avatar:
+    """The Live2D avatar with this id, or a refusal.
+
+    A non-Live2D avatar is refused rather than silently ignored: the
+    endpoints below act on a Cubism project, and there is nothing
+    sensible to do to a MuseTalk avatar here.
+    """
+    _require_uuid_hex(avatar_id)
+    avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
+    if avatar is None:
+        raise AppError("not_found", f"avatar {avatar_id} not found", 404)
+    if avatar.drive_model != "live2d":
+        raise AppError("not_live2d", "该形象不是 Live2D 模型", 400)
+    return avatar
+
+
+@router.get("/avatars/{avatar_id}/live2d/model")
+def admin_live2d_model(avatar_id: str, db=Depends(get_db)) -> dict:
+    """What the model itself declares: its expressions and motion groups.
+
+    The operator's emotion map is written in terms of positions in the
+    model's expression list, so the console needs the names behind those
+    positions to offer a choice. Reading them from the project rather
+    than from the stored config means an avatar that was uploaded
+    without an expression map can still be given one.
+    """
+    from dh_server.live2d.registry import read_model_inventory
+
+    avatar = _live2d_avatar(db, avatar_id)
+    root = AvatarStore(get_settings().data_dir).avatar_dir(avatar_id)
+    return read_model_inventory(root, dict(avatar.config_json or {}))
+
+
+@router.patch("/avatars/{avatar_id}/live2d")
+def admin_update_live2d(avatar_id: str, body: Live2DConfigIn, db=Depends(get_db)) -> dict:
+    """Change a Live2D avatar's emotion map.
+
+    The map is validated against the project on disk before it is
+    stored: an index the model does not declare would become an
+    expressionIndex the client cannot use, and the symptom -- a face
+    that never changes -- would only show up minutes later, in the
+    desktop pet.
+    """
+    from dh_server.live2d.registry import validate_model_dir
+
+    avatar = _live2d_avatar(db, avatar_id)
+    config = dict(avatar.config_json or {})
+    if body.entry:
+        config["model"] = {**(config.get("model") or {}), "entry": body.entry}
+    if body.expressions is not None:
+        config["expressions"] = dict(body.expressions)
+
+    root = AvatarStore(get_settings().data_dir).avatar_dir(avatar_id)
+    validate_model_dir(root, config)
+
+    avatar.config_json = config
+    db.commit()
+    return _admin_avatar_row(db, avatar)
+
+
 @router.delete("/avatars/{avatar_id}", status_code=204)
 def admin_delete_avatar(avatar_id: str, db=Depends(get_db)) -> Response:
     _require_uuid_hex(avatar_id)
@@ -1205,7 +1278,7 @@ def avatar_idle_video(avatar_id: str, db=Depends(get_db)):
     if not path.exists():
         # Built lazily on this threadpool worker: pure CPU, one-time per avatar.
         try:
-            from server.avatar.tunables import effective
+            from dh_server.avatar.tunables import effective
 
             # Pull crf/preset at build time, not at module import time, so a
             # operator PATCH from another console wins the next idle rebuild.
@@ -1322,7 +1395,7 @@ async def synthesize_speech(body: TtsIn, db=Depends(get_db)) -> Response:
     text = body.text.strip()
     if not text:
         raise AppError("empty_text", "text must not be empty", 400)
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     audio = await synthesize(text, body.voice_id, db=db)
     return Response(audio, media_type="audio/wav")
@@ -1355,7 +1428,7 @@ def get_tts_config(db=Depends(get_db)) -> dict:
     to display the raw bearer token. The raw ``api_key`` is *omitted*
     from the response -- ``api_key_masked`` is the only key that leaks.
     """
-    from server.tts.config import mask_api_key, read_config
+    from dh_server.tts.config import mask_api_key, read_config
 
     cfg = read_config(db)
     cfg.pop("api_key", None)
@@ -1371,7 +1444,7 @@ def put_tts_config(body: TtsConfigIn, db=Depends(get_db)) -> dict:
     without a server restart. ``api_key`` is masked in the response so
     the round-trip never leaks the raw bearer token back to the UI.
     """
-    from server.tts.config import mask_api_key, write_config
+    from dh_server.tts.config import mask_api_key, write_config
 
     payload = body.model_dump(exclude_none=True)
     cfg = write_config(db, payload)
@@ -1404,7 +1477,7 @@ def get_llm_config(db=Depends(get_db)) -> dict:
     ``****<last4>`` (or ``"(未设置)"`` when empty) so the UI never has
     to display the raw bearer token.
     """
-    from server.llm.config import is_configured, mask_api_key, read_config
+    from dh_server.llm.config import is_configured, mask_api_key, read_config
 
     cfg = read_config(db)
     # Compute ``configured`` *before* popping api_key so the predicate
@@ -1428,7 +1501,7 @@ def put_llm_config(body: LlmConfigIn, db=Depends(get_db)) -> dict:
     without a server restart. ``api_key`` is masked in the response so
     the round-trip never leaks the raw bearer token back to the UI.
     """
-    from server.llm.config import is_configured, mask_api_key, write_config
+    from dh_server.llm.config import is_configured, mask_api_key, write_config
 
     payload = body.model_dump(exclude_none=True)
     cfg = write_config(db, payload)
@@ -1465,7 +1538,7 @@ async def admin_llm_chat(body: LlmChatIn, db=Depends(get_db)) -> dict:
     don't want SSE. Same request body, same effective config, same error
     mapping.
     """
-    from server.llm.openai import chat
+    from dh_server.llm.openai import chat
 
     content = await chat(body.messages, db=db)
     return {"content": content}
@@ -1490,7 +1563,7 @@ async def admin_llm_chat_stream(body: LlmChatIn, db=Depends(get_db)):
     """
     from starlette.responses import StreamingResponse
 
-    from server.llm.openai import stream_chat
+    from dh_server.llm.openai import stream_chat
 
     async def event_source():
         try:
@@ -1536,7 +1609,7 @@ def list_jobs(db=Depends(get_db)) -> list[dict]:
 
 @router.get("/sessions")
 def admin_list_sessions(db=Depends(get_db)) -> list[dict]:
-    from server.main import get_session_manager
+    from dh_server.main import get_session_manager
 
     manager = get_session_manager()
     rows = (
@@ -1587,7 +1660,7 @@ def admin_close_session(session_id: str, db=Depends(get_db)) -> Response:
     """
     import asyncio
 
-    from server.main import get_session_manager
+    from dh_server.main import get_session_manager
 
     row = db.get(StreamSession, session_id)
     if row is None:
@@ -1648,9 +1721,9 @@ def _drive_engine_for(model_id: str, error_code: str = "no_weights_to_load"):
     the *client* renders, since it has no server engine and therefore no
     weights to mount or release.
     """
-    from server.engine.base import EngineUnavailable
-    from server.main import get_session_manager
-    from server.model_registry import ModelUnavailable, get_model
+    from dh_server.engine.base import EngineUnavailable
+    from dh_server.main import get_session_manager
+    from dh_server.model_registry import ModelUnavailable, get_model
 
     try:
         model = get_model(model_id)
@@ -1682,7 +1755,7 @@ def _resolve_animator_model_id(model_id: str):
         return None, None
     name = model_id[len("animator:"):]
     try:
-        from server.avatar.animators import ANIMATORS
+        from dh_server.avatar.animators import ANIMATORS
     except Exception:  # noqa: BLE001
         return None, None
     animator = ANIMATORS.get(name)
@@ -1905,7 +1978,7 @@ def _animator_model_rows() -> list[dict]:
     """
     out: list[dict] = []
     try:
-        from server.avatar.animators import ANIMATORS
+        from dh_server.avatar.animators import ANIMATORS
     except Exception:  # noqa: BLE001 -- registry import may fail in stub venvs
         ANIMATORS = {}
 
@@ -1920,7 +1993,7 @@ def _animator_model_rows() -> list[dict]:
     # request by ``all_animators()``. Walk the variants directly so the
     # Models tab sees each one as its own row.
     try:
-        from server.avatar import wan22
+        from dh_server.avatar import wan22
 
         for animator in wan22.all_animators():
             row = _animator_model_row(animator)
@@ -1941,13 +2014,13 @@ def _tts_service_row(db) -> dict:
     voice, can I synthesise at all" on the Models tab. Local weight
     presence is replaced with ``configured`` + sample rate cap, all
     read from the SQLite ``settings`` table (via
-    :func:`server.tts.config.read_config`).
+    :func:`dh_server.tts.config.read_config`).
 
     Like the LLM row below, the config has no env layer: a successful
     ``PUT /api/admin/tts/config`` flips the badge on the very next
     Models tab poll.
     """
-    from server.tts.config import read_config
+    from dh_server.tts.config import read_config
 
     cfg = read_config(db)
     api_key = cfg.get("api_key", "")
@@ -1985,7 +2058,7 @@ def _llm_service_row(db) -> dict:
     process lifecycle. The operator-facing surface is "is it configured,
     which provider are we pointed at, which model". The LLM has no env
     defaults: ``configured`` reads purely from the SQLite ``settings``
-    table (via :func:`server.llm.config.read_config`), so a successful
+    table (via :func:`dh_server.llm.config.read_config`), so a successful
     ``PUT /api/admin/llm/config`` flips the badge from red to green on
     the very next Models tab poll.
 
@@ -1995,7 +2068,7 @@ def _llm_service_row(db) -> dict:
     short-circuit the action-column renderer to a hint text and hide
     the button.
     """
-    from server.llm.config import is_configured, read_config
+    from dh_server.llm.config import is_configured, read_config
 
     cfg = read_config(db)
     base_url = cfg.get("base_url", "")
@@ -2047,7 +2120,7 @@ def _client_model_row(model) -> dict:
     browser cannot draw a frame. The SDK status comes from the same
     health probe the System tab shows, so the two never disagree.
     """
-    from server.api.live2d import live2d_health
+    from dh_server.api.live2d import live2d_health
 
     health = live2d_health()
     sdk_dir = Path(health["sdk_dir"])
@@ -2117,7 +2190,7 @@ def admin_list_drive_models() -> list[dict]:
     The create form, the avatar detail page and the session pickers all
     read this one list, so "which models exist" has a single answer.
     """
-    from server.model_registry import catalog
+    from dh_server.model_registry import catalog
 
     return catalog()
 
@@ -2141,9 +2214,9 @@ def admin_list_models(db=Depends(get_db)) -> dict:
     * ``active_sessions`` -- count of currently-running StreamSession
       rows; the unload button refuses when this is non-zero.
     """
-    from server.avatar.vram import get_vram_snapshot
-    from server.main import get_session_manager
-    from server.model_registry import list_models
+    from dh_server.avatar.vram import get_vram_snapshot
+    from dh_server.main import get_session_manager
+    from dh_server.model_registry import list_models
 
     pool = get_session_manager().engines
     rows = [

@@ -15,8 +15,7 @@ export interface DriveModelInfo {
   // session for it.
   client_rendered: boolean;
   // The upload limit for this model's source in seconds, when it overrides
-  // the global one (the lite engine takes minutes of footage). Undefined
-  // means "the global limit applies".
+  // the global one. Undefined means "the global limit applies".
   max_video_seconds?: number | null;
 }
 
@@ -366,6 +365,17 @@ export interface Live2DHealth {
   sdk_present: boolean;
   core_present: boolean;
   shaders_present: boolean;
+}
+
+// GET /api/admin/avatars/{id}/live2d/model -- what the project itself
+// declares. The emotion map is written in terms of positions in the
+// model's expression list, so the console needs the names behind those
+// positions to offer a choice.
+export interface Live2DModelInventory {
+  entry: string;
+  expressions: Array<{ index: number; name: string }>;
+  /** Motion group name -> how many motions it holds. */
+  motions: Record<string, number>;
 }
 
 // Live per-device counters returned by ``get_vram_snapshot``. All

@@ -13,7 +13,9 @@
 #   musetalk/pytorch_model.bin     3.17 GB  -- MuseTalk v1.0; we run v1.5
 set -euo pipefail
 
-ROOT="${1:-data/models/musetalk}"
+# The repository root: ``data/`` lives there, one level above this project.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="${1:-$REPO/data/models/musetalk}"
 MS="https://modelscope.cn/api/v1/models"
 
 # fetch <repo-id> <path-in-repo> <dest>

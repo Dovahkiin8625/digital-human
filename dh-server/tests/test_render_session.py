@@ -3,11 +3,11 @@ import asyncio
 import numpy as np
 import pytest
 
-from server.core.audio_ingest import AudioIngest
-from server.core.render_session import RenderSession, SessionState
-from server.core.render_session import _histogram
-from server.core.stream_sink import FrameBufferSink, NullSink, SinkClosed
-from server.engine.base import AvatarPack
+from dh_server.core.audio_ingest import AudioIngest
+from dh_server.core.render_session import RenderSession, SessionState
+from dh_server.core.render_session import _histogram
+from dh_server.core.stream_sink import FrameBufferSink, NullSink, SinkClosed
+from dh_server.engine.base import AvatarPack
 from doubles import FakeEngine
 
 
@@ -159,7 +159,7 @@ async def test_keepalive_fills_idle_audio_with_silence_on_matching_pts(tmp_path)
 
 @pytest.mark.asyncio
 async def test_push_after_close_raises(tmp_path):
-    from server.core.errors import AppError
+    from dh_server.core.errors import AppError
 
     session, _ = _session(tmp_path)
     await session.start()
@@ -430,7 +430,7 @@ class _IdleEngine(FakeEngine):
         return self._Ctx()
 
     async def idle_frame(self, pack, ctx, pos):
-        from server.engine.musetalk_engine import cycle_index
+        from dh_server.engine.musetalk_engine import cycle_index
 
         self.idle_calls.append(int(pos))
         return self.source[cycle_index(int(pos), self.n)]
@@ -438,7 +438,7 @@ class _IdleEngine(FakeEngine):
     async def drive(self, pack, audio, sample_rate, *, context=None):
         frames = await super().drive(pack, audio, sample_rate, context=context)
         if context is not None:
-            from server.engine.musetalk_engine import cycle_index
+            from dh_server.engine.musetalk_engine import cycle_index
 
             first = int(context.emitted)
             # Mirror the real engine: base frames at phase + the cumulative
@@ -555,7 +555,7 @@ async def test_sink_closed_does_not_advance_position(tmp_path):
 
 @pytest.mark.asyncio
 async def test_second_speech_stretch_continues_without_double_counting(tmp_path):
-    from server.engine.musetalk_engine import cycle_index
+    from dh_server.engine.musetalk_engine import cycle_index
 
     engine = _IdleEngine(n=8)
     session, _ = _session(tmp_path, engine=engine, sink=_LiveSink())

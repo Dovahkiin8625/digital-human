@@ -12,7 +12,7 @@ import io
 
 from PIL import Image
 
-from server.avatar import animators
+from dh_server.avatar import animators
 
 
 def _png():
@@ -33,7 +33,7 @@ def test_backends_endpoint_lists_registry(client, monkeypatch):
     # asserting membership. Without that flip, the test env's
     # not-loaded backends (no weights on disk) would be missing from
     # the listing and the assertion would fail.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     for animator in animators.ANIMATORS.values():
         # Backing attrs the lifecycle methods look at. ``is_loaded`` is
@@ -75,7 +75,7 @@ def test_backends_endpoint_hides_unloaded_animators(client, monkeypatch):
     listing them in the dropdown would be a UI lie. The endpoint
     filters to ``is_loaded=True`` and returns whatever's left.
     """
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Loaded:
         name = "_lp_loaded"
@@ -215,7 +215,7 @@ def test_i2v_submits_task_and_returns_202(client, monkeypatch):
     # The submission endpoint must not block on the encoder. A stub backend
     # that sleeps long enough to exceed any reasonable client timeout is the
     # way to assert the request returns before the work finishes.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Slow:
         name = "slow"
@@ -257,7 +257,7 @@ def test_i2v_task_status_progresses_to_done(client, monkeypatch):
     # After submission, GET /api/admin/tasks/{id} must reflect the backend's
     # progress: status moves queued -> running -> done, and a finished task
     # has a non-NULL result_json pointing at the rendered clip.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Quick:
         name = "quick"
@@ -320,8 +320,8 @@ def test_i2v_task_status_progresses_to_done(client, monkeypatch):
 def test_i2v_task_records_failure(client, monkeypatch):
     # A backend that raises must surface as ``status="failed"`` with the
     # error message intact, never as a 5xx hanging the client.
-    from server.avatar import animators
-    from server.avatar.animators import AnimatorError
+    from dh_server.avatar import animators
+    from dh_server.avatar.animators import AnimatorError
 
     class _Broken:
         name = "broken"
@@ -383,7 +383,7 @@ def test_i2v_submission_rejects_unknown_backend_synchronously(client):
 def test_tasks_list_endpoint_returns_recent(client, monkeypatch):
     # The Tasks tab lists recent generation tasks newest-first. Two
     # submissions yield two rows; the ordering must be deterministic.
-    from server.avatar import animators
+    from dh_server.avatar import animators
 
     class _Noop:
         name = "noop"

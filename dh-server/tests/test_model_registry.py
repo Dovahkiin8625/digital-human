@@ -11,9 +11,9 @@ records the model that owns it.
 """
 import pytest
 
-from server.avatar.pipeline import PipelineError, create_pipeline
-from server.engine.base import EngineUnavailable, create_engine
-from server.model_registry import (
+from dh_server.avatar.pipeline import PipelineError, create_pipeline
+from dh_server.engine.base import EngineUnavailable, create_engine
+from dh_server.model_registry import (
     DEFAULT_MODEL,
     MODELS,
     SOURCE_ARCHIVE,
@@ -47,26 +47,24 @@ def test_live2d_is_a_model_without_a_server_engine():
     assert entry.client_rendered and not entry.server_rendered
 
 
-def test_lite_is_a_server_rendered_model_with_a_longer_source():
-    """The lite engine is driven by the server like MuseTalk -- only its
-    weights are small enough for a CPU. Its source is longer than the
-    default fifteen seconds, because its visual model is trained from the
-    person's own footage."""
-    entry = get_model("lite")
+def test_wav2lip_is_a_server_rendered_model_with_the_global_limits():
+    """The Wav2Lip engine is driven by the server like MuseTalk -- only its
+    weights are small enough for a CPU. It needs no training, so its source
+    is the global fifteen seconds."""
+    entry = get_model("wav2lip")
     assert entry.engine_factory is not None
     assert entry.pipeline_factory is not None
     assert entry.source_kind == SOURCE_IMAGE_VIDEO
     assert entry.server_rendered and not entry.client_rendered
-    assert entry.max_video_seconds is not None
-    assert entry.max_video_seconds > 15.0
-    assert entry.max_video_frames is not None
+    assert entry.max_video_seconds is None
+    assert entry.max_video_frames is None
 
 
 def test_the_models_that_have_no_source_override_use_the_global_limits():
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     settings = get_settings()
-    for name in ("musetalk", "live2d"):
+    for name in ("musetalk", "live2d", "wav2lip"):
         entry = get_model(name)
         assert entry.max_video_seconds is None
         assert entry.max_video_frames is None
@@ -108,7 +106,7 @@ def test_the_default_model_is_the_fallback():
 
 def test_a_registered_model_binds_its_own_engine_and_pipeline(monkeypatch):
     """The extension point: one class pair plus one registration."""
-    import server.model_registry as registry
+    import dh_server.model_registry as registry
 
     built: list[str] = []
 
@@ -141,14 +139,14 @@ def test_a_registered_model_binds_its_own_engine_and_pipeline(monkeypatch):
 def test_a_client_rendered_model_has_no_engine_to_build():
     """Asking for a client-rendered model's engine is an error, not an
     empty object: there is nothing to drive with."""
-    from server.engine.pool import EnginePool
+    from dh_server.engine.pool import EnginePool
 
     with pytest.raises(EngineUnavailable):
         EnginePool().engine_for("live2d")
 
 
 def test_the_pool_caches_one_engine_per_model():
-    from server.engine.pool import EnginePool
+    from dh_server.engine.pool import EnginePool
 
     pool = EnginePool()
     first = pool.engine_for(DEFAULT_MODEL)
@@ -160,7 +158,7 @@ def test_the_pool_caches_one_engine_per_model():
 def test_the_registry_has_no_active_model():
     """There is no process-wide "active model": nothing to freeze, and no
     settings row to write."""
-    import server.model_registry as registry
+    import dh_server.model_registry as registry
 
     assert not hasattr(registry, "activate")
     assert not hasattr(registry, "active")

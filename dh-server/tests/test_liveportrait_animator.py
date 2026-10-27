@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.avatar import animators
+from dh_server.avatar import animators
 
 
 def _png():
@@ -32,7 +32,7 @@ def _tiny_driver_mp4(path, frames: int = 30) -> None:
     decode time. Use the same PyAV libx264 path the rest of the codebase
     uses to keep the test's "real bytes" property.
     """
-    from server.avatar.video import _encode_h264
+    from dh_server.avatar.video import _encode_h264
 
     arr = np.full((frames, 1280, 720, 3), 100, dtype=np.uint8)
     _encode_h264(path, arr, fps=25, crf=28, preset="ultrafast")
@@ -61,7 +61,7 @@ def fake_lp(monkeypatch, tmp_path):
     driver_dir = tmp_path / "liveportrait_drivers"
     driver_dir.mkdir(parents=True, exist_ok=True)
     _tiny_driver_mp4(driver_dir / "subtle.mp4", frames=30)
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(
         liveportrait,
@@ -90,14 +90,14 @@ def fake_lp(monkeypatch, tmp_path):
 def test_registration_on_import():
     # Side-effect import: the module installs a single backend into the
     # registry under the canonical name.
-    from server.avatar import liveportrait  # noqa: F401 -- side effect
+    from dh_server.avatar import liveportrait  # noqa: F401 -- side effect
 
     assert "liveportrait" in animators.ANIMATORS
     assert animators.ANIMATORS["liveportrait"].name == "liveportrait"
 
 
 def test_meta_carries_ui_keys():
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     meta = liveportrait.LivePortraitAnimator().meta()
     # The ActivatePortrait.tsx page reads these exact keys; a rename here
@@ -122,7 +122,7 @@ def test_meta_carries_ui_keys():
 
 
 def test_validate_accepts_wide_num_frames_range():
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     a = liveportrait.LivePortraitAnimator()
     # LivePortrait clips num_frames to the driving clip's length, so the
@@ -137,7 +137,7 @@ def test_validate_accepts_wide_num_frames_range():
 
 
 def test_is_ready_false_when_drivers_missing(tmp_path, monkeypatch):
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", tmp_path, raising=False)
     a = liveportrait.LivePortraitAnimator()
@@ -163,8 +163,8 @@ def test_animate_writes_out_mp4(fake_lp, tmp_path):
 
 
 def test_animate_raises_animator_error_when_not_ready(tmp_path):
-    from server.avatar import animators
-    from server.avatar import liveportrait
+    from dh_server.avatar import animators
+    from dh_server.avatar import liveportrait
 
     # No drivers, no stub: ``is_ready`` is False. The animator must surface
     # a clean AnimatorError pointing at the fetch script, not a generic
@@ -203,7 +203,7 @@ def test_animate_clamps_num_frames_to_driver_length(fake_lp, tmp_path, monkeypat
         seen["num_frames"] = num_frames
         return np.full((num_frames, 1280, 720, 3), 50, dtype=np.uint8)
 
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(liveportrait.LivePortraitAnimator, "_run_pipeline", stub_pipeline)
     fake_lp.animate(src, prompt="", num_frames=9999, steps=10, out_dir=out_dir)
@@ -226,7 +226,7 @@ def _pickle_driver(driver_dir, stem, n_frames=10):
 
 
 def test_list_drivers_reports_canonical_and_extras(tmp_path, monkeypatch):
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", tmp_path, raising=False)
     # Two canonical drivers (one mp4-only, one with a cached pkl) and
@@ -257,7 +257,7 @@ def test_list_drivers_reports_canonical_and_extras(tmp_path, monkeypatch):
 
 
 def test_resolve_driver_prefers_pkl_over_mp4(tmp_path, monkeypatch):
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", tmp_path, raising=False)
     _tiny_driver_mp4(tmp_path / "motion_a.mp4", frames=4)
@@ -268,8 +268,8 @@ def test_resolve_driver_prefers_pkl_over_mp4(tmp_path, monkeypatch):
 
 
 def test_resolve_driver_missing_lists_available(tmp_path, monkeypatch):
-    from server.avatar import animators
-    from server.avatar import liveportrait
+    from dh_server.avatar import animators
+    from dh_server.avatar import liveportrait
 
     monkeypatch.setattr(liveportrait, "LIVE_PORTRAIT_DRIVERS_DIR", tmp_path, raising=False)
     _tiny_driver_mp4(tmp_path / "subtle.mp4", frames=12)
@@ -283,8 +283,8 @@ def test_resolve_driver_missing_lists_available(tmp_path, monkeypatch):
 
 def test_animate_unknown_driver_raises(monkeypatch, tmp_path):
     """``animate(driver=...)`` propagates the registry's AnimatorError."""
-    from server.avatar import animators
-    from server.avatar import liveportrait
+    from dh_server.avatar import animators
+    from dh_server.avatar import liveportrait
 
     # Empty drivers dir so ``animate`` doesn't take the empty-dir branch
     # and reach the resolve step.
@@ -311,7 +311,7 @@ def test_num_frames_zero_means_full_template_length(monkeypatch, tmp_path):
     contract now is that ``num_frames`` is an upper bound the user can
     shorten but not exceed; the default (0 / blank) is "use it all".
     """
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -345,7 +345,7 @@ def test_num_frames_zero_means_full_template_length(monkeypatch, tmp_path):
 
 def test_num_frames_still_caps_template_length(monkeypatch, tmp_path):
     """``num_frames > 0`` still acts as a ceiling (cannot exceed template)."""
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -377,7 +377,7 @@ def test_list_drivers_includes_frames_from_pkl(monkeypatch, tmp_path):
     """``list_drivers()`` surfaces the frame count read from the .pkl."""
     import pickle
 
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -391,7 +391,7 @@ def test_list_drivers_includes_frames_from_pkl(monkeypatch, tmp_path):
 
 def test_list_drivers_reads_frames_sidecar_for_mp4(monkeypatch, tmp_path):
     """For mp4 drivers without a .pkl, the .frames sidecar is the source."""
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -406,7 +406,7 @@ def test_list_drivers_reads_frames_sidecar_for_mp4(monkeypatch, tmp_path):
 
 
 def test_write_frame_count_sidecar_roundtrips(monkeypatch, tmp_path):
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     driver_dir = tmp_path / "drivers"
     driver_dir.mkdir()
@@ -433,7 +433,7 @@ def test_liveportrait_has_weights_dir_property(monkeypatch):
     """
     from pathlib import Path
 
-    from server.avatar import liveportrait
+    from dh_server.avatar import liveportrait
 
     anim = liveportrait.LivePortraitAnimator()
     settings_data_dir = Path("/tmp/fake_data")

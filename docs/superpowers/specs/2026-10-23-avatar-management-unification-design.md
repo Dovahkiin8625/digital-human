@@ -39,7 +39,7 @@
 
 | 现状 | 差距 |
 |---|---|
-| Live2D 只能注册服务端路径（`server/api/live2d.py`） | 用户必须先 SCP 文件到机器上、填绝对路径。没有浏览器上传路径 |
+| Live2D 只能注册服务端路径（`dh-server/dh_server/api/live2d.py`） | 用户必须先 SCP 文件到机器上、填绝对路径。没有浏览器上传路径 |
 | `Avatars.tsx` 四张卡片 | 新建形象 / 形象列表 / 注册 Live2D 模型 / Live2D 模型 |
 | `CopyableId`、状态 `StatusTag`、创建时间列、删除 `Popconfirm`、表格外壳 | 两份逐字重复 |
 | `AvatarDetail.tsx` 只写服务端驱动的分支 | 拉 `idle.mp4` / `normalized.png` / `artifacts` / `timeline`，Live2D 全部 404 或无意义；「按当前设置重建」点了会 500（Live2D 没有 `AvatarJob`，`retry_avatar` 会跑流水线） |
@@ -76,7 +76,7 @@ POST /api/admin/avatars        (multipart/form-data)
 
 `entry` 留空时，遍历解压后的树找 `*.model3.json`：恰好一个就用它，零个或多个则 422 并列出候选路径。
 
-这不是锦上添花，是**实际会踩的坑**：用户在 Windows 上右键压缩 `Hiyori/` 文件夹，得到 `Hiyori/model.model3.json`，写死 `model.model3.json` 会直接失败。探测出的相对路径原样存进 `config.model.entry`，客户端按它拼 URL（`admin-ui/src/live2d/cubism/core.ts:40`），Cubism 的相对引用自然解析——文件留在子目录里也没关系，`_safe_join` 是相对形象根解析的。
+这不是锦上添花，是**实际会踩的坑**：用户在 Windows 上右键压缩 `Hiyori/` 文件夹，得到 `Hiyori/model.model3.json`，写死 `model.model3.json` 会直接失败。探测出的相对路径原样存进 `config.model.entry`，客户端按它拼 URL（`dh-admin-ui/src/live2d/cubism/core.ts:40`），Cubism 的相对引用自然解析——文件留在子目录里也没关系，`_safe_join` 是相对形象根解析的。
 
 ### 3.3 解压安全
 
@@ -88,9 +88,9 @@ POST /api/admin/avatars        (multipart/form-data)
 | **解压炸弹（累计字节）** | `live2d_max_unpacked_bytes`（默认 512 MB）。逐条目累加**声明的** `file_size`，超限即中止 |
 | **解压炸弹（单条目）** | `live2d_max_entry_bytes`（默认 64 MB） |
 
-压缩包本身沿用现有 `avatar_max_upload_bytes`（300 MB，`server/config.py`）——不解压就能拒。
+压缩包本身沿用现有 `avatar_max_upload_bytes`（300 MB，`dh-server/dh_server/config.py`）——不解压就能拒。
 
-累计字节上限**不能**沿用同一个数：300 MB 的 zip 能轻松展开成 30 GB。三个新值放 `server/config.py`，可由 `.env` 覆盖。
+累计字节上限**不能**沿用同一个数：300 MB 的 zip 能轻松展开成 30 GB。三个新值放 `dh-server/dh_server/config.py`，可由 `.env` 覆盖。
 
 实现用 `zipfile.ZipFile` 逐条目手动 `open()` → `shutil.copyfileobj`，**不用 `extractall`**——`extractall` 在 Python 3.12 之前不做路径检查。
 
@@ -103,8 +103,8 @@ POST /api/admin/avatars        (multipart/form-data)
 ### 4.1 新增两个共享件
 
 ```
-admin-ui/src/avatars/DriveModelTag.tsx  数字人模型 → Tag（颜色按模型 id）
-admin-ui/src/avatars/UploadField.tsx    Upload.Dragger 外壳
+dh-admin-ui/src/avatars/DriveModelTag.tsx  数字人模型 → Tag（颜色按模型 id）
+dh-admin-ui/src/avatars/UploadField.tsx    Upload.Dragger 外壳
                                          props: accept / dragText / hint / fileList / onChange
 ```
 
@@ -146,7 +146,7 @@ admin-ui/src/avatars/UploadField.tsx    Upload.Dragger 外壳
 
 **服务端驱动的分支：现有内容一行不改**（预览卡、构建过程 Steps、产物表、底层配置、「按当前设置重建」按钮）。
 
-**客户端渲染（Live2D）分支**（`admin-ui/src/pages/Live2dAvatarDetail.tsx`）：
+**客户端渲染（Live2D）分支**（`dh-admin-ui/src/pages/Live2dAvatarDetail.tsx`）：
 
 | 卡片 | 内容 |
 |---|---|
@@ -191,12 +191,12 @@ Live2D 分支**明确不渲染**：
 
 ### 6.2 前端（vitest）
 
-`admin-ui` **没有** `@testing-library/react` 与 jsdom——`vite.config.ts:34-41` 的 `test` 段没设 `environment`，`package.json` 的 devDependencies 里也没有。现有前端测试（`reentryGuard` / `analyze` / `frame` / `params` / `idle` / `expressions`）全是纯逻辑。
+`dh-admin-ui` **没有** `@testing-library/react` 与 jsdom——`vite.config.ts:34-41` 的 `test` 段没设 `environment`，`package.json` 的 devDependencies 里也没有。现有前端测试（`reentryGuard` / `analyze` / `frame` / `params` / `idle` / `expressions`）全是纯逻辑。
 
 按 `reentryGuard.ts` 的既有先例——它当初就是为了能被 `node --test` 跑（见 `vite.config.ts:36-40` 的注释）而从页面里抽出来的纯函数——把判断逻辑抽成纯函数再测，不引入新依赖：
 
 ```
-admin-ui/src/avatars/describe.ts + describe.test.ts
+dh-admin-ui/src/avatars/describe.ts + describe.test.ts
   driveLabel(avatar)   -> "图片驱动" | "视频驱动" | "客户端渲染"
   parseExpressions(raw) -> { ok: true, value } | { ok: false, error }
 ```

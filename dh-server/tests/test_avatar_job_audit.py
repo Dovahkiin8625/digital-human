@@ -10,9 +10,9 @@ import pytest
 from PIL import Image
 
 from doubles import FakePipeline
-from server.avatar.pipeline import run_avatar_job
-from server.avatar.store import AvatarStore
-from server.db.models import Avatar, AvatarJob, Setting
+from dh_server.avatar.pipeline import run_avatar_job
+from dh_server.avatar.store import AvatarStore
+from dh_server.db.models import Avatar, AvatarJob, Setting
 
 
 @pytest.fixture()
@@ -21,8 +21,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     from sqlalchemy.orm import sessionmaker
 
-    from server.config import get_settings
-    from server.db.session import get_engine, init_db, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import get_engine, init_db, reset_engine
 
     get_settings.cache_clear()
     reset_engine()
@@ -38,7 +38,7 @@ def db(tmp_path, monkeypatch):
 
 def test_avatar_job_records_effective_params(tmp_path, db):
     # Operator-side overrides on two keys.
-    from server.avatar.tunables import dump_json
+    from dh_server.avatar.tunables import dump_json
 
     db.add(Setting(key="face_crop_size", value=dump_json(320)))
     db.add(Setting(key="idle_crf", value=dump_json(16)))
@@ -90,7 +90,7 @@ def test_avatar_job_uses_per_avatar_overrides(tmp_path, db):
     # operator-pushed Setting rows. The audit row reflects what the pipeline
     # actually saw, so a re-encode of the idle clip later reads the same
     # numbers from avatar.tunable_overrides.
-    from server.avatar.tunables import dump_json
+    from dh_server.avatar.tunables import dump_json
 
     db.add(Setting(key="idle_crf", value=dump_json(22)))
     db.commit()

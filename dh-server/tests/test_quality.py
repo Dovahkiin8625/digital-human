@@ -6,7 +6,7 @@ synthetic canvases and mediapipe-shaped landmark arrays -- no torch, no GPU.
 """
 import numpy as np
 
-from server.avatar.quality import assess
+from dh_server.avatar.quality import assess
 
 
 def _landmarks(w=200, cx=360, top=300, chin=620, nose_x=None, nose_y=None):
@@ -16,7 +16,7 @@ def _landmarks(w=200, cx=360, top=300, chin=620, nose_x=None, nose_y=None):
     explicitly. Unused indices are zeros.
     """
     pts = np.zeros((478, 2), dtype=np.float32)
-    from server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
+    from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 
     pts[LEFT_CHEEK] = (cx - w / 2, (top + chin) / 2)
     pts[RIGHT_CHEEK] = (cx + w / 2, (top + chin) / 2)

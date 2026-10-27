@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from server.core.webrtc import consume_audio_track
+from dh_server.core.webrtc import consume_audio_track
 
 
 def _setup(client):

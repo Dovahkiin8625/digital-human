@@ -1,5 +1,5 @@
 [project]
-name = "digital-human"
+name = "dh-server"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
   "numpy>=1.26",
   "pillow>=10.0",
   "aiortc>=1.9",
-  # MiniMax TTS calls (server/tts/minimax.py); also what TestClient needs.
+  # MiniMax TTS calls (dh_server/tts/minimax.py); also what TestClient needs.
   "httpx>=0.27",
 ]
 
@@ -48,19 +48,20 @@ musetalk = [
   # so the first ``pipe(...)`` call doesn't crash with NameError.
   "ftfy>=6.0",
 ]
-# The `lite` (FeatherTalk) engine. It is a strict subset of the musetalk
-# runtime's needs, minus the heavy training/inference extras (diffusers,
-# transformers, mediapipe, librosa): opencv for the frames, torchvision for
-# the perceptual loss, tqdm for the training loop.
+# The `wav2lip` engine. It is a strict subset of the musetalk runtime's
+# needs, minus the heavy training/inference extras (diffusers, transformers,
+# mediapipe): opencv for the frames, librosa + scipy for the mel
+# spectrogram, tqdm for the detector's progress bar.
 #
 # torch is deliberately NOT listed: a CPU-only box wants the CPU wheel, a GPU
 # box wants the CUDA one, and neither is the default pip resolution. Install
 # it from the index you want, e.g.
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-lite = [
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+wav2lip = [
   "numpy>=2.0",
   "opencv-python>=4.10",
-  "torchvision",
+  "librosa>=0.11",
+  "scipy>=1.13",
   "tqdm",
 ]
 
@@ -69,7 +70,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["server*"]
+include = ["dh_server*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

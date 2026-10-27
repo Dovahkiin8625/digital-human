@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 ADMIN = {"X-Admin-Token": "dev-admin-token"}
 
@@ -17,8 +17,8 @@ def tts_db(tmp_path, monkeypatch):
     the console's Models-tab dialog does.
     """
     from tests.env import apply_env
-    from server.config import get_settings
-    from server.db.session import init_db, get_engine, reset_engine
+    from dh_server.config import get_settings
+    from dh_server.db.session import init_db, get_engine, reset_engine
 
     apply_env(monkeypatch, tmp_path)
     reset_engine()
@@ -42,7 +42,7 @@ def _seed_config(db, **overrides):
     Mirrors what the console's Models-tab dialog persists, so the tests
     exercise the same read path production does.
     """
-    from server.tts.config import write_config
+    from dh_server.tts.config import write_config
 
     payload = {
         "api_key": "test-key",
@@ -63,7 +63,7 @@ def _mock_client(handler) -> httpx.AsyncClient:
 
 
 def test_wav_from_pcm_writes_a_16bit_mono_header():
-    from server.tts.minimax import wav_from_pcm
+    from dh_server.tts.minimax import wav_from_pcm
 
     pcm = b"\x01\x02\x03\x04"
     wav = wav_from_pcm(pcm, 32000)
@@ -90,7 +90,7 @@ def test_wav_from_pcm_writes_a_16bit_mono_header():
 
 @pytest.mark.asyncio
 async def test_synthesize_returns_wav_and_sends_the_voice_settings(tts_db):
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     _seed_config(tts_db)
 
@@ -135,7 +135,7 @@ async def test_synthesize_rejects_empty_voice_id(tts_db):
     surfaces as 400 ``missing_voice_id`` so the UI can prompt the user
     rather than silently picking one.
     """
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     _seed_config(tts_db)
 
@@ -157,7 +157,7 @@ async def test_synthesize_without_api_key_raises_not_configured(tts_db):
     synthesise path refuses to call out rather than sending an empty
     bearer token.
     """
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     # A DB with no MiniMax rows at all: the defaults carry an empty key.
     with pytest.raises(AppError) as excinfo:
@@ -168,7 +168,7 @@ async def test_synthesize_without_api_key_raises_not_configured(tts_db):
 
 @pytest.mark.asyncio
 async def test_synthesize_surfaces_a_minimax_error(tts_db):
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     _seed_config(tts_db)
 
@@ -197,7 +197,7 @@ async def test_synthesize_surfaces_a_minimax_error(tts_db):
 async def test_synthesize_rejects_a_non_hex_payload(tts_db):
     # output_format=hex is pinned, but if the reply ever carries a URL instead we
     # want the 502 that names the problem, not a bare ValueError turned 500.
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     _seed_config(tts_db)
 
@@ -223,7 +223,7 @@ async def test_synthesize_rejects_a_non_hex_payload(tts_db):
 
 @pytest.mark.asyncio
 async def test_synthesize_surfaces_a_transport_error(tts_db):
-    from server.tts.minimax import synthesize
+    from dh_server.tts.minimax import synthesize
 
     _seed_config(tts_db)
 
@@ -252,7 +252,7 @@ def test_tts_endpoint_returns_wav(client, monkeypatch):
         captured["voice_id"] = voice_id
         return b"RIFF\x00\x00\x00\x00WAVEfake"
 
-    monkeypatch.setattr("server.tts.minimax.synthesize", fake_synthesize)
+    monkeypatch.setattr("dh_server.tts.minimax.synthesize", fake_synthesize)
 
     resp = client.post(
         "/api/admin/tts", headers=ADMIN, json={"text": "你好", "voice_id": "female-shaonv"}

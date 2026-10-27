@@ -2,7 +2,7 @@
 
 This module owns the *schema* for the small set of parameters that affect
 avatar build quality. The pipeline reads from a DB-backed key/value store at
-``avatarserver.db.models.Setting``; missing keys fall back to the defaults
+``avatardh_server.db.models.Setting``; missing keys fall back to the defaults
 defined here. The admin console writes via ``PATCH /api/admin/settings``.
 
 Picking which knobs are tunable is a deliberate product call: every entry below
@@ -43,7 +43,7 @@ class ParamSpec:
 #: Every admin-tunable knob: name, JSON value type, default, allowed range.
 #: Pipeline and idle-video code import this list to know which keys to honour.
 TUNABLES: tuple[ParamSpec, ...] = (
-    # -- Production pipeline (server/avatar/musetalk_pipeline.py) --
+    # -- Production pipeline (dh_server/avatar/musetalk_pipeline.py) --
     ParamSpec("face_crop_size", "int", 256, minimum=128, maximum=512),
     ParamSpec("bbox_shift", "int", 0, minimum=-100, maximum=100),
     ParamSpec("min_face_width_px", "float", 160.0, minimum=32.0, maximum=720.0),
@@ -52,16 +52,16 @@ TUNABLES: tuple[ParamSpec, ...] = (
     ParamSpec("min_occupancy", "float", 0.92, minimum=0.0, maximum=1.0),
     ParamSpec("video_min_frames", "int", 8, minimum=1, maximum=375),
     ParamSpec("min_detection_confidence", "float", 0.5, minimum=0.0, maximum=1.0),
-    # -- Idle video encoder (server/avatar/video.py) --
+    # -- Idle video encoder (dh_server/avatar/video.py) --
     ParamSpec("idle_crf", "int", 18, minimum=0, maximum=51),
     ParamSpec("idle_preset", "enum", "veryfast", choices=X264_PRESETS),
-    # -- portrait activation (server/avatar/animators.py) --
+    # -- portrait activation (dh_server/avatar/animators.py) --
     # No global tunable for the animator choice itself: the "形象活化" tab lets
     # the operator pick a backend per generation, each of which has its own
     # per-call knobs. Per-call overrides beat a global tunable -- they make
     # one-off experiments possible without leaving fingerprints on every other
     # avatar's build.
-    # -- portrait activation (server/avatar/liveportrait.py) --
+    # -- portrait activation (dh_server/avatar/liveportrait.py) --
     # Default LivePortrait motion template (driver name). The "形象活化" tab
     # pre-selects this for new runs; the operator can still override per-
     # run. Choices are dynamic (whatever's in ``liveportrait_drivers/``) so
@@ -144,7 +144,7 @@ def effective(db, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     from sqlalchemy import select
 
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     out = dict(defaults())
     # Only the tunable rows are merged. The ``settings`` table is shared

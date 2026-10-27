@@ -30,6 +30,11 @@
 - 不重新渲染嘴部：录制源视频时要求人物**闭嘴、不说话**（见 §7 文案）。若源视频
   中嘴部在动，空闲画面会如实显示——这是用户选择的方案前提。
 
+> **例外：`wav2lip` 形象。** 它的源素材是一段**人物在说话**的
+> 视频（模型就是拿这类素材练出来的），"录制时闭嘴"这条前提在它身上成立不了。
+> 所以 wav2lip 的空闲轨是**烘焙**出来的：同一批帧用静音 mel 窗口重绘一遍，嘴
+> 闭着，动作不变（见 2026-10-26-wav2lip-engine-design.md）。
+
 ## 3. 总体架构
 
 空闲画面 = 源视频的解码原始帧，即引擎加载视频形象时已构建的
@@ -132,7 +137,7 @@ cycle_idxs += [
 
 照片形象沿用默认实现（返回 None），现有测试行为不变。
 
-## 5. RenderSession 设计（server/core/render_session.py）
+## 5. RenderSession 设计（dh-server/dh_server/core/render_session.py）
 
 ### 5.1 新增状态
 
@@ -253,7 +258,7 @@ GET /api/admin/avatars/{avatar_id}/normalized.png
 
 ### 6.3 idle.mp4 生成（CPU，零 GPU）
 
-新增模块函数（放在 `server/avatar/video.py`，与 `decode_frames` 同处）：
+新增模块函数（放在 `dh-server/dh_server/avatar/video.py`，与 `decode_frames` 同处）：
 
 ```python
 def build_idle_video(avatar_dir: Path, source: Path, settings) -> Path:
@@ -388,7 +393,7 @@ idle.mp4 生成：
 
 ### 8.3 构建
 
-- `admin-ui` 下 `npm run build` 保持干净（仅有既存 chunk 体积提示）；
+- `dh-admin-ui` 下 `npm run build` 保持干净（仅有既存 chunk 体积提示）；
 - node:test（reentryGuard）不受影响，继续通过。
 
 ## 9. 非目标（YAGNI）

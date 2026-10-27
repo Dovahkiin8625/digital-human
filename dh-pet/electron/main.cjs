@@ -42,7 +42,7 @@ function readConfig() {
     // and the operator can repair the file from the tray.
   }
   try {
-    const legacy = path.join(LEGACY_CONFIG_PATH());
+    const legacy = LEGACY_CONFIG_PATH();
     if (fs.existsSync(legacy)) {
       const next = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(legacy, "utf8")) };
       fs.mkdirSync(path.dirname(CONFIG_PATH()), { recursive: true });

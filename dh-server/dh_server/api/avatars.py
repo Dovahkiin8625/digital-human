@@ -6,13 +6,13 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from starlette.responses import Response
 
-from server.avatar.pipeline import run_job_in_new_session
-from server.avatar.store import AvatarStore
-from server.config import get_settings
-from server.core.errors import AppError
-from server.db.models import Avatar, AvatarJob
-from server.db.session import get_db
-from server.model_registry import DEFAULT_MODEL
+from dh_server.avatar.pipeline import run_job_in_new_session
+from dh_server.avatar.store import AvatarStore
+from dh_server.config import get_settings
+from dh_server.core.errors import AppError
+from dh_server.db.models import Avatar, AvatarJob
+from dh_server.db.session import get_db
+from dh_server.model_registry import DEFAULT_MODEL
 
 router = APIRouter(prefix="/api/v1/avatars", tags=["avatars"])
 
@@ -43,7 +43,7 @@ def _derive_suffix(filename: str | None) -> str:
 
 
 def _serialize(a: Avatar, with_detail: bool = False) -> dict:
-    from server.model_registry import is_client_rendered
+    from dh_server.model_registry import is_client_rendered
 
     data = {
         "avatar_id": a.id,
@@ -82,7 +82,7 @@ def _create_avatar_rows(
     """Create the Avatar + AvatarJob rows and return ``(avatar_id, job_id)``.
 
     Shared by the upload endpoint here and the admin upload endpoint in
-    ``server.api.admin`` so neither duplicates the store/row wiring. Scheduling
+    ``dh_server.api.admin`` so neither duplicates the store/row wiring. Scheduling
     the background job stays with each caller (each owns its BackgroundTasks).
 
     ``tunable_overrides`` is the per-avatar form of the tunables that the

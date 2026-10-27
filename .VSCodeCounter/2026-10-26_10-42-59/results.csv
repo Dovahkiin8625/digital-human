@@ -1,0 +1,204 @@
+"filename", "language", "TOML", "JSON with Comments", "Markdown", "Python", "TypeScript", "TypeScript JSX", "JSON", "JavaScript", "PostCSS", "HTML", "Shell Script", "comment", "blank", "total"
+"e:\project\digital-human\.claude\settings.json", "JSON with Comments", 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6
+"e:\project\digital-human\README.md", "Markdown", 0, 0, 231, 0, 0, 0, 0, 0, 0, 0, 0, 0, 56, 287
+"e:\project\digital-human\admin-ui\electron\main.cjs", "JavaScript", 0, 0, 0, 0, 0, 0, 0, 99, 0, 0, 0, 36, 14, 149
+"e:\project\digital-human\admin-ui\electron\preload.cjs", "JavaScript", 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 15, 2, 23
+"e:\project\digital-human\admin-ui\index.html", "HTML", 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 0, 0, 1, 13
+"e:\project\digital-human\admin-ui\package-lock.json", "JSON", 0, 0, 0, 0, 0, 0, 3641, 0, 0, 0, 0, 0, 1, 3642
+"e:\project\digital-human\admin-ui\package.json", "JSON", 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 1, 33
+"e:\project\digital-human\admin-ui\scripts\typecheck.mjs", "JavaScript", 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 12, 6, 37
+"e:\project\digital-human\admin-ui\src\App.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 140, 0, 0, 0, 0, 0, 14, 6, 160
+"e:\project\digital-human\admin-ui\src\api.ts", "TypeScript", 0, 0, 0, 0, 111, 0, 0, 0, 0, 0, 0, 45, 14, 170
+"e:\project\digital-human\admin-ui\src\avatars\DriveModelTag.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 17, 0, 0, 0, 0, 0, 7, 3, 27
+"e:\project\digital-human\admin-ui\src\avatars\UploadField.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 35, 0, 0, 0, 0, 0, 9, 3, 47
+"e:\project\digital-human\admin-ui\src\avatars\describe.test.ts", "TypeScript", 0, 0, 0, 0, 61, 0, 0, 0, 0, 0, 0, 11, 12, 84
+"e:\project\digital-human\admin-ui\src\avatars\describe.ts", "TypeScript", 0, 0, 0, 0, 37, 0, 0, 0, 0, 0, 0, 24, 7, 68
+"e:\project\digital-human\admin-ui\src\avatars\driveModels.ts", "TypeScript", 0, 0, 0, 0, 35, 0, 0, 0, 0, 0, 0, 10, 4, 49
+"e:\project\digital-human\admin-ui\src\components\LatencyHistogram.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 26, 0, 0, 0, 0, 0, 6, 4, 36
+"e:\project\digital-human\admin-ui\src\components\StatusTag.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 22, 0, 0, 0, 0, 0, 6, 3, 31
+"e:\project\digital-human\admin-ui\src\format.ts", "TypeScript", 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 7, 1, 13
+"e:\project\digital-human\admin-ui\src\live2d\Live2DStage.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 19, 8, 80
+"e:\project\digital-human\admin-ui\src\live2d\audio\analyze.test.ts", "TypeScript", 0, 0, 0, 0, 54, 0, 0, 0, 0, 0, 0, 8, 8, 70
+"e:\project\digital-human\admin-ui\src\live2d\audio\analyze.ts", "TypeScript", 0, 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 28, 14, 107
+"e:\project\digital-human\admin-ui\src\live2d\cubism\core.ts", "TypeScript", 0, 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 35, 9, 88
+"e:\project\digital-human\admin-ui\src\live2d\cubism\model.ts", "TypeScript", 0, 0, 0, 0, 122, 0, 0, 0, 0, 0, 0, 36, 16, 174
+"e:\project\digital-human\admin-ui\src\live2d\cubism\stage.ts", "TypeScript", 0, 0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 21, 11, 113
+"e:\project\digital-human\admin-ui\src\live2d\cubism\types.ts", "TypeScript", 0, 0, 0, 0, 11, 0, 0, 0, 0, 0, 0, 0, 1, 12
+"e:\project\digital-human\admin-ui\src\live2d\mountStage.test.ts", "TypeScript", 0, 0, 0, 0, 79, 0, 0, 0, 0, 0, 0, 8, 8, 95
+"e:\project\digital-human\admin-ui\src\live2d\mountStage.ts", "TypeScript", 0, 0, 0, 0, 41, 0, 0, 0, 0, 0, 0, 15, 7, 63
+"e:\project\digital-human\admin-ui\src\live2d\render\expressions.test.ts", "TypeScript", 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 3, 4, 23
+"e:\project\digital-human\admin-ui\src\live2d\render\expressions.ts", "TypeScript", 0, 0, 0, 0, 11, 0, 0, 0, 0, 0, 0, 8, 0, 19
+"e:\project\digital-human\admin-ui\src\live2d\render\frame.test.ts", "TypeScript", 0, 0, 0, 0, 113, 0, 0, 0, 0, 0, 0, 13, 8, 134
+"e:\project\digital-human\admin-ui\src\live2d\render\frame.ts", "TypeScript", 0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 20, 5, 75
+"e:\project\digital-human\admin-ui\src\live2d\render\idle.test.ts", "TypeScript", 0, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 10, 7, 59
+"e:\project\digital-human\admin-ui\src\live2d\render\idle.ts", "TypeScript", 0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 25, 9, 87
+"e:\project\digital-human\admin-ui\src\live2d\render\params.test.ts", "TypeScript", 0, 0, 0, 0, 39, 0, 0, 0, 0, 0, 0, 4, 6, 49
+"e:\project\digital-human\admin-ui\src\live2d\render\params.ts", "TypeScript", 0, 0, 0, 0, 23, 0, 0, 0, 0, 0, 0, 19, 5, 47
+"e:\project\digital-human\admin-ui\src\llm.test.ts", "TypeScript", 0, 0, 0, 0, 202, 0, 0, 0, 0, 0, 0, 60, 34, 296
+"e:\project\digital-human\admin-ui\src\llm.ts", "TypeScript", 0, 0, 0, 0, 230, 0, 0, 0, 0, 0, 0, 186, 31, 447
+"e:\project\digital-human\admin-ui\src\main.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 43, 0, 0, 0, 0, 0, 8, 4, 55
+"e:\project\digital-human\admin-ui\src\pages\ActivatePortrait.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 806, 0, 0, 0, 0, 0, 99, 51, 956
+"e:\project\digital-human\admin-ui\src\pages\AvatarDetail.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 541, 0, 0, 0, 0, 0, 42, 34, 617
+"e:\project\digital-human\admin-ui\src\pages\Avatars.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 512, 0, 0, 0, 0, 0, 111, 24, 647
+"e:\project\digital-human\admin-ui\src\pages\Chat.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 655, 0, 0, 0, 0, 0, 178, 25, 858
+"e:\project\digital-human\admin-ui\src\pages\Debug.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 501, 0, 0, 0, 0, 0, 52, 23, 576
+"e:\project\digital-human\admin-ui\src\pages\Live2dAvatarDetail.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 86, 0, 0, 0, 0, 0, 18, 5, 109
+"e:\project\digital-human\admin-ui\src\pages\LivePortraits.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 357, 0, 0, 0, 0, 0, 7, 20, 384
+"e:\project\digital-human\admin-ui\src\pages\Models.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 932, 0, 0, 0, 0, 0, 122, 42, 1096
+"e:\project\digital-human\admin-ui\src\pages\Pet.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 194, 0, 0, 0, 0, 0, 27, 17, 238
+"e:\project\digital-human\admin-ui\src\pages\System.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 279, 0, 0, 0, 0, 0, 7, 12, 298
+"e:\project\digital-human\admin-ui\src\pages\reentryGuard.test.ts", "TypeScript", 0, 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 5, 6, 67
+"e:\project\digital-human\admin-ui\src\pages\reentryGuard.ts", "TypeScript", 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 5, 2, 26
+"e:\project\digital-human\admin-ui\src\styles.css", "PostCSS", 0, 0, 0, 0, 0, 0, 0, 0, 25, 0, 0, 7, 5, 37
+"e:\project\digital-human\admin-ui\src\theme.tsx", "TypeScript JSX", 0, 0, 0, 0, 0, 33, 0, 0, 0, 0, 0, 4, 11, 48
+"e:\project\digital-human\admin-ui\src\types.ts", "TypeScript", 0, 0, 0, 0, 210, 0, 0, 0, 0, 0, 0, 150, 21, 381
+"e:\project\digital-human\admin-ui\src\vite-env.d.ts", "TypeScript", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2
+"e:\project\digital-human\admin-ui\src\webrtc.ts", "TypeScript", 0, 0, 0, 0, 136, 0, 0, 0, 0, 0, 0, 29, 17, 182
+"e:\project\digital-human\admin-ui\tsconfig.json", "JSON with Comments", 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 28
+"e:\project\digital-human\admin-ui\vite.config.ts", "TypeScript", 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 22, 2, 43
+"e:\project\digital-human\docs\superpowers\specs\2026-10-08-digital-human-service-design.md", "Markdown", 0, 0, 114, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36, 150
+"e:\project\digital-human\docs\superpowers\specs\2026-10-10-idle-video-playback-design.md", "Markdown", 0, 0, 316, 0, 0, 0, 0, 0, 0, 0, 0, 0, 94, 410
+"e:\project\digital-human\docs\superpowers\specs\2026-10-10-video-driven-avatar-design.md", "Markdown", 0, 0, 157, 0, 0, 0, 0, 0, 0, 0, 0, 0, 62, 219
+"e:\project\digital-human\docs\superpowers\specs\2026-10-22-live2d-digital-human-design.md", "Markdown", 0, 0, 235, 0, 0, 0, 0, 0, 0, 0, 0, 0, 127, 362
+"e:\project\digital-human\docs\superpowers\specs\2026-10-23-avatar-management-unification-design.md", "Markdown", 0, 0, 143, 0, 0, 0, 0, 0, 0, 0, 0, 0, 65, 208
+"e:\project\digital-human\docs\superpowers\specs\2026-10-25-lite-cpu-engine-design.md", "Markdown", 0, 0, 163, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 213
+"e:\project\digital-human\pyproject.toml", "TOML", 55, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 5, 92
+"e:\project\digital-human\run.py", "Python", 0, 0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 50, 38, 260
+"e:\project\digital-human\scripts\fetch_lite_weights.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 18, 13, 95
+"e:\project\digital-human\scripts\fetch_liveportrait_weights.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 62, 14, 161
+"e:\project\digital-human\scripts\fetch_musetalk_weights.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 44, 27, 10, 81
+"e:\project\digital-human\scripts\fetch_rife_weights.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 14, 10, 74
+"e:\project\digital-human\scripts\fetch_wan22_weights.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43, 18, 6, 67
+"e:\project\digital-human\scripts\migrate_minimax_env_to_db.py", "Python", 0, 0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 24, 17, 117
+"e:\project\digital-human\scripts\setup_lite.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 81, 23, 17, 121
+"e:\project\digital-human\scripts\setup_liveportrait.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 166, 83, 37, 286
+"e:\project\digital-human\scripts\setup_musetalk.sh", "Shell Script", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 120, 60, 27, 207
+"e:\project\digital-human\server\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\api\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\api\admin.py", "Python", 0, 0, 0, 1437, 0, 0, 0, 0, 0, 0, 0, 639, 243, 2319
+"e:\project\digital-human\server\api\avatars.py", "Python", 0, 0, 0, 137, 0, 0, 0, 0, 0, 0, 0, 35, 26, 198
+"e:\project\digital-human\server\api\live2d.py", "Python", 0, 0, 0, 95, 0, 0, 0, 0, 0, 0, 0, 94, 28, 217
+"e:\project\digital-human\server\api\sessions.py", "Python", 0, 0, 0, 131, 0, 0, 0, 0, 0, 0, 0, 11, 26, 168
+"e:\project\digital-human\server\avatar\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\avatar\animators.py", "Python", 0, 0, 0, 23, 0, 0, 0, 0, 0, 0, 0, 42, 13, 78
+"e:\project\digital-human\server\avatar\interpolation.py", "Python", 0, 0, 0, 74, 0, 0, 0, 0, 0, 0, 0, 47, 23, 144
+"e:\project\digital-human\server\avatar\landmarks.py", "Python", 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 14, 2, 20
+"e:\project\digital-human\server\avatar\lite_pipeline.py", "Python", 0, 0, 0, 264, 0, 0, 0, 0, 0, 0, 0, 71, 49, 384
+"e:\project\digital-human\server\avatar\live2d_pipeline.py", "Python", 0, 0, 0, 56, 0, 0, 0, 0, 0, 0, 0, 31, 11, 98
+"e:\project\digital-human\server\avatar\liveportrait.py", "Python", 0, 0, 0, 298, 0, 0, 0, 0, 0, 0, 0, 238, 66, 602
+"e:\project\digital-human\server\avatar\loop.py", "Python", 0, 0, 0, 37, 0, 0, 0, 0, 0, 0, 0, 44, 11, 92
+"e:\project\digital-human\server\avatar\musetalk_pipeline.py", "Python", 0, 0, 0, 266, 0, 0, 0, 0, 0, 0, 0, 100, 54, 420
+"e:\project\digital-human\server\avatar\pipeline.py", "Python", 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 40, 21, 138
+"e:\project\digital-human\server\avatar\quality.py", "Python", 0, 0, 0, 79, 0, 0, 0, 0, 0, 0, 0, 38, 22, 139
+"e:\project\digital-human\server\avatar\store.py", "Python", 0, 0, 0, 113, 0, 0, 0, 0, 0, 0, 0, 37, 14, 164
+"e:\project\digital-human\server\avatar\tunables.py", "Python", 0, 0, 0, 88, 0, 0, 0, 0, 0, 0, 0, 58, 22, 168
+"e:\project\digital-human\server\avatar\video.py", "Python", 0, 0, 0, 164, 0, 0, 0, 0, 0, 0, 0, 59, 31, 254
+"e:\project\digital-human\server\avatar\vram.py", "Python", 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0, 35, 5, 78
+"e:\project\digital-human\server\avatar\wan22.py", "Python", 0, 0, 0, 238, 0, 0, 0, 0, 0, 0, 0, 124, 52, 414
+"e:\project\digital-human\server\config.py", "Python", 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 50, 12, 90
+"e:\project\digital-human\server\core\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\core\audio_ingest.py", "Python", 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 6, 31
+"e:\project\digital-human\server\core\auth.py", "Python", 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 17, 5, 32
+"e:\project\digital-human\server\core\errors.py", "Python", 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 0, 11, 38
+"e:\project\digital-human\server\core\render_session.py", "Python", 0, 0, 0, 216, 0, 0, 0, 0, 0, 0, 0, 87, 23, 326
+"e:\project\digital-human\server\core\session_manager.py", "Python", 0, 0, 0, 68, 0, 0, 0, 0, 0, 0, 0, 10, 11, 89
+"e:\project\digital-human\server\core\stream_sink.py", "Python", 0, 0, 0, 27, 0, 0, 0, 0, 0, 0, 0, 11, 15, 53
+"e:\project\digital-human\server\core\webrtc.py", "Python", 0, 0, 0, 178, 0, 0, 0, 0, 0, 0, 0, 46, 31, 255
+"e:\project\digital-human\server\db\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\db\models.py", "Python", 0, 0, 0, 55, 0, 0, 0, 0, 0, 0, 0, 43, 24, 122
+"e:\project\digital-human\server\db\session.py", "Python", 0, 0, 0, 108, 0, 0, 0, 0, 0, 0, 0, 64, 24, 196
+"e:\project\digital-human\server\engine\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\engine\base.py", "Python", 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0, 44, 25, 132
+"e:\project\digital-human\server\engine\lite_engine.py", "Python", 0, 0, 0, 345, 0, 0, 0, 0, 0, 0, 0, 114, 66, 525
+"e:\project\digital-human\server\engine\musetalk_engine.py", "Python", 0, 0, 0, 647, 0, 0, 0, 0, 0, 0, 0, 374, 119, 1140
+"e:\project\digital-human\server\engine\pool.py", "Python", 0, 0, 0, 31, 0, 0, 0, 0, 0, 0, 0, 24, 10, 65
+"e:\project\digital-human\server\lite\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 23, 1, 24
+"e:\project\digital-human\server\lite\audio.py", "Python", 0, 0, 0, 173, 0, 0, 0, 0, 0, 0, 0, 118, 31, 322
+"e:\project\digital-human\server\lite\causal_dataset.py", "Python", 0, 0, 0, 15, 0, 0, 0, 0, 0, 0, 0, 26, 8, 49
+"e:\project\digital-human\server\lite\dataset.py", "Python", 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 38, 15, 117
+"e:\project\digital-human\server\lite\frames.py", "Python", 0, 0, 0, 57, 0, 0, 0, 0, 0, 0, 0, 28, 13, 98
+"e:\project\digital-human\server\lite\geometry.py", "Python", 0, 0, 0, 73, 0, 0, 0, 0, 0, 0, 0, 61, 22, 156
+"e:\project\digital-human\server\lite\landmarks.py", "Python", 0, 0, 0, 92, 0, 0, 0, 0, 0, 0, 0, 25, 18, 135
+"e:\project\digital-human\server\lite\pack.py", "Python", 0, 0, 0, 52, 0, 0, 0, 0, 0, 0, 0, 26, 26, 104
+"e:\project\digital-human\server\lite\vendor.py", "Python", 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 42, 19, 103
+"e:\project\digital-human\server\lite\visual.py", "Python", 0, 0, 0, 44, 0, 0, 0, 0, 0, 0, 0, 28, 14, 86
+"e:\project\digital-human\server\live2d\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1
+"e:\project\digital-human\server\live2d\archive.py", "Python", 0, 0, 0, 94, 0, 0, 0, 0, 0, 0, 0, 66, 20, 180
+"e:\project\digital-human\server\live2d\registry.py", "Python", 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 34, 20, 107
+"e:\project\digital-human\server\llm\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\llm\config.py", "Python", 0, 0, 0, 81, 0, 0, 0, 0, 0, 0, 0, 66, 24, 171
+"e:\project\digital-human\server\llm\openai.py", "Python", 0, 0, 0, 172, 0, 0, 0, 0, 0, 0, 0, 99, 29, 300
+"e:\project\digital-human\server\main.py", "Python", 0, 0, 0, 133, 0, 0, 0, 0, 0, 0, 0, 34, 33, 200
+"e:\project\digital-human\server\model_registry.py", "Python", 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 90, 48, 238
+"e:\project\digital-human\server\tts\__init__.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1
+"e:\project\digital-human\server\tts\config.py", "Python", 0, 0, 0, 93, 0, 0, 0, 0, 0, 0, 0, 64, 22, 179
+"e:\project\digital-human\server\tts\minimax.py", "Python", 0, 0, 0, 83, 0, 0, 0, 0, 0, 0, 0, 34, 17, 134
+"e:\project\digital-human\tests\conftest.py", "Python", 0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 3, 3, 24
+"e:\project\digital-human\tests\doubles.py", "Python", 0, 0, 0, 116, 0, 0, 0, 0, 0, 0, 0, 54, 20, 190
+"e:\project\digital-human\tests\env.py", "Python", 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 10, 4, 22
+"e:\project\digital-human\tests\test_admin_animators.py", "Python", 0, 0, 0, 280, 0, 0, 0, 0, 0, 0, 0, 69, 79, 428
+"e:\project\digital-human\tests\test_admin_api.py", "Python", 0, 0, 0, 309, 0, 0, 0, 0, 0, 0, 0, 53, 97, 459
+"e:\project\digital-human\tests\test_admin_artifacts.py", "Python", 0, 0, 0, 57, 0, 0, 0, 0, 0, 0, 0, 11, 21, 89
+"e:\project\digital-human\tests\test_admin_enrichment.py", "Python", 0, 0, 0, 37, 0, 0, 0, 0, 0, 0, 0, 6, 12, 55
+"e:\project\digital-human\tests\test_admin_idle_video_tunables.py", "Python", 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 14, 22, 101
+"e:\project\digital-human\tests\test_admin_models.py", "Python", 0, 0, 0, 629, 0, 0, 0, 0, 0, 0, 0, 193, 198, 1020
+"e:\project\digital-human\tests\test_admin_sessions_close.py", "Python", 0, 0, 0, 65, 0, 0, 0, 0, 0, 0, 0, 18, 28, 111
+"e:\project\digital-human\tests\test_admin_settings.py", "Python", 0, 0, 0, 59, 0, 0, 0, 0, 0, 0, 0, 21, 18, 98
+"e:\project\digital-human\tests\test_admin_tasks_delete.py", "Python", 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 24, 20, 108
+"e:\project\digital-human\tests\test_admin_tts_config.py", "Python", 0, 0, 0, 70, 0, 0, 0, 0, 0, 0, 0, 51, 17, 138
+"e:\project\digital-human\tests\test_admin_ui.py", "Python", 0, 0, 0, 375, 0, 0, 0, 0, 0, 0, 0, 167, 95, 637
+"e:\project\digital-human\tests\test_animator_loadable.py", "Python", 0, 0, 0, 89, 0, 0, 0, 0, 0, 0, 0, 33, 44, 166
+"e:\project\digital-human\tests\test_animator_vram.py", "Python", 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0, 38, 46, 147
+"e:\project\digital-human\tests\test_auth.py", "Python", 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 4, 8, 36
+"e:\project\digital-human\tests\test_avatar_job_audit.py", "Python", 0, 0, 0, 94, 0, 0, 0, 0, 0, 0, 0, 16, 25, 135
+"e:\project\digital-human\tests\test_avatar_pipeline.py", "Python", 0, 0, 0, 112, 0, 0, 0, 0, 0, 0, 0, 2, 39, 153
+"e:\project\digital-human\tests\test_avatar_store_video.py", "Python", 0, 0, 0, 66, 0, 0, 0, 0, 0, 0, 0, 6, 19, 91
+"e:\project\digital-human\tests\test_avatars_api.py", "Python", 0, 0, 0, 211, 0, 0, 0, 0, 0, 0, 0, 13, 64, 288
+"e:\project\digital-human\tests\test_db_isolation.py", "Python", 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 6, 13
+"e:\project\digital-human\tests\test_db_tenant_cleanup.py", "Python", 0, 0, 0, 119, 0, 0, 0, 0, 0, 0, 0, 22, 29, 170
+"e:\project\digital-human\tests\test_doubles.py", "Python", 0, 0, 0, 39, 0, 0, 0, 0, 0, 0, 0, 8, 14, 61
+"e:\project\digital-human\tests\test_drive_model_pairing.py", "Python", 0, 0, 0, 60, 0, 0, 0, 0, 0, 0, 0, 14, 23, 97
+"e:\project\digital-human\tests\test_e2e_smoke.py", "Python", 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 13, 8, 46
+"e:\project\digital-human\tests\test_engine_models.py", "Python", 0, 0, 0, 124, 0, 0, 0, 0, 0, 0, 0, 73, 48, 245
+"e:\project\digital-human\tests\test_generation_task.py", "Python", 0, 0, 0, 63, 0, 0, 0, 0, 0, 0, 0, 14, 16, 93
+"e:\project\digital-human\tests\test_h264_bitrate.py", "Python", 0, 0, 0, 21, 0, 0, 0, 0, 0, 0, 0, 10, 16, 47
+"e:\project\digital-human\tests\test_healthz.py", "Python", 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 5, 2, 19
+"e:\project\digital-human\tests\test_idle_video.py", "Python", 0, 0, 0, 140, 0, 0, 0, 0, 0, 0, 0, 26, 49, 215
+"e:\project\digital-human\tests\test_idle_video_tunables.py", "Python", 0, 0, 0, 78, 0, 0, 0, 0, 0, 0, 0, 7, 28, 113
+"e:\project\digital-human\tests\test_interpolation.py", "Python", 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 21, 27, 112
+"e:\project\digital-human\tests\test_lite_audio.py", "Python", 0, 0, 0, 72, 0, 0, 0, 0, 0, 0, 0, 34, 35, 141
+"e:\project\digital-human\tests\test_lite_causal_dataset.py", "Python", 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 28, 24, 101
+"e:\project\digital-human\tests\test_lite_engine.py", "Python", 0, 0, 0, 87, 0, 0, 0, 0, 0, 0, 0, 17, 34, 138
+"e:\project\digital-human\tests\test_lite_geometry.py", "Python", 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 19, 28, 95
+"e:\project\digital-human\tests\test_lite_pack.py", "Python", 0, 0, 0, 48, 0, 0, 0, 0, 0, 0, 0, 14, 22, 84
+"e:\project\digital-human\tests\test_lite_pipeline.py", "Python", 0, 0, 0, 97, 0, 0, 0, 0, 0, 0, 0, 18, 29, 144
+"e:\project\digital-human\tests\test_live2d_archive.py", "Python", 0, 0, 0, 147, 0, 0, 0, 0, 0, 0, 0, 37, 46, 230
+"e:\project\digital-human\tests\test_live2d_console_contract.py", "Python", 0, 0, 0, 35, 0, 0, 0, 0, 0, 0, 0, 15, 15, 65
+"e:\project\digital-human\tests\test_live2d_drive_model.py", "Python", 0, 0, 0, 66, 0, 0, 0, 0, 0, 0, 0, 20, 23, 109
+"e:\project\digital-human\tests\test_live2d_hosting.py", "Python", 0, 0, 0, 322, 0, 0, 0, 0, 0, 0, 0, 83, 95, 500
+"e:\project\digital-human\tests\test_live2d_registry.py", "Python", 0, 0, 0, 120, 0, 0, 0, 0, 0, 0, 0, 32, 39, 191
+"e:\project\digital-human\tests\test_liveportrait_animator.py", "Python", 0, 0, 0, 244, 0, 0, 0, 0, 0, 0, 0, 104, 99, 447
+"e:\project\digital-human\tests\test_llm_chat.py", "Python", 0, 0, 0, 340, 0, 0, 0, 0, 0, 0, 0, 109, 106, 555
+"e:\project\digital-human\tests\test_llm_config.py", "Python", 0, 0, 0, 61, 0, 0, 0, 0, 0, 0, 0, 45, 16, 122
+"e:\project\digital-human\tests\test_loop_sequence.py", "Python", 0, 0, 0, 51, 0, 0, 0, 0, 0, 0, 0, 17, 25, 93
+"e:\project\digital-human\tests\test_model_registry.py", "Python", 0, 0, 0, 107, 0, 0, 0, 0, 0, 0, 0, 27, 36, 170
+"e:\project\digital-human\tests\test_musetalk_engine.py", "Python", 0, 0, 0, 728, 0, 0, 0, 0, 0, 0, 0, 200, 236, 1164
+"e:\project\digital-human\tests\test_musetalk_engine_gpu.py", "Python", 0, 0, 0, 62, 0, 0, 0, 0, 0, 0, 0, 15, 16, 93
+"e:\project\digital-human\tests\test_musetalk_pipeline.py", "Python", 0, 0, 0, 111, 0, 0, 0, 0, 0, 0, 0, 19, 46, 176
+"e:\project\digital-human\tests\test_quality.py", "Python", 0, 0, 0, 46, 0, 0, 0, 0, 0, 0, 0, 20, 19, 85
+"e:\project\digital-human\tests\test_quality_thresholds.py", "Python", 0, 0, 0, 43, 0, 0, 0, 0, 0, 0, 0, 13, 19, 75
+"e:\project\digital-human\tests\test_render_session.py", "Python", 0, 0, 0, 405, 0, 0, 0, 0, 0, 0, 0, 64, 111, 580
+"e:\project\digital-human\tests\test_run_launcher.py", "Python", 0, 0, 0, 92, 0, 0, 0, 0, 0, 0, 0, 25, 44, 161
+"e:\project\digital-human\tests\test_sessions_api.py", "Python", 0, 0, 0, 185, 0, 0, 0, 0, 0, 0, 0, 12, 51, 248
+"e:\project\digital-human\tests\test_signal_ws.py", "Python", 0, 0, 0, 173, 0, 0, 0, 0, 0, 0, 0, 28, 70, 271
+"e:\project\digital-human\tests\test_tts_api.py", "Python", 0, 0, 0, 187, 0, 0, 0, 0, 0, 0, 0, 39, 69, 295
+"e:\project\digital-human\tests\test_tts_config.py", "Python", 0, 0, 0, 77, 0, 0, 0, 0, 0, 0, 0, 44, 22, 143
+"e:\project\digital-human\tests\test_tunables.py", "Python", 0, 0, 0, 106, 0, 0, 0, 0, 0, 0, 0, 36, 35, 177
+"e:\project\digital-human\tests\test_video_avatar_gpu.py", "Python", 0, 0, 0, 103, 0, 0, 0, 0, 0, 0, 0, 24, 26, 153
+"e:\project\digital-human\tests\test_video_decode.py", "Python", 0, 0, 0, 83, 0, 0, 0, 0, 0, 0, 0, 10, 31, 124
+"e:\project\digital-human\tests\test_video_pipeline.py", "Python", 0, 0, 0, 80, 0, 0, 0, 0, 0, 0, 0, 11, 27, 118
+"e:\project\digital-human\tests\test_vram_snapshot.py", "Python", 0, 0, 0, 40, 0, 0, 0, 0, 0, 0, 0, 21, 22, 83
+"e:\project\digital-human\tests\test_wan22_animator.py", "Python", 0, 0, 0, 160, 0, 0, 0, 0, 0, 0, 0, 49, 70, 279
+"e:\project\digital-human\tests\test_webrtc_track.py", "Python", 0, 0, 0, 84, 0, 0, 0, 0, 0, 0, 0, 6, 23, 113
+"e:\project\digital-human\tests\test_ws_audio.py", "Python", 0, 0, 0, 54, 0, 0, 0, 0, 0, 0, 0, 6, 22, 82
+"Total", "-", 55, 30, 1359, 15392, 1965, 5232, 3673, 124, 25, 12, 653, 7851, 5546, 41917

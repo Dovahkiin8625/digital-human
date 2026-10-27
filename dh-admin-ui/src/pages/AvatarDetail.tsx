@@ -398,7 +398,7 @@ export default function AvatarDetail() {
       {error && <Alert type="error" showIcon message={error} />}
 
       {isClientRendered ? (
-        <Live2dAvatarDetail info={info} artifacts={artifacts} />
+        <Live2dAvatarDetail info={info} artifacts={artifacts} onSaved={refresh} />
       ) : (
         <>
           {warningList.length > 0 && (

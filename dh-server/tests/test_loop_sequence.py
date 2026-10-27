@@ -8,7 +8,7 @@ arithmetic that must stay here in the torch-free suite.
 import numpy as np
 import pytest
 
-from server.avatar.loop import (
+from dh_server.avatar.loop import (
     CROSSFADE_K,
     SHORT_CLIP_WARNING,
     build_loop_sequence,

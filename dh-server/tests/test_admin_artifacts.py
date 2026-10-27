@@ -72,8 +72,8 @@ def test_timeline_includes_quality_warnings_when_present(client):
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:

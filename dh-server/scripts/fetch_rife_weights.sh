@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Fetch the RIFE 4.9 flownet that remaps sub-25 fps driver videos onto the
-# 25 fps timeline (server/avatar/interpolation.py).
+# 25 fps timeline (dh_server/avatar/interpolation.py).
 #
 # RIFE 4.9 (the v4.7-4.9 timestep-capable architecture: encode stem + four
 # IF blocks, not the midpoint-only HDv3 network shipped in the ModelScope
@@ -14,7 +14,9 @@
 # fail loudly.
 set -euo pipefail
 
-DEST="${1:-data/models/rife/flownet.pkl}"
+# The repository root: ``data/`` lives there, one level above this project.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DEST="${1:-$REPO/data/models/rife/flownet.pkl}"
 WANT_SHA="e55fd00f3cc184e3c65961f4bb827a9da022e78eed36b055242c0ac30000d533"
 SIZE=21345274
 

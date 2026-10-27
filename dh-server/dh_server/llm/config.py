@@ -5,7 +5,7 @@ values to the ``settings`` table via ``PUT /api/admin/llm/config``; the
 chat path reads the layered result on every call so a console edit takes
 effect on the very next request without a server restart.
 
-The MiniMax TTS config (``server/tts/config.py``) has the same shape --
+The MiniMax TTS config (``dh_server/tts/config.py``) has the same shape --
 DB rows over built-in defaults, configured from the Models tab.
 
 Three configurable keys:
@@ -66,7 +66,7 @@ def read_config(db) -> dict[str, Any]:
     """
     from sqlalchemy import select
 
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     out = dict(DEFAULTS)
     rows = db.execute(
@@ -116,11 +116,11 @@ def write_config(db, payload: dict[str, Any]) -> dict[str, Any]:
     so the caller sees the post-write view (including any fields they
     didn't touch).
 
-    Raises :class:`server.core.errors.AppError` with a ``detail`` mapping
+    Raises :class:`dh_server.core.errors.AppError` with a ``detail`` mapping
     of per-field messages so the API layer returns a 400 the UI can
     surface inline.
     """
-    from server.core.errors import AppError
+    from dh_server.core.errors import AppError
 
     errors = validate(payload)
     if errors:
@@ -131,7 +131,7 @@ def write_config(db, payload: dict[str, Any]) -> dict[str, Any]:
             detail=errors,
         )
 
-    from server.db.models import Setting
+    from dh_server.db.models import Setting
 
     for public_name, value in payload.items():
         wire_key = _PUBLIC_TO_KEY[public_name]

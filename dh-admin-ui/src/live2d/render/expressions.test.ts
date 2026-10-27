@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { expressionIndex } from "./expressions"
+import {
+  EMOTION_TAGS,
+  expressionIndex,
+  neutralIndex,
+  NO_EXPRESSION,
+  strippableTags,
+} from "./expressions"
 
 describe("expressionIndex", () => {
   it("maps a known tag", () => {
@@ -13,11 +19,48 @@ describe("expressionIndex", () => {
   })
 
   // A model swapped in at runtime must not be able to blank the pet.
-  it("falls back to neutral for an unknown tag", () => {
+  it("falls back for an unknown tag", () => {
     expect(expressionIndex(["wink"], { smile: 3 }, 0)).toBe(0)
   })
 
-  it("falls back to neutral for no tag", () => {
+  it("falls back for no tag", () => {
     expect(expressionIndex([], { smile: 3 }, 0)).toBe(0)
+  })
+
+  // The default is NO expression, not expression 0. On a real model the
+  // first expression is whatever the author happened to put first --
+  // Natori's is Angry -- so a reply with no emotion in it must not land
+  // on an angry face.
+  it("applies no expression by default", () => {
+    expect(expressionIndex([], { smile: 3 })).toBe(NO_EXPRESSION)
+  })
+})
+
+describe("neutralIndex", () => {
+  it("uses the operator's own neutral", () => {
+    expect(neutralIndex({ neutral: 2, smile: 4 })).toBe(2)
+  })
+
+  it("is no expression when the operator mapped none", () => {
+    expect(neutralIndex({ smile: 4 })).toBe(NO_EXPRESSION)
+  })
+})
+
+describe("strippableTags", () => {
+  // The vocabulary is always stripped, so a tag the model does not map is
+  // still removed instead of being spoken aloud as a word.
+  it("includes the fixed vocabulary whatever the model maps", () => {
+    expect(strippableTags({ smile: 0 })).toEqual(
+      expect.arrayContaining([...EMOTION_TAGS]),
+    )
+  })
+
+  it("includes the model's own tags", () => {
+    expect(strippableTags({ wink: 0 })).toContain("wink")
+  })
+
+  it("does not repeat a tag the model also declares", () => {
+    const tags = strippableTags({ smile: 0 })
+    expect(tags.filter((t) => t === "smile")).toHaveLength(1)
   })
 })

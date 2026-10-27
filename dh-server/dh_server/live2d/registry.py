@@ -10,7 +10,7 @@ server-side trace.
 import json
 from pathlib import Path
 
-from server.core.errors import AppError
+from dh_server.core.errors import AppError
 
 _BAD = "live2d_invalid_model"
 
@@ -40,32 +40,66 @@ def _require_file(root: Path, relative: str, what: str) -> Path:
     return target
 
 
+def _load_spec(root: Path, entry_name: str) -> tuple[dict, Path]:
+    """The project's spec, and the directory its paths are relative to.
+
+    Cubism resolves every FileReferences path relative to the model3.json
+    that declares them, and so does the console's own loader, which
+    fetches the moc from beside the entry. A model that lives in a
+    subfolder -- what right-click compress produces -- names its moc
+    "model.moc3" while the file sits next to the entry, not at the
+    project root, so resolving against the root would reject it.
+    """
+    entry_path = _require_file(root, entry_name, "entry file")
+    try:
+        spec = json.loads(entry_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _fail(f"entry file is not readable JSON: {exc}") from exc
+    return spec, entry_path.parent
+
+
+def read_model_inventory(path: Path, config: dict) -> dict:
+    """The model's own expression list and motion groups.
+
+    The operator's emotion map is written in terms of POSITIONS in the
+    model's expression list, so the console needs the names behind those
+    positions to offer a choice. Reading them from the project rather
+    than from ``config_json`` means an avatar that was uploaded without
+    an expression map can still be given one.
+
+    Raises the same ``live2d_invalid_model`` error as
+    :func:`validate_model_dir` when the project cannot be read.
+    """
+    root = Path(path)
+    entry_name = (config.get("model") or {}).get("entry")
+    if not entry_name:
+        raise _fail("config.model.entry is required")
+    spec, _base = _load_spec(root, entry_name)
+    refs = spec.get("FileReferences") or {}
+    expressions = [
+        {"index": i, "name": str(expr.get("Name"))}
+        for i, expr in enumerate(refs.get("Expressions") or [])
+    ]
+    motions = {
+        group: len(items or [])
+        for group, items in (refs.get("Motions") or {}).items()
+    }
+    return {"entry": entry_name, "expressions": expressions, "motions": motions}
+
+
 def validate_model_dir(path: Path, config: dict) -> dict:
     """Validate ``config`` against the Cubism project at ``path``.
 
     Returns the config unchanged so callers can ``store.save_pack``-style
-    chain it. Raises :class:`AppError` (``live2d_invalid_model``, 422) with a
-    message naming the specific file at fault -- the console shows it
+    chain it. Raises :class:`AppError` (``live2d_invalid_model``, 422) with
+    a message naming the specific file at fault -- the console shows it
     verbatim, and "invalid model" alone would not tell an operator what to fix.
     """
     root = Path(path)
     entry_name = (config.get("model") or {}).get("entry")
     if not entry_name:
         raise _fail("config.model.entry is required")
-    entry_path = _require_file(root, entry_name, "entry file")
-
-    # Cubism resolves every FileReferences path relative to the model3.json
-    # that declares them, and so does the console's own loader, which
-    # fetches the moc from beside the entry. A model that lives in a
-    # subfolder -- what right-click compress produces -- names its moc
-    # "model.moc3" while the file sits next to the entry, not at the
-    # project root, so resolving against the root would reject it.
-    base = entry_path.parent
-
-    try:
-        spec = json.loads(entry_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise _fail(f"entry file is not readable JSON: {exc}") from exc
+    spec, base = _load_spec(root, entry_name)
 
     refs = spec.get("FileReferences") or {}
 

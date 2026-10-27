@@ -76,8 +76,8 @@ def test_upload_rejects_backslash_dotdot_in_suffix(client):
 
 
 def test_validate_suffix_rejects_traversal_segments():
-    from server.api.avatars import _validate_suffix
-    from server.core.errors import AppError
+    from dh_server.api.avatars import _validate_suffix
+    from dh_server.core.errors import AppError
 
     assert _validate_suffix(".png") == ".png"
     for bad in (".a/../b", ".a\\..\\b", "..", ".x/evil", ".x\\evil"):
@@ -88,7 +88,7 @@ def test_validate_suffix_rejects_traversal_segments():
 
 
 def test_derive_suffix_uses_last_extension_or_png():
-    from server.api.avatars import _derive_suffix
+    from dh_server.api.avatars import _derive_suffix
 
     assert _derive_suffix("alice.png") == ".png"
     assert _derive_suffix(None) == ".png"
@@ -97,8 +97,8 @@ def test_derive_suffix_uses_last_extension_or_png():
 
 
 def test_derive_suffix_rejects_traversal_filename():
-    from server.api.avatars import _derive_suffix
-    from server.core.errors import AppError
+    from dh_server.api.avatars import _derive_suffix
+    from dh_server.core.errors import AppError
 
     with pytest.raises(AppError) as ei:
         _derive_suffix("x.png/../../evil")
@@ -107,8 +107,8 @@ def test_derive_suffix_rejects_traversal_filename():
 
 
 def test_require_uuid_hex_rejects_non_hex():
-    from server.api.avatars import _require_uuid_hex
-    from server.core.errors import AppError
+    from dh_server.api.avatars import _require_uuid_hex
+    from dh_server.core.errors import AppError
 
     assert _require_uuid_hex("a" * 32) == "a" * 32
     good = "0123456789abcdef0123456789abcdef"
@@ -124,8 +124,8 @@ def test_avatar_job_id_fits_pk_column_contract(client):
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import AvatarJob
-    from server.db.session import get_engine
+    from dh_server.db.models import AvatarJob
+    from dh_server.db.session import get_engine
 
     resp = client.post(
         "/api/v1/avatars",
@@ -150,7 +150,7 @@ def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
     def fake_delete(self, avatar_id):
         called.append(avatar_id)
 
-    monkeypatch.setattr("server.avatar.store.AvatarStore.delete_assets", fake_delete)
+    monkeypatch.setattr("dh_server.avatar.store.AvatarStore.delete_assets", fake_delete)
     resp = client.delete("/api/v1/avatars/not-a-uuid")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
@@ -160,15 +160,15 @@ def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
 def _stub_video(monkeypatch, duration=2.0, fps=25.0):
     # Both call sites look the names up on the module at call time (store does
     # `video.probe_video`, the fake pipeline `video.decode_frames`), which is
-    # what makes patching `server.avatar.video` sufficient for both.
+    # what makes patching `dh_server.avatar.video` sufficient for both.
     monkeypatch.setattr(
-        "server.avatar.video.probe_video",
+        "dh_server.avatar.video.probe_video",
         lambda p: {"fps": fps, "frame_count": int(duration * fps), "duration": duration},
     )
     import numpy as np
 
     monkeypatch.setattr(
-        "server.avatar.video.decode_frames",
+        "dh_server.avatar.video.decode_frames",
         lambda p, target_fps, max_frames, canvas: (
             np.full((1, canvas[1], canvas[0], 3), 128, np.uint8),
             fps,
@@ -220,7 +220,7 @@ def test_avatar_oversized_upload_is_413_and_creates_no_rows(client, monkeypatch)
     # mid-stream; this exercises the authoritative path regardless of whether
     # the multipart parser populated UploadFile.size.
     monkeypatch.setenv("DH_AVATAR_MAX_UPLOAD_BYTES", "1024")
-    from server.config import get_settings
+    from dh_server.config import get_settings
 
     get_settings.cache_clear()
     resp = client.post(
@@ -234,8 +234,8 @@ def test_avatar_oversized_upload_is_413_and_creates_no_rows(client, monkeypatch)
     from sqlalchemy import select
     from sqlalchemy.orm import sessionmaker
 
-    from server.db.models import Avatar
-    from server.db.session import get_engine
+    from dh_server.db.models import Avatar
+    from dh_server.db.session import get_engine
 
     db = sessionmaker(bind=get_engine())()
     try:
@@ -250,14 +250,14 @@ def test_avatar_video_with_zero_frames_fails_with_typed_error(client, monkeypatc
     # Probe accepts the clip, but the decoder yields zero frames (e.g. a
     # container with a header and no decodable samples).
     monkeypatch.setattr(
-        "server.avatar.video.probe_video",
+        "dh_server.avatar.video.probe_video",
         lambda p: {"fps": 25.0, "frame_count": 0, "duration": 2.0},
     )
 
     def zero_decode(p, target_fps, max_frames, canvas):
         return np.zeros((0, canvas[1], canvas[0], 3), np.uint8), 25.0
 
-    monkeypatch.setattr("server.avatar.video.decode_frames", zero_decode)
+    monkeypatch.setattr("dh_server.avatar.video.decode_frames", zero_decode)
     resp = client.post(
         "/api/v1/avatars",
             data={"name": "Empty"},
@@ -272,12 +272,12 @@ def test_avatar_video_with_zero_frames_fails_with_typed_error(client, monkeypatc
 
 
 def test_avatar_undecodable_video_is_422(client, monkeypatch):
-    from server.avatar.video import VideoError
+    from dh_server.avatar.video import VideoError
 
     def boom(p):
         raise VideoError("cannot open video")
 
-    monkeypatch.setattr("server.avatar.video.probe_video", boom)
+    monkeypatch.setattr("dh_server.avatar.video.probe_video", boom)
     resp = client.post(
         "/api/v1/avatars",
             data={"name": "Bad"},
