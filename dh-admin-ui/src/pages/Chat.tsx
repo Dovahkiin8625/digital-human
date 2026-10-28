@@ -52,8 +52,8 @@ import {
 } from "../llm";
 
 // MiniMax's Chinese system voices, plus a custom escape hatch for a
-// cloned voice. The list lives in ../voices so the desktop pet, which has
-// no room for a picker, takes the same default.
+// cloned voice. The list lives in ../voices so every tab offers the same
+// set.
 
 // Avatar display name from the list, falling back to the bare id
 // when an avatar has been deleted since the session started.

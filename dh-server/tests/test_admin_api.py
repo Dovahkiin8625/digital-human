@@ -15,14 +15,14 @@ def _png(size=(640, 800)):
 
 def _upload_avatar(client, name):
     return client.post(
-        "/api/v1/avatars", data={"name": name},
+        "/api/admin/avatars", data={"name": name, "model": "musetalk"},
         files={"file": ("a.png", _png(), "image/png")},
     ).json()["avatar_id"]
 
 
 def _admin_avatar(client, name="a", size=(640, 800)):
     return client.post(
-        "/api/admin/avatars", data={"name": name},
+        "/api/admin/avatars", data={"name": name, "model": "musetalk"},
         files={"file": ("a.png", _png(size), "image/png")},
     )
 

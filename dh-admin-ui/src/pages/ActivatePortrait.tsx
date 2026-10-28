@@ -33,7 +33,7 @@ import {
   ReloadOutlined,
   SwapOutlined,
 } from "@ant-design/icons";
-import { api, downloadWithToken } from "../api";
+import { api, downloadFile } from "../api";
 import type { GenerationTask } from "../types";
 import { previewUrl as driverPreviewUrl } from "./LivePortraits";
 
@@ -84,14 +84,6 @@ async function fetchDrivers(): Promise<DriverInfo[]> {
     return (await api<{ drivers: DriverInfo[] }>("/api/admin/liveportrait-drivers")).drivers ?? [];
   } catch {
     return [];
-  }
-}
-
-async function fetchSettings(): Promise<{ default_liveportrait_driver?: string } | null> {
-  try {
-    return await api<{ default_liveportrait_driver?: string }>("/api/admin/settings");
-  } catch {
-    return null;
   }
 }
 
@@ -247,18 +239,12 @@ useEffect(() => {
 
   // Driver list -- only meaningful for the LivePortrait backend, but we fetch
   // it eagerly so the dropdown is populated by the time the user picks that
-  // backend.
+  // backend. The first driver is the default: the operator picks the one
+  // they want per run, and the driver is not a global setting.
   useEffect(() => {
     void fetchDrivers().then((rows) => {
       setDrivers(rows);
-      void fetchSettings().then((settings) => {
-        const preferred = settings?.default_liveportrait_driver;
-        if (preferred && rows.some((d) => d.name === preferred)) {
-          setPickedDriver((current) => current ?? preferred);
-        } else {
-          setPickedDriver((current) => current ?? rows[0]?.name);
-        }
-      });
+      setPickedDriver((current) => current ?? rows[0]?.name);
     });
   }, []);
 
@@ -457,7 +443,7 @@ useEffect(() => {
   async function onDownload() {
     if (!drawerTask) return;
     try {
-      await downloadWithToken(`/api/admin/tasks/${drawerTask.task_id}/result.mp4`);
+      await downloadFile(`/api/admin/tasks/${drawerTask.task_id}/result.mp4`);
     } catch (err) {
       message.error((err as Error).message);
     }

@@ -1,9 +1,8 @@
 """The console <-> server contract for Live2D.
 
-The console's three pages all read ``/api/admin/avatars`` and branch on
-the avatar's ``drive_model``. The pet reads ``/api/v1/avatars`` filtered
-by the same field. Each endpoint has its own serialiser, and each was
-missing a field the other side needs -- which is how a Live2D avatar
+The console's pages all read ``/api/admin/avatars`` and branch on the
+avatar's ``drive_model``. Each endpoint has its own serialiser, and each
+was missing a field the other side needs -- which is how a Live2D avatar
 could be registered successfully and then be invisible to every page that
 can select one.
 """
@@ -52,7 +51,7 @@ def test_v1_list_carries_drive_model_and_config(client):
     built from config.model.entry, and the emotion allow-list comes from
     config.expressions."""
     _seed(client)
-    row = client.get("/api/v1/avatars", params={"drive_model": "live2d"}).json()[0]
+    row = client.get("/api/admin/avatars", params={"drive_model": "live2d"}).json()[0]
     assert row["drive_model"] == "live2d"
     assert row["config"]["model"]["entry"] == "model.model3.json"
     assert row["config"]["expressions"] == {"smile": 0}

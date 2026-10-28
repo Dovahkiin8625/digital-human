@@ -1,20 +1,23 @@
 """Admin-tunable avatar-creation knobs.
 
-This module owns the *schema* for the small set of parameters that affect
-avatar build quality. The pipeline reads from a DB-backed key/value store at
-``avatardh_server.db.models.Setting``; missing keys fall back to the defaults
-defined here. The admin console writes via ``PATCH /api/admin/settings``.
+This module owns the *schema* for the parameters that affect how an
+avatar is built. The list is deliberately short: every entry here has a
+real, observable effect on the produced avatar. A knob that nothing reads
+is worse than no knob at all -- it looks like a setting, and it is not.
 
-Picking which knobs are tunable is a deliberate product call: every entry below
-has a real, observable effect on the produced avatar. Keep this list short --
-adding a knob for its own sake grows the surface area without helping anyone.
+Today there are two, and they both belong to the idle video encoder:
+``idle_crf`` and ``idle_preset``. The create form captures them per
+avatar, and they are read when the idle clip is encoded
+(``dh_server/api/admin.py``).
+
+Which digital-human model drives an avatar is NOT a tunable: each avatar
+records its own model (``avatars.drive_model``), and the Models tab
+loads and unloads each model's weights on its own.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal
-
-import json
 
 # The presets are all x264 ones; PyAV rejects anything not on its list.
 X264_PRESETS = (
@@ -41,38 +44,15 @@ class ParamSpec:
 
 
 #: Every admin-tunable knob: name, JSON value type, default, allowed range.
-#: Pipeline and idle-video code import this list to know which keys to honour.
 TUNABLES: tuple[ParamSpec, ...] = (
-    # -- Production pipeline (dh_server/avatar/musetalk_pipeline.py) --
-    ParamSpec("face_crop_size", "int", 256, minimum=128, maximum=512),
-    ParamSpec("bbox_shift", "int", 0, minimum=-100, maximum=100),
-    ParamSpec("min_face_width_px", "float", 160.0, minimum=32.0, maximum=720.0),
-    ParamSpec("min_nose_ratio", "float", 0.55, minimum=0.0, maximum=1.0),
-    ParamSpec("min_sharpness", "float", 60.0, minimum=0.0, maximum=2000.0),
-    ParamSpec("min_occupancy", "float", 0.92, minimum=0.0, maximum=1.0),
-    ParamSpec("video_min_frames", "int", 8, minimum=1, maximum=375),
-    ParamSpec("min_detection_confidence", "float", 0.5, minimum=0.0, maximum=1.0),
     # -- Idle video encoder (dh_server/avatar/video.py) --
     ParamSpec("idle_crf", "int", 18, minimum=0, maximum=51),
     ParamSpec("idle_preset", "enum", "veryfast", choices=X264_PRESETS),
-    # -- portrait activation (dh_server/avatar/animators.py) --
-    # No global tunable for the animator choice itself: the "形象活化" tab lets
-    # the operator pick a backend per generation, each of which has its own
-    # per-call knobs. Per-call overrides beat a global tunable -- they make
-    # one-off experiments possible without leaving fingerprints on every other
-    # avatar's build.
-    # -- portrait activation (dh_server/avatar/liveportrait.py) --
-    # Default LivePortrait motion template (driver name). The "形象活化" tab
-    # pre-selects this for new runs; the operator can still override per-
-    # run. Choices are dynamic (whatever's in ``liveportrait_drivers/``) so
-    # we don't bind the set here -- the admin UI fetches the live list and
-    # validates against it.
-    ParamSpec("default_liveportrait_driver", "str", "subtle"),
 )
 
 
 def defaults() -> dict[str, Any]:
-    """All defaults as a dict; the source of truth for ``GET /api/admin/settings``."""
+    """All defaults as a dict."""
     return {p.name: p.default for p in TUNABLES}
 
 
@@ -86,8 +66,8 @@ def by_name(name: str) -> ParamSpec:
 def validate(payload: dict[str, Any]) -> dict[str, str]:
     """Reject unknown keys and out-of-range values; return ``{name: msg}`` errors.
 
-    Empty mapping means OK. ``payload`` is whatever the operator sent; partial
-    updates are fine because each key validates independently.
+    Empty mapping means OK. ``payload`` is whatever the operator sent;
+    partial updates are fine because each key validates independently.
     """
     errors: dict[str, str] = {}
     for name, value in payload.items():
@@ -113,55 +93,21 @@ def validate(payload: dict[str, Any]) -> dict[str, str]:
                 continue
             if spec.maximum is not None and v > spec.maximum:
                 errors[name] = f"must be <= {spec.maximum}"
+                continue
     return errors
 
 
-def coerce_json(value: str) -> Any:
-    """Decode a stored JSON value back to its native type."""
-    return json.loads(value)
+def effective(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The values that apply to one avatar.
 
+    Defaults first, then the per-avatar overrides the create form
+    captured (``avatars.tunable_overrides``). There is no global layer
+    above the defaults: nothing could write one.
 
-def dump_json(value: Any) -> str:
-    """Encode a value for SQLite storage; preserves bool/int/float/str exactly."""
-    return json.dumps(value)
-
-
-def effective(db, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Return the *currently effective* tunable values for one DB session.
-
-    Defaults are always present; stored overrides win on each key. The helper
-    is called per pipeline invocation, so a console update is picked up on the
-    very next avatar without a server restart. ``db`` is whatever the caller
-    holds -- the FastAPI Depends(get_db) generator, a BackgroundTasks session,
-    or a unit test's hand-rolled session.
-
-    ``overrides`` lets one caller (typically the avatar pipeline, reading the
-    per-avatar ``tunable_overrides`` column at build time) take precedence
-    over both the module defaults AND the operator-pushed Setting rows.
-    Layering: defaults < Setting rows < overrides. Keys absent from the
-    override dict fall through to the next layer; passing ``None`` is the
-    same as omitting the argument.
+    ``overrides`` may be ``None`` or ``{}``, which both mean "no
+    override".
     """
-    from sqlalchemy import select
-
-    from dh_server.db.models import Setting
-
-    out = dict(defaults())
-    # Only the tunable rows are merged. The ``settings`` table is shared
-    # with the cloud-service configs (``llm_api_key`` / ``minimax_api_key``
-    # among them), and this dict is served verbatim by
-    # ``GET /api/admin/settings`` -- an unauthenticated endpoint. Selecting
-    # the whole table would hand out those bearer tokens in plaintext.
-    rows = db.execute(
-        select(Setting).where(Setting.key.in_([p.name for p in TUNABLES]))
-    ).scalars().all()
-    for row in rows:
-        try:
-            out[row.key] = coerce_json(row.value)
-        except (ValueError, TypeError):
-            # A malformed value falls back to the default rather than 500-ing the
-            # caller; the admin can re-PATCH to fix it.
-            continue
+    out = defaults()
     if overrides:
         out.update(overrides)
     return out

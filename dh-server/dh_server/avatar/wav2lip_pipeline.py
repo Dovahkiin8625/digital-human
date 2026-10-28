@@ -180,10 +180,7 @@ class Wav2LipAvatarPipeline(AvatarPipeline):
             image = Image.open(source_path).convert("RGB")
         except Exception as exc:  # noqa: BLE001 -- the upload validator's business
             raise PipelineError(f"图片无法解码：{exc}") from exc
-        canvas = Image.new("RGB", self._canvas(), (16, 16, 24))
-        scale = min(canvas.width / image.width, canvas.height / image.height)
-        new = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
-        canvas.paste(image.resize(new, Image.LANCZOS), ((canvas.width - new[0]) // 2, (canvas.height - new[1]) // 2))
+        canvas = video.fit_to_canvas(image, *self._canvas())
         return np.ascontiguousarray(np.asarray(canvas)[:, :, ::-1])
 
     # -- detection ------------------------------------------------------

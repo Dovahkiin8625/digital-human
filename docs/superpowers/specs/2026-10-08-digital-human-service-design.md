@@ -133,7 +133,7 @@ digital-human/
 │  ├─ llm/  tts/            # OpenAI 兼容大模型 / MiniMax TTS
 │  ├─ live2d/               # registry（模型校验）, archive（安全解压）
 │  └─ wav2lip/              # Wav2Lip 的音频、几何、检测与包
-├─ dh-admin-ui/                # React + Vite 调试台（含 Electron 桌宠外壳）
+├─ dh-admin-ui/                # React + Vite 调试台
 ├─ scripts/                 # 环境与权重的准备脚本
 ├─ data/                    # 运行时资产（gitignore）
 ├─ tests/

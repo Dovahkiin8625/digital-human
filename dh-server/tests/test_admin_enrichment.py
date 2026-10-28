@@ -18,7 +18,7 @@ def _png():
 
 def _upload_avatar(client, name):
     return client.post(
-        "/api/v1/avatars", data={"name": name},
+        "/api/admin/avatars", data={"name": name, "model": "musetalk"},
         files={"file": ("a.png", _png(), "image/png")},
     ).json()["avatar_id"]
 

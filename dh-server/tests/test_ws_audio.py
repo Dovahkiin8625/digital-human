@@ -12,7 +12,7 @@ def _setup(client):
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (1, 2, 3)).save(buf, format="PNG")
     avatar_id = client.post(
-        "/api/v1/avatars", data={"name": "a"},
+        "/api/admin/avatars", data={"name": "a", "model": "musetalk"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     ).json()["avatar_id"]
     sid = client.post(

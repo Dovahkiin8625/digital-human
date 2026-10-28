@@ -147,6 +147,10 @@ def _drop_abandoned_columns(engine) -> None:
     that column. A database may also still carry the older
     ``avatars.kind`` column.
 
+    Two columns went the other way: ``avatars.pack_path`` and
+    ``settings.updated_at`` were written and never read, so the current
+    models do not carry them.
+
     SQLite cannot ``ALTER TABLE ... DROP COLUMN`` a column a foreign key
     refers to, so ``avatars`` is rebuilt from a column whitelist instead.
 
@@ -156,22 +160,29 @@ def _drop_abandoned_columns(engine) -> None:
     inspector = inspect(engine)
     avatars_cols = {c["name"]: c["type"].compile() for c in inspector.get_columns("avatars")}
     sessions_cols = {c["name"]: c["type"].compile() for c in inspector.get_columns("sessions")}
+    settings_cols = {c["name"]: c["type"].compile() for c in inspector.get_columns("settings")}
 
-    if "tenant_id" in avatars_cols or "kind" in avatars_cols:
+    if {"tenant_id", "kind", "pack_path"} & avatars_cols.keys():
         # Mirror the current Avatar model's column types so the rebuilt
         # table matches what ``Base.metadata.create_all`` would produce.
         keep = {name: avatars_cols[name] for name in (
-            "id", "name", "status", "source_image_path", "pack_path",
+            "id", "name", "status", "source_image_path",
             "config_json", "tunable_overrides", "drive_model", "build_options",
             "created_at",
         )}
-        _rebuild_table_without_columns(engine, "avatars", {"tenant_id", "kind"}, keep)
+        _rebuild_table_without_columns(
+            engine, "avatars", {"tenant_id", "kind", "pack_path"}, keep
+        )
         inspector = inspect(engine)
     if "tenant_id" in {c["name"] for c in inspector.get_columns("sessions")}:
         keep = {name: sessions_cols[name] for name in (
             "id", "avatar_id", "status", "started_at", "closed_at", "metrics_json",
         )}
         _rebuild_table_without_columns(engine, "sessions", {"tenant_id"}, keep)
+        inspector = inspect(engine)
+    if "updated_at" in settings_cols:
+        keep = {name: settings_cols[name] for name in ("key", "value")}
+        _rebuild_table_without_columns(engine, "settings", {"updated_at"}, keep)
         inspector = inspect(engine)
     if "tenants" in inspector.get_table_names():
         with engine.begin() as conn:

@@ -13,7 +13,7 @@ def _seed(client):
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
     resp = client.post(
-        "/api/v1/avatars", data={"name": "a"},
+        "/api/admin/avatars", data={"name": "a", "model": "musetalk"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     )
     return resp.json()["avatar_id"]
@@ -55,17 +55,6 @@ def test_session_audio_drives_metrics(client):
     # 24000 samples @48kHz = 0.5s -> 5x100ms ingest blocks; FakeEngine emits
     # max(1, round(0.1*25))=2 frames/block = 10 (same math as test_render_session).
     assert detail["metrics"]["frames_out"] == 10
-
-
-def test_sessions_list(client):
-    avatar_id = _seed(client)
-    sid = _new_session(client, avatar_id)
-    listing = client.get("/api/v1/sessions")
-    assert listing.status_code == 200
-    body = listing.json()
-    assert [s["session_id"] for s in body] == [sid]
-    assert body[0]["status"] == "listening"
-    assert body[0]["metrics"]["frames_out"] == 0
 
 
 def test_sweep_idle_closes_stale_sessions(client):

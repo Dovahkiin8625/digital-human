@@ -6,13 +6,12 @@ import zhCN from "antd/locale/zh_CN";
 import App from "./App";
 import { ThemeProvider, useTheme } from "./theme";
 import { configureRuntime } from "./live2d/cubism/core";
-import { getConsoleToken } from "./api";
 import "./styles.css";
 
-// Every Live2D request (core, shaders, model files) is routed through here so
-// it can carry the server root and the token. The console is served from the
-// same origin as the API, so only the token has to be configured.
-configureRuntime({ baseUrl: "", token: getConsoleToken() });
+// Every Live2D request (core, shaders, model files) is routed through here.
+// The console is served from the same origin as the API, so there is no
+// server root to configure and no credential to present.
+configureRuntime({ baseUrl: "" });
 
 function Root() {
   const { mode } = useTheme();

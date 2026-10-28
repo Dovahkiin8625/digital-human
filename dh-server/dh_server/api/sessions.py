@@ -64,26 +64,6 @@ async def create_session(body: dict, db=Depends(get_db)) -> dict:
     }
 
 
-@router.get("/api/v1/sessions")
-def list_sessions(db=Depends(get_db)) -> list[dict]:
-    rows = (
-        db.execute(
-            select(StreamSession).order_by(StreamSession.started_at.desc())
-        )
-        .scalars()
-        .all()
-    )
-    out = []
-    for row in rows:
-        render = None
-        try:
-            render = _manager().get_render(row.id)
-        except AppError:
-            pass
-        out.append(_serialize(row, render))
-    return out
-
-
 @router.get("/api/v1/sessions/{session_id}")
 def get_session(session_id: str, db=Depends(get_db)) -> dict:
     row = db.execute(

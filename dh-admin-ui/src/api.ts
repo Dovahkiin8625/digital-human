@@ -35,8 +35,8 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   return (await resp.json()) as T;
 }
 
-export async function downloadWithToken(path: string): Promise<void> {
-  // No auth token is needed: the browser just fetches and saves the blob.
+export async function downloadFile(path: string): Promise<void> {
+  // The browser just fetches and saves the blob.
   // The filename comes from Content-Disposition when present; falls back to
   // the last path segment so the user gets a sensible save name either way.
   const resp = await fetch(path);
@@ -173,32 +173,4 @@ export function updateLive2DConfig(
  */
 export function live2dModelUrl(avatarId: string, entry: string): string {
   return modelFileUrl(avatarId, entry);
-}
-
-/**
- * The business-plane token, as held by the CONSOLE.
- *
- * The admin plane has no auth, so the console has no credential of its own
- * to present. The one exception is the Live2D model host, which is
- * token-gated for the Electron pet's sake -- and which therefore 401s the
- * console too on a deployment that sets one. This is how an operator hands
- * the console the same token the pet uses.
- */
-const CONSOLE_TOKEN_KEY = "dhV1Token";
-
-export function getConsoleToken(): string {
-  try {
-    return window.localStorage.getItem(CONSOLE_TOKEN_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function setConsoleToken(token: string): void {
-  try {
-    if (token) window.localStorage.setItem(CONSOLE_TOKEN_KEY, token);
-    else window.localStorage.removeItem(CONSOLE_TOKEN_KEY);
-  } catch {
-    /* private mode / storage disabled -- the console still works without it */
-  }
 }

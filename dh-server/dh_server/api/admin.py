@@ -10,14 +10,15 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from starlette.responses import FileResponse, Response
 
-from dh_server.api.avatars import _create_avatar_rows, _derive_suffix, _require_uuid_hex
+from dh_server import __version__
 from dh_server.avatar import liveportrait  # noqa: F401 -- side-effect: registers the liveportrait backend
 from dh_server.avatar import wan22  # noqa: F401 -- side-effect: registers the two Wan 2.2 I2V variants
-from dh_server.avatar.pipeline import run_job_in_new_session
 from dh_server.avatar import video
+from dh_server.avatar.pipeline import create_avatar_rows, run_job_in_new_session
 from dh_server.avatar.store import AvatarStore
 from dh_server.config import get_settings
 from dh_server.core.errors import AppError
+from dh_server.core.validation import derive_suffix, require_uuid_hex
 from dh_server.db.models import Avatar, AvatarJob, StreamSession
 from dh_server.db.session import get_db
 from dh_server.model_registry import (
@@ -157,7 +158,7 @@ def system_info() -> dict:
     settings = get_settings()
     return {
         "runtimes": runtimes,
-        "version": "0.1.0",
+        "version": __version__,
         "data_dir": str(settings.data_dir),
         "gpu": get_gpu_flag(),
         "frame_width": settings.frame_width,
@@ -171,45 +172,6 @@ def system_info() -> dict:
         "avatar_max_video_seconds": settings.avatar_max_video_seconds,
         "avatar_max_upload_bytes": settings.avatar_max_upload_bytes,
     }
-
-
-@router.get("/settings")
-def admin_get_settings(db=Depends(get_db)) -> dict:
-    """Effective tunables as a flat dict; defaults overridden by stored keys."""
-    from dh_server.avatar.tunables import effective
-
-    return effective(db)
-
-
-@router.patch("/settings")
-def admin_patch_settings(payload: dict, db=Depends(get_db)) -> dict:
-    """Validate, persist overrides, return the full effective dict.
-
-    Partial updates are fine: any number of keys can come in. Unknown keys or
-    out-of-range values are rejected as a single ``error.message`` so the UI can
-    point at the bad field.
-    """
-    from datetime import datetime, timezone
-
-    from dh_server.avatar.tunables import dump_json, validate
-    from dh_server.db.models import Setting
-
-    errors = validate(payload)
-    if errors:
-        raise AppError("invalid_settings", "one or more settings are invalid", 400, detail=errors)
-    for name, value in payload.items():
-        row = db.get(Setting, name)
-        if row is None:
-            row = Setting(key=name, value=dump_json(value))
-            db.add(row)
-        else:
-            row.value = dump_json(value)
-            row.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    # Re-read defaults + overrides for a single coherent response.
-    from dh_server.avatar.tunables import effective
-
-    return effective(db)
 
 
 @router.post("/i2v", status_code=202)
@@ -293,7 +255,7 @@ def admin_generate_i2v(
     scratch_root.mkdir(parents=True, exist_ok=True)
     subdir = scratch_root / task.id
     subdir.mkdir(parents=True, exist_ok=True)
-    suffix = _derive_suffix(file.filename)
+    suffix = derive_suffix(file.filename)
     source_path = subdir / f"src{suffix}"
     source_path.write_bytes(file.file.read())
 
@@ -429,18 +391,6 @@ def admin_list_tasks(db=Depends(get_db)) -> dict:
     return {"tasks": [_serialize_task(r) for r in rows]}
 
 
-@router.get("/tasks/{task_id}")
-def admin_get_task(task_id: str, db=Depends(get_db)) -> dict:
-    """One task by id. Used by the i2v page's progress poll."""
-    from dh_server.db.models import GenerationTask
-
-    _require_uuid_hex(task_id)
-    row = db.get(GenerationTask, task_id)
-    if row is None:
-        raise AppError("not_found", f"task {task_id} not found", 404)
-    return _serialize_task(row)
-
-
 @router.delete("/tasks/{task_id}", status_code=204)
 def admin_delete_task(task_id: str, db=Depends(get_db)) -> Response:
     """Remove a generation task's DB row + on-disk scratch dir.
@@ -455,7 +405,7 @@ def admin_delete_task(task_id: str, db=Depends(get_db)) -> Response:
     """
     from dh_server.db.models import GenerationTask
 
-    _require_uuid_hex(task_id)
+    require_uuid_hex(task_id)
     row = db.get(GenerationTask, task_id)
     if row is None:
         raise AppError("not_found", f"task {task_id} not found", 404)
@@ -477,7 +427,7 @@ def admin_get_task_result(task_id: str, db=Depends(get_db)) -> Response:
     """
     from dh_server.db.models import GenerationTask
 
-    _require_uuid_hex(task_id)
+    require_uuid_hex(task_id)
     row = db.get(GenerationTask, task_id)
     if row is None:
         raise AppError("not_found", f"task {task_id} not found", 404)
@@ -705,17 +655,6 @@ def admin_extract_liveportrait_driver_template(
         # retry with the same name doesn't hit the 409 above.
         target_mp4.unlink(missing_ok=True)
         raise
-
-    try:
-        from dh_server.avatar.liveportrait import LivePortraitAnimator  # noqa: F401 -- side-effect import
-    except Exception as exc:  # noqa: BLE001 -- setup path
-        target_mp4.unlink(missing_ok=True)
-        raise AppError(
-            "liveportrait_unavailable",
-            f"LivePortrait runtime not installed ({exc}); "
-            f"run scripts/setup_liveportrait.sh first",
-            503,
-        )
 
     from dh_server.config import get_settings
 
@@ -994,7 +933,7 @@ def _create_archived_avatar(db, model, name: str, file, entry: str, expressions:
 
     avatar_id = uuid4().hex
     store = AvatarStore(settings.data_dir)
-    archive = store.save_archive(avatar_id, file.file, _derive_suffix(file.filename))
+    archive = store.save_archive(avatar_id, file.file, derive_suffix(file.filename))
     target = store.avatar_dir(avatar_id)
     target.mkdir(parents=True, exist_ok=True)
     try:
@@ -1021,7 +960,6 @@ def _create_archived_avatar(db, model, name: str, file, entry: str, expressions:
         name=name,
         status="ready",
         source_image_path="",
-        pack_path=None,
         drive_model=model.name,
         config_json=config,
     )
@@ -1068,7 +1006,7 @@ def admin_create_avatar(
     if dh_model.source_kind == SOURCE_ARCHIVE:
         return _create_archived_avatar(db, dh_model, name, file, entry, expressions)
 
-    suffix = _derive_suffix(file.filename)
+    suffix = derive_suffix(file.filename)
     # Cheap early refusal when the client declared an oversized body. This is
     # only an optimization: the counted copy in save_source is authoritative
     # (declared length can lie), and works when size is unknown.
@@ -1131,7 +1069,7 @@ def admin_create_avatar(
             )
         build_options = parsed
 
-    avatar_id, job_id = _create_avatar_rows(
+    avatar_id, job_id = create_avatar_rows(
         db,
         name,
         file.file,
@@ -1155,7 +1093,7 @@ def admin_create_avatar(
 
 @router.get("/avatars/{avatar_id}")
 def admin_get_avatar(avatar_id: str, db=Depends(get_db)) -> dict:
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1184,7 +1122,7 @@ def _live2d_avatar(db, avatar_id: str) -> Avatar:
     endpoints below act on a Cubism project, and there is nothing
     sensible to do to a MuseTalk avatar here.
     """
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1218,7 +1156,7 @@ def admin_update_live2d(avatar_id: str, body: Live2DConfigIn, db=Depends(get_db)
     stored: an index the model does not declare would become an
     expressionIndex the client cannot use, and the symptom -- a face
     that never changes -- would only show up minutes later, in the
-    desktop pet.
+    browser.
     """
     from dh_server.live2d.registry import validate_model_dir
 
@@ -1239,7 +1177,7 @@ def admin_update_live2d(avatar_id: str, body: Live2DConfigIn, db=Depends(get_db)
 
 @router.delete("/avatars/{avatar_id}", status_code=204)
 def admin_delete_avatar(avatar_id: str, db=Depends(get_db)) -> Response:
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1285,7 +1223,7 @@ def avatar_idle_video(avatar_id: str, db=Depends(get_db)):
             # The per-avatar overrides (set by the create form) beat the
             # operator-pushed Setting rows so this avatar's quality knob
             # survives the build.
-            settings = effective(db, overrides=avatar.tunable_overrides or None)
+            settings = effective(overrides=avatar.tunable_overrides or None)
             path = video.build_idle_video(
                 root,
                 root / pack.prep.get("source", "source.mp4"),
@@ -1313,7 +1251,7 @@ def avatar_normalized_png(avatar_id: str, db=Depends(get_db)):
 
 @router.get("/avatars/{avatar_id}/artifacts")
 def avatar_artifacts(avatar_id: str, db=Depends(get_db)) -> list[dict]:
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1326,7 +1264,7 @@ def avatar_timeline(avatar_id: str, db=Depends(get_db)) -> dict:
     avatar was built (which face crop, which detector, frame counts, quality
     warnings) without parsing ``pack.json`` itself.
     """
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1347,10 +1285,10 @@ def avatar_artifact_file(avatar_id: str, path: str, db=Depends(get_db)):
     only; this endpoint serves the contents).
 
     Path-traversal guard: the avatar id is uuid-hex (already validated by
-    ``_require_uuid_hex``); the artifact path is checked against the avatar's
+    ``require_uuid_hex``); the artifact path is checked against the avatar's
     on-disk root before any read.
     """
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     avatar = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     if avatar is None:
         raise AppError("not_found", f"avatar {avatar_id} not found", 404)
@@ -1527,21 +1465,6 @@ class LlmChatIn(BaseModel):
     model_config = {"extra": "forbid"}
 
     messages: list[dict[str, str]]
-
-
-@router.post("/llm/chat")
-async def admin_llm_chat(body: LlmChatIn, db=Depends(get_db)) -> dict:
-    """Non-streaming chat: one POST, full reply string back.
-
-    The console's chat panel uses the streaming endpoint instead; this
-    one is kept around as the synchronous fallback / for clients that
-    don't want SSE. Same request body, same effective config, same error
-    mapping.
-    """
-    from dh_server.llm.openai import chat
-
-    content = await chat(body.messages, db=db)
-    return {"content": content}
 
 
 @router.post("/llm/chat/stream")
@@ -1886,21 +1809,11 @@ def _animator_model_row(animator) -> dict | None:
     weights_present = False
     estimated_bytes = 0
     if weights_dir:
-        try:
-            wd = Path(weights_dir)
-            if wd.is_dir():
-                # Sum every file's size under the weights dir so the
-                # operator's "lower bound for what's on disk" estimate
-                # matches the engine slot's number on the same tab.
-                for p in wd.rglob("*"):
-                    if p.is_file():
-                        try:
-                            estimated_bytes += p.stat().st_size
-                        except OSError:
-                            continue
-                weights_present = estimated_bytes > 0
-        except OSError:
-            weights_present = False
+        # Sum every file's size under the weights dir so the operator's
+        # "lower bound for what's on disk" estimate matches the engine
+        # slot's number on the same tab.
+        estimated_bytes = _dir_size(Path(weights_dir))
+        weights_present = estimated_bytes > 0
 
     # The lifecycle flags surface the operator's two questions: "is
     # this on the GPU right now?" (``loaded``) and "can the Models tab
@@ -2335,18 +2248,6 @@ def admin_unload_model(model_id: str, db=Depends(get_db)) -> dict:
 # ----- service load / unload (animators) -----------------------------------
 
 
-def _resolve_animator_by_id(service_id: str):
-    """Find an ANIMATORS entry by the Models-tab id ``animator:<name>``.
-
-    Returns ``None`` when the prefix doesn't match or the backend is
-    unregistered (the typo case). TTS services have their own id
-    pattern (``tts:minimax``) and don't go through here -- they have
-    no operator-loadable lifecycle.
-    """
-    animator, _ = _resolve_animator_model_id(service_id)
-    return animator
-
-
 @router.post("/services/{service_id}/load")
 async def admin_load_service(service_id: str) -> dict:
     """Trigger ``load()`` on the named service.
@@ -2363,7 +2264,7 @@ async def admin_load_service(service_id: str) -> dict:
     * 503 -- load raised an ``AnimatorError`` (missing runtime /
       weights -- the operator must run the fetch script).
     """
-    animator = _resolve_animator_by_id(service_id)
+    animator, _ = _resolve_animator_model_id(service_id)
     if animator is None:
         raise AppError("not_found", f"service {service_id!r} not found", 404)
 
@@ -2384,7 +2285,7 @@ def admin_unload_service(service_id: str) -> dict:
     instead of 200, so the operator's button is correctly disabled on
     the client side and any race gives a clear error.
     """
-    animator = _resolve_animator_by_id(service_id)
+    animator, _ = _resolve_animator_model_id(service_id)
     if animator is None:
         raise AppError("not_found", f"service {service_id!r} not found", 404)
 

@@ -37,13 +37,6 @@ def db(tmp_path, monkeypatch):
 
 
 def test_avatar_job_records_effective_params(tmp_path, db):
-    # Operator-side overrides on two keys.
-    from dh_server.avatar.tunables import dump_json
-
-    db.add(Setting(key="face_crop_size", value=dump_json(320)))
-    db.add(Setting(key="idle_crf", value=dump_json(16)))
-    db.commit()
-
     store = AvatarStore(tmp_path / "data")
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
@@ -58,9 +51,9 @@ def test_avatar_job_records_effective_params(tmp_path, db):
     db.refresh(avatar)
 
     params = avatar.config_json["_effective_params"]
-    assert params["face_crop_size"] == 320
-    assert params["idle_crf"] == 16
-    # Untouched knob falls back to its module default.
+    # Every tunable that applies to this build is in the audit row.
+    assert set(params) == {"idle_crf", "idle_preset"}
+    assert params["idle_crf"] == 18
     assert params["idle_preset"] == "veryfast"
 
 
@@ -79,22 +72,15 @@ def test_avatar_job_records_defaults_when_no_overrides(tmp_path, db):
     db.refresh(avatar)
 
     params = avatar.config_json["_effective_params"]
-    assert params["face_crop_size"] == 256
     assert params["idle_crf"] == 18
     assert params["idle_preset"] == "veryfast"
-    assert params["min_face_width_px"] == 160.0
 
 
 def test_avatar_job_uses_per_avatar_overrides(tmp_path, db):
-    # Per-avatar overrides (from the create form) beat both defaults and any
-    # operator-pushed Setting rows. The audit row reflects what the pipeline
-    # actually saw, so a re-encode of the idle clip later reads the same
-    # numbers from avatar.tunable_overrides.
-    from dh_server.avatar.tunables import dump_json
-
-    db.add(Setting(key="idle_crf", value=dump_json(22)))
-    db.commit()
-
+    # Per-avatar overrides (from the create form) beat the defaults. The
+    # audit row reflects what the pipeline actually saw, so a re-encode of
+    # the idle clip later reads the same numbers from
+    # avatar.tunable_overrides.
     store = AvatarStore(tmp_path / "data")
     src = tmp_path / "photo.png"
     Image.new("RGB", (640, 800), (200, 120, 80)).save(src)
@@ -116,8 +102,6 @@ def test_avatar_job_uses_per_avatar_overrides(tmp_path, db):
     params = avatar.config_json["_effective_params"]
     assert params["idle_crf"] == 12
     assert params["idle_preset"] == "slow"
-    # The DB-stored override was beaten by the per-avatar one.
-    assert params["idle_crf"] != 22
 
 
 def test_avatar_tunable_overrides_default_is_empty(tmp_path, db):

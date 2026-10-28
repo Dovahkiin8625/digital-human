@@ -15,7 +15,7 @@ def _upload_avatar(client, name):
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (200, 120, 80)).save(buf, format="PNG")
     return client.post(
-        "/api/v1/avatars", data={"name": name},
+        "/api/admin/avatars", data={"name": name, "model": "musetalk"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     ).json()["avatar_id"]
 

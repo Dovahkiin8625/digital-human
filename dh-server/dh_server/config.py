@@ -49,13 +49,6 @@ class Settings(BaseSettings):
     # in the environment is ignored, so it cannot silently turn the chat
     # endpoint on in a box where the operator hasn't opted in.
 
-    # Static credential for the business-plane endpoints a *remote* client
-    # reaches -- today that is the Electron pet, which renders locally and
-    # calls back for models and the Cubism runtime. Empty disables the
-    # check, which is what a single-operator box behind the admin console
-    # wants. The admin plane itself has no auth; that is a separate problem.
-    v1_api_token: str = ""
-
     # Live2D. `live2d_sdk_dir` is read by the server only to serve the SDK's
     # Core and Shaders to the browser -- the server never renders a Cubism
     # model. `live2d_enabled` is *reported* (it lands in the Live2D health

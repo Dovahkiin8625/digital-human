@@ -208,7 +208,7 @@ def test_animator_protocol_exposes_meta():
 #
 # The 图生视频 tab is too slow to keep the HTTP request open (an encoder can
 # run for tens of seconds). The endpoint submits a GenerationTask and returns
-# 202 + task_id; the operator polls /api/admin/tasks/{id} for progress.
+# 202 + task_id; the operator polls /api/admin/tasks for progress.
 
 
 def test_i2v_submits_task_and_returns_202(client, monkeypatch):
@@ -253,8 +253,15 @@ def test_i2v_submits_task_and_returns_202(client, monkeypatch):
     assert "task_id" in body and len(body["task_id"]) == 32
 
 
+
+def _task_row(client, task_id):
+    """One task from the task list, the way the console polls it."""
+    rows = client.get("/api/admin/tasks").json()["tasks"]
+    return next(t for t in rows if t["task_id"] == task_id)
+
+
 def test_i2v_task_status_progresses_to_done(client, monkeypatch):
-    # After submission, GET /api/admin/tasks/{id} must reflect the backend's
+    # After submission, the task list must reflect the backend's
     # progress: status moves queued -> running -> done, and a finished task
     # has a non-NULL result_json pointing at the rendered clip.
     from dh_server.avatar import animators
@@ -299,7 +306,7 @@ def test_i2v_task_status_progresses_to_done(client, monkeypatch):
     deadline = time.time() + 10.0
     body = None
     while time.time() < deadline:
-        body = client.get(f"/api/admin/tasks/{task_id}", ).json()
+        body = _task_row(client, task_id)
         if body["status"] in ("done", "failed"):
             break
         time.sleep(0.05)
@@ -361,7 +368,7 @@ def test_i2v_task_records_failure(client, monkeypatch):
     deadline = time.time() + 10.0
     body = None
     while time.time() < deadline:
-        body = client.get(f"/api/admin/tasks/{task_id}", ).json()
+        body = _task_row(client, task_id)
         if body["status"] in ("done", "failed"):
             break
         time.sleep(0.05)

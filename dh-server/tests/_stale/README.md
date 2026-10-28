@@ -20,9 +20,13 @@ They are kept here, renamed `.py.stale` so pytest does not collect them,
 rather than deleted: if one of those features comes back, the test is a
 starting point, not something to write again.
 
-The same applies to the untracked `test_wan21_animator.py`,
+The same fate used to be in store for `test_wan21_animator.py`,
 `test_musetalk_silent_animator.py`, `test_control_ws.py`, `test_i2v_module.py`,
 `test_admin_i2v_flag.py`, `test_live2d_kind.py`, `test_overlay_init.py`,
-`test_overlay_prep.py`, `test_avatar_pipeline_overlay.py` and
-`test_audio_loopback.py` that sit in `tests/` — they fail against the current
-server and were failing before the project was split up.
+`test_overlay_prep.py`, `test_avatar_pipeline_overlay.py`,
+`test_audio_loopback.py` and `test_lite_idle.py` — they imported modules
+that no longer exist (`server.overlay`, `server.avatar.i2v`,
+`server.avatar.wan21`, `server.avatar.musetalk_silent`, `server.lite`) or
+called endpoints that were removed. They were deleted rather than kept:
+they had been failing for so long that keeping them here would only have
+been clutter, and the features they covered are gone for good.

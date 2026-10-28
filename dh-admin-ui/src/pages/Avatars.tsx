@@ -28,7 +28,7 @@ import DriveModelTag from "../avatars/DriveModelTag";
 import UploadField from "../avatars/UploadField";
 import { driveLabel, parseExpressions } from "../avatars/describe";
 import { useDriveModels } from "../avatars/driveModels";
-import type { AvatarInfo, TunableParams } from "../types";
+import type { AvatarInfo } from "../types";
 import { createReentryGuard } from "./reentryGuard";
 
 const ACTIVE = new Set(["pending", "processing"]);
@@ -166,13 +166,10 @@ export default function Avatars() {
   // carry a selected zip into the photo branch (or the reverse), where it
   // would be submitted as the wrong kind of file.
   const [zipFiles, setZipFiles] = useState<UploadFile[]>([]);
-  // Live-effective values for the idle knobs -- used to default the form so
-  // an operator who doesn't touch the Advanced section still gets the
-  // currently-tuned x264 settings.
-  const [idleDefaults, setIdleDefaults] = useState<{
-    idle_crf: number;
-    idle_preset: string;
-  } | null>(null);
+  // The idle knobs are per-avatar, and their defaults are the same
+  // everywhere -- so the form starts from the module defaults and the
+  // operator overrides them per upload.
+  const idleDefaults = { idle_crf: IDLE_CRF_DEFAULT, idle_preset: IDLE_PRESET_DEFAULT };
   const timer = useRef<number | null>(null);
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
@@ -191,26 +188,10 @@ export default function Avatars() {
     }
   }
 
-  async function loadIdleDefaults() {
-    // GET /api/admin/settings returns the full TUNABLES dict; we only need
-    // the two knobs the create form exposes. A failure falls back to the
-    // module defaults -- the upload itself doesn't need this round trip.
-    try {
-      const t = await api<TunableParams>("/api/admin/settings");
-      setIdleDefaults({
-        idle_crf: typeof t.idle_crf === "number" ? t.idle_crf : IDLE_CRF_DEFAULT,
-        idle_preset: typeof t.idle_preset === "string" ? t.idle_preset : IDLE_PRESET_DEFAULT,
-      });
-    } catch {
-      setIdleDefaults({ idle_crf: IDLE_CRF_DEFAULT, idle_preset: IDLE_PRESET_DEFAULT });
-    }
-  }
-
   useEffect(() => {
     refresh()
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
-    void loadIdleDefaults();
     // If we got here with a prefilled file, leave a hint for the operator
     // so they don't wonder why their upload card already shows a clip.
     if (initialPrefilledRef.current) {
@@ -434,8 +415,8 @@ export default function Avatars() {
           // it one directory down. The conventional name is offered as a
           // placeholder instead.
           initialValues={{
-            idle_crf: idleDefaults?.idle_crf ?? IDLE_CRF_DEFAULT,
-            idle_preset: idleDefaults?.idle_preset ?? IDLE_PRESET_DEFAULT,
+            idle_crf: idleDefaults.idle_crf,
+            idle_preset: idleDefaults.idle_preset,
           }}
         >
           {/* Which digital-human model drives the new avatar. The model

@@ -228,11 +228,6 @@ class MelStream:
         return self._total
 
     @property
-    def mel_frames(self) -> int:
-        """How many mel frames are retained."""
-        return self._mel.shape[0]
-
-    @property
     def mel_derived(self) -> int:
         """How many mel frames have been derived since the session started."""
         return self._mel_derived

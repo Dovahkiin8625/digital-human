@@ -74,10 +74,8 @@ interface StreamOptions {
  * frames into the caller. Returns a controller with ``abort()`` so the
  * caller can cancel mid-flight.
  *
- * Note the endpoint is the ADMIN one, and the Electron pet calls it too.
- * There is no business-plane chat endpoint yet; building one is the fix
- * when the pet ever points at a deployment where the admin plane should
- * not be reachable from outside.
+ * Note the endpoint is the ADMIN one: the console is served from the same
+ * origin as the API, and there is no business-plane chat endpoint.
  */
 export function streamChat(
   messages: ChatMessage[],

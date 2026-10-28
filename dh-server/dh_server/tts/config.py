@@ -8,12 +8,19 @@ server restart.
 
 There is deliberately **no env layer**: the Models tab's dialog is the
 single entry point -- the same shape the LLM uses (see
-``dh_server/llm/config.py``).
+``dh_server/llm/config.py``). The machinery they share lives in
+``dh_server/service_config.py``.
 """
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from dh_server.service_config import (
+    ServiceConfig,
+    mask_api_key,  # re-exported: the API surface imports it from here
+    validate_api_key,
+    validate_base_url,
+)
 
 #: The five configurable keys. ``api_key`` is the bearer token;
 #: ``group_id`` is optional (newer MiniMax accounts skip it);
@@ -39,11 +46,6 @@ PUBLIC_KEYS: tuple[str, ...] = (
     "sample_rate",
 )
 
-#: Wire name ↔ public name. ``_KEY_TO_PUBLIC[k]`` is the key the API
-#: surface exposes; ``_PUBLIC_TO_KEY[p]`` is the DB key.
-_KEY_TO_PUBLIC = dict(zip(KEYS, PUBLIC_KEYS))
-_PUBLIC_TO_KEY = dict(zip(PUBLIC_KEYS, KEYS))
-
 #: Sample rates MiniMax accepts. Out-of-set values get rejected at write
 #: time with a clear ``AppError`` -- ``11025`` and ``48000`` look plausible
 #: but are not in the upstream ``audio_setting.sample_rate`` enumeration.
@@ -62,118 +64,42 @@ DEFAULTS: dict[str, Any] = {
 }
 
 
-def _public_view(values: dict[str, Any]) -> dict[str, Any]:
-    """Strip the ``minimax_`` prefix so the API matches what the form sends."""
-    return {_KEY_TO_PUBLIC[k]: values[k] for k in KEYS}
+def _validate_sample_rate(value: Any) -> "str | None":
+    """The rate has to be an integer MiniMax actually accepts."""
+    try:
+        rate = int(value)
+    except (TypeError, ValueError):
+        return "must be an integer"
+    if rate not in SUPPORTED_SAMPLE_RATES:
+        return f"must be one of {list(SUPPORTED_SAMPLE_RATES)}"
+    return None
+
+
+_config = ServiceConfig(
+    keys=KEYS,
+    public_keys=PUBLIC_KEYS,
+    defaults=DEFAULTS,
+    error_code="invalid_minimax_config",
+    error_message="one or more MiniMax fields are invalid",
+    validators={
+        "sample_rate": _validate_sample_rate,
+        "base_url": validate_base_url,
+        "api_key": validate_api_key,
+        # model / group_id: free-form strings. No validation.
+    },
+)
 
 
 def read_config(db) -> dict[str, Any]:
-    """Return the *currently effective* MiniMax config for one DB session.
-
-    DB rows win over :data:`DEFAULTS` on a per-key basis; absent keys
-    fall back to the built-in default. Returns the public (no-prefix)
-    key shape so the API surface and the synthesise path agree.
-    """
-    from sqlalchemy import select
-
-    from dh_server.db.models import Setting
-
-    out = dict(DEFAULTS)
-    rows = db.execute(
-        select(Setting).where(Setting.key.in_(KEYS))
-    ).scalars().all()
-    for row in rows:
-        try:
-            out[row.key] = json.loads(row.value)
-        except (ValueError, TypeError):
-            # A malformed value falls back to the default rather than
-            # 500-ing the caller; the operator can re-PUT to fix it.
-            continue
-    return _public_view(out)
+    """The currently effective MiniMax config, in the public shape."""
+    return _config.read(db)
 
 
 def validate(payload: dict[str, Any]) -> dict[str, str]:
-    """Return ``{public_key: msg}`` errors for each invalid field.
-
-    Empty dict means OK. Unknown keys (typos in the operator's POST) get
-    flagged so they don't silently land in the DB.
-    """
-    errors: dict[str, str] = {}
-    for public_name, value in payload.items():
-        if public_name not in _PUBLIC_TO_KEY:
-            errors[public_name] = "unknown field"
-            continue
-        if public_name == "sample_rate":
-            try:
-                v = int(value)
-            except (TypeError, ValueError):
-                errors[public_name] = "must be an integer"
-                continue
-            if v not in SUPPORTED_SAMPLE_RATES:
-                errors[public_name] = (
-                    f"must be one of {list(SUPPORTED_SAMPLE_RATES)}"
-                )
-        elif public_name == "base_url":
-            if not isinstance(value, str) or not value.startswith(("http://", "https://")):
-                errors[public_name] = "must start with http:// or https://"
-        elif public_name == "api_key":
-            # Empty api_key means "not configured"; we accept it but the
-            # synthesise endpoint will then return 503. We don't refuse
-            # a clear-then-save flow.
-            if value is not None and not isinstance(value, str):
-                errors[public_name] = "must be a string"
-        # model / group_id: free-form strings. No validation.
-    return errors
+    """Return ``{public_key: msg}`` errors for each invalid field."""
+    return _config.validate(payload)
 
 
 def write_config(db, payload: dict[str, Any]) -> dict[str, Any]:
-    """Validate ``payload``, persist each key, return the effective config.
-
-    Each non-empty public field maps to a DB row keyed by the wire
-    ``minimax_*`` name. The function then re-reads via :func:`read_config`
-    so the caller sees the post-write view (including any fields they
-    didn't touch).
-
-    Raises :class:`dh_server.core.errors.AppError` with a ``detail`` mapping
-    of per-field messages so the API layer returns a 400 the UI can
-    surface inline.
-    """
-    from dh_server.core.errors import AppError
-
-    errors = validate(payload)
-    if errors:
-        raise AppError(
-            "invalid_minimax_config",
-            "one or more MiniMax fields are invalid",
-            400,
-            detail=errors,
-        )
-
-    from dh_server.db.models import Setting
-
-    for public_name, value in payload.items():
-        wire_key = _PUBLIC_TO_KEY[public_name]
-        existing = db.get(Setting, wire_key)
-        if existing is None:
-            existing = Setting(key=wire_key, value=json.dumps(value))
-            db.add(existing)
-        else:
-            existing.value = json.dumps(value)
-    db.commit()
-
-    return read_config(db)
-
-
-def mask_api_key(cfg: dict[str, Any]) -> str:
-    """Render ``api_key`` as ``****<last4>`` for the GET response.
-
-    Empty keys render as ``"(未设置)"`` so the operator sees the
-    not-configured state without us shipping an empty string they might
-    mistake for "I have a key but it's blank".
-    """
-    api_key = cfg.get("api_key") or ""
-    if not api_key:
-        return "(未设置)"
-    if len(api_key) <= 4:
-        return "*" * len(api_key)
-    return "****" + api_key[-4:]
+    """Validate ``payload``, persist each key, return the effective config."""
+    return _config.write(db, payload)

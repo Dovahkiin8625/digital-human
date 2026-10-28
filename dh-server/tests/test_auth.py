@@ -5,7 +5,7 @@ explicit coverage (the formatters are used by every error path)."""
 
 def test_error_envelope_shape(client):
     """A route-handler 404 goes through the AppError -> envelope path."""
-    resp = client.get("/api/v1/avatars/nonexistent-id-here")
+    resp = client.get("/api/admin/avatars/nonexistent-id-here")
     assert resp.status_code == 404
     body = resp.json()
     assert body == {

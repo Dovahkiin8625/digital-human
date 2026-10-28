@@ -1,7 +1,6 @@
 // The voices MiniMax's Chinese system voices offer, plus an escape hatch
 // for a cloned voice. The list mirrors what the Debug page offers so a
-// voice chosen once works across every tab -- and the desktop pet, which
-// has no room for a picker, uses the same default.
+// voice chosen once works across every tab.
 
 export interface VoiceOption {
   id: string;
@@ -20,6 +19,5 @@ export const VOICES: VoiceOption[] = [
 
 export const CUSTOM_VOICE = "__custom__";
 
-/** The voice the desktop pet uses. It has no room for a picker, so it
- *  takes a fixed one. */
+/** The voice the console starts with. */
 export const DEFAULT_VOICE_ID = "female-shaonv";

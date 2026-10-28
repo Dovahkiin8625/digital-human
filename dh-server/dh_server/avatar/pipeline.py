@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from dh_server.avatar.store import AvatarStore
@@ -80,11 +81,11 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
         db.commit()
         from dh_server.avatar.tunables import effective
 
-        # Per-avatar overrides captured by the create form beat both module
-        # defaults and operator-pushed Setting rows. The audit row reflects
-        # exactly what the pipeline saw, so a later idle-video re-encode
-        # (which reads from the same column) will produce the same result.
-        effective_now = effective(db, overrides=avatar.tunable_overrides or None)
+        # The per-avatar overrides the create form captured beat the module
+        # defaults. The audit row reflects exactly what this build saw, so
+        # a later idle-video re-encode (which reads from the same column)
+        # will produce the same result.
+        effective_now = effective(overrides=avatar.tunable_overrides or None)
         config = pipeline.process(
             avatar.id,
             Path(avatar.source_image_path),
@@ -97,10 +98,8 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
         )
         pack_json = store.avatar_dir(avatar.id) / "pack.json"
         pack_json.write_text(json.dumps(config))
-        avatar.pack_path = str(pack_json)
-        # Audit: write the tunables actually used. ``effective()`` resolves DB
-        # overrides on top of module defaults, so this row is exactly what the
-        # pipeline and the idle encoder saw at run time.
+        # Audit: write the tunables that applied to this build, so the
+        # avatar's detail page can show what it was built with.
         config["_effective_params"] = effective_now
         avatar.config_json = config
         avatar.status = "ready"
@@ -112,11 +111,77 @@ def run_avatar_job(db, store, pipeline: AvatarPipeline, job_id: str) -> None:
         db.commit()
 
 
+def create_avatar_rows(
+    db,
+    name: str,
+    stream,
+    suffix: str,
+    tunable_overrides: dict | None = None,
+    drive_model: str | None = None,
+    *,
+    build_options: dict | None = None,
+    max_video_seconds: float | None = None,
+    max_video_frames: int | None = None,
+) -> tuple[str, str]:
+    """Create the Avatar and AvatarJob rows, and return their ids.
+
+    The source file is written to the avatar's directory first, so a row
+    never points at a file that is not there. Scheduling the build stays
+    with the caller: this function only records what has to be built.
+
+    ``tunable_overrides`` is the per-avatar form of the tunables that the
+    create form captures (idle_crf / idle_preset). ``None`` (or ``{}``)
+    means "use the global defaults"; the column is NOT NULL with a JSON
+    default so nothing has to set it.
+
+    ``drive_model`` names the digital-human model that will drive this
+    avatar. It is recorded on the row, so the pack this job builds and the
+    engine that later drives it always belong to the same model.
+
+    ``build_options`` is handed to the model's pipeline when the job runs.
+    It lives on the avatar row rather than on the job so a retry rebuilds
+    the avatar the same way.
+
+    ``max_video_seconds`` / ``max_video_frames`` override the global upload
+    limits for models whose source is longer than the default.
+    """
+    from dh_server.avatar.store import AvatarStore
+    from dh_server.config import get_settings
+    from dh_server.db.models import Avatar, AvatarJob
+    from dh_server.model_registry import DEFAULT_MODEL
+
+    avatar_id = uuid4().hex
+    store = AvatarStore(get_settings().data_dir)
+    source_path = store.save_source(
+        avatar_id,
+        stream,
+        suffix,
+        max_seconds=max_video_seconds,
+        max_frames=max_video_frames,
+    )
+
+    avatar = Avatar(
+        id=avatar_id,
+        name=name,
+        status="pending",
+        source_image_path=str(source_path),
+        config_json={},
+        tunable_overrides=tunable_overrides or {},
+        build_options=build_options or {},
+        drive_model=drive_model or DEFAULT_MODEL,
+    )
+    job = AvatarJob(id=uuid4().hex, avatar_id=avatar_id, stage="queued")
+    db.add(avatar)
+    db.add(job)
+    db.commit()
+    return avatar_id, job.id
+
+
 def run_job_in_new_session(job_id: str, store: "AvatarStore") -> None:
     """Run an avatar job to completion in its own DB session.
 
-    Shared by the FastAPI BackgroundTasks call sites in api/avatars.py (tenant
-    upload) and api/admin.py (admin retry), so both run the same job runner.
+    Shared by the FastAPI BackgroundTasks call sites in api/admin.py (the
+    upload and the retry), so both run the same job runner.
 
     The pipeline comes from the model that owns the avatar, so the pack is
     always written by the model that will drive it.

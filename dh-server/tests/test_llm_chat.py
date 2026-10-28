@@ -1,9 +1,8 @@
-"""``POST /api/admin/llm/chat`` + ``POST /api/admin/llm/chat/stream``.
+"""``POST /api/admin/llm/chat/stream``.
 
-The chat endpoint pair drives the console's chat panel. The non-streaming
-endpoint is a thin wrapper over :func:`dh_server.llm.openai.chat`; the
-streaming one wraps :func:`dh_server.llm.openai.stream_chat` and frames each
-delta as an SSE event.
+The chat endpoint drives the console's chat panel. It wraps
+:func:`dh_server.llm.openai.stream_chat` and frames each delta as an SSE
+event.
 
 All tests here drive the real parse path through ``httpx.MockTransport``
 so a typo in the request body shape, an unexpected upstream status, or
@@ -54,231 +53,6 @@ def _write_llm_config(db, *, api_key="test-key", base_url="https://api.example.t
         else:
             existing.value = _json.dumps(value)
     db.commit()
-
-
-# ----- the non-streaming chat surface ---------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_chat_sends_messages_and_returns_content(_fresh_db):
-    """``chat()`` POSTs the messages (with a system prompt prefix) to
-    ``{base_url}/chat/completions`` and returns the assistant content.
-
-    The system prompt rides in every request as turn 0 -- the chat panel
-    itself doesn't have to know about it. ``api_key`` rides in the
-    ``Authorization: Bearer ...`` header.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db)
-    seen: dict = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["auth"] = request.headers.get("authorization")
-        seen["body"] = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={
-                "choices": [{"message": {"role": "assistant", "content": "你好世界"}}],
-            },
-        )
-
-    client = _mock_client(handler)
-    try:
-        content = await chat(
-            [{"role": "user", "content": "你好"}],
-            client=client,
-            db=_fresh_db,
-        )
-    finally:
-        await client.aclose()
-
-    assert content == "你好世界"
-    assert seen["url"] == "https://api.example.test/v1/chat/completions"
-    assert seen["auth"] == "Bearer test-key"
-    # System prompt landed as turn 0.
-    assert seen["body"]["model"] == "gpt-4o-mini"
-    assert seen["body"]["messages"][0]["role"] == "system"
-    assert "数字人" in seen["body"]["messages"][0]["content"]
-    # User message lands after the system turn.
-    assert seen["body"]["messages"][1] == {"role": "user", "content": "你好"}
-    # Non-streaming by default.
-    assert "stream" not in seen["body"]
-
-
-@pytest.mark.asyncio
-async def test_chat_rejects_empty_messages():
-    """An empty message list is a 400 ``empty_messages`` -- the chat
-    panel must always send at least one user turn.
-    """
-    from dh_server.llm.openai import chat
-
-    with pytest.raises(AppError) as excinfo:
-        await chat([], client=_mock_client(lambda r: httpx.Response(200, json={})))
-    assert excinfo.value.status == 400
-    assert excinfo.value.code == "empty_messages"
-
-
-@pytest.mark.asyncio
-async def test_chat_surfaces_not_configured_when_api_key_missing(_fresh_db):
-    """Empty api_key means "not configured": ``chat()`` raises
-    503 ``llm_not_configured`` rather than calling out.
-    """
-    from dh_server.llm.openai import chat
-
-    # Wire ONLY base_url -- api_key stays at the empty default.
-    _write_llm_config(_fresh_db, api_key="")
-    called = False
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal called
-        called = True
-        return httpx.Response(200, json={})
-
-    client = _mock_client(handler)
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await chat(
-                [{"role": "user", "content": "hi"}],
-                client=client,
-                db=_fresh_db,
-            )
-        assert excinfo.value.status == 503
-        assert excinfo.value.code == "llm_not_configured"
-    finally:
-        await client.aclose()
-
-    assert called is False  # never hit the wire
-
-
-@pytest.mark.asyncio
-async def test_chat_surfaces_not_configured_when_base_url_missing(_fresh_db):
-    """Empty base_url is also a 503 -- the chat path appends
-    ``/chat/completions`` so a missing base would 404 on the wire.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db, base_url="")
-    with pytest.raises(AppError) as excinfo:
-        await chat(
-            [{"role": "user", "content": "hi"}],
-            client=_mock_client(lambda r: httpx.Response(200, json={})),
-            db=_fresh_db,
-        )
-    assert excinfo.value.status == 503
-    assert excinfo.value.code == "llm_not_configured"
-
-
-@pytest.mark.asyncio
-async def test_chat_surfaces_upstream_error(_fresh_db):
-    """Non-200 upstream becomes 502 ``llm_failed`` with a slice of the
-    upstream body so the operator can diagnose without flipping to a
-    network debugger.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, text="unauthorized")
-
-    client = _mock_client(handler)
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await chat(
-                [{"role": "user", "content": "hi"}],
-                client=client,
-                db=_fresh_db,
-            )
-        assert excinfo.value.status == 502
-        assert excinfo.value.code == "llm_failed"
-        assert "401" in excinfo.value.message
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_chat_surfaces_upstream_error_block(_fresh_db):
-    """Some providers echo an ``error`` block on HTTP 200; the chat path
-    treats it as a 502 with the upstream message verbatim.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"error": {"message": "context length exceeded", "type": "x"}},
-        )
-
-    client = _mock_client(handler)
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await chat(
-                [{"role": "user", "content": "hi"}],
-                client=client,
-                db=_fresh_db,
-            )
-        assert excinfo.value.status == 502
-        assert excinfo.value.code == "llm_failed"
-        assert "context length" in excinfo.value.message
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_chat_surfaces_transport_error(_fresh_db):
-    """Connection refused (or any httpx transport-level failure) maps to
-    502 ``llm_failed`` rather than letting the underlying exception 500
-    the request.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("connection refused")
-
-    client = _mock_client(handler)
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await chat(
-                [{"role": "user", "content": "hi"}],
-                client=client,
-                db=_fresh_db,
-            )
-        assert excinfo.value.status == 502
-        assert excinfo.value.code == "llm_failed"
-    finally:
-        await client.aclose()
-
-
-@pytest.mark.asyncio
-async def test_chat_rejects_empty_choices(_fresh_db):
-    """An HTTP 200 with no ``choices`` array is a malformed reply --
-    surface as 502 ``llm_failed`` rather than crashing on the shape.
-    """
-    from dh_server.llm.openai import chat
-
-    _write_llm_config(_fresh_db)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"choices": []})
-
-    client = _mock_client(handler)
-    try:
-        with pytest.raises(AppError) as excinfo:
-            await chat(
-                [{"role": "user", "content": "hi"}],
-                client=client,
-                db=_fresh_db,
-            )
-        assert excinfo.value.status == 502
-        assert excinfo.value.code == "llm_failed"
-    finally:
-        await client.aclose()
 
 
 # ----- the streaming chat surface -------------------------------------------
@@ -434,42 +208,7 @@ async def test_stream_chat_constructs_valid_timeout_when_client_is_none(
     # was even instantiated.
     assert "timeout" in captured
 
-
 # ----- the admin endpoint ---------------------------------------------------
-
-
-def test_admin_chat_endpoint_returns_content(client, monkeypatch):
-    """The non-streaming admin endpoint round-trips through the chat
-    function with a stubbed response.
-    """
-    async def fake_chat(messages, **kwargs):
-        return "fake reply"
-
-    monkeypatch.setattr("dh_server.llm.openai.chat", fake_chat)
-
-    resp = client.post(
-        "/api/admin/llm/chat",
-        headers=ADMIN,
-        json={"messages": [{"role": "user", "content": "hi"}]},
-    )
-    assert resp.status_code == 200
-    assert resp.json() == {"content": "fake reply"}
-
-
-def test_admin_chat_endpoint_rejects_empty_messages(client):
-    """An empty messages list is a 400 from Pydantic; ``messages`` is
-    required by the schema.
-    """
-    resp = client.post(
-        "/api/admin/llm/chat",
-        headers=ADMIN,
-        json={"messages": []},
-    )
-    # Pydantic-side validation accepts an empty list (it matches the
-    # shape), so the empty check lives inside ``chat()`` and surfaces
-    # as 400.
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "empty_messages"
 
 
 def test_admin_chat_stream_endpoint_emits_sse_frames(client, monkeypatch):
@@ -524,7 +263,6 @@ def test_admin_chat_stream_endpoint_surfaces_error_frame(client, monkeypatch):
     body = resp.text
     assert "llm_not_configured" in body
     assert "set LLM config via Models tab" in body
-
 
 # ----- the shared _fresh_db fixture -----------------------------------------
 

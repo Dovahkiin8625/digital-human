@@ -1,9 +1,9 @@
-"""Tunable thresholds for ``dh_server.avatar.quality.assess``.
+"""The quality thresholds ``dh_server.avatar.quality.assess`` warns on.
 
-The four module constants are also exposed as admin tunables; the operator
-widening ``min_face_width_px`` should silence the "small face" warning on a
-borderline portrait, etc. We pin the override path here so the knob actually
-changes behaviour, not just the audit row.
+They are module constants: the operator does not tune them per avatar, so
+there is nothing to override. The warnings themselves are what matters --
+a small face, a turned head and a blurry face each get flagged, and a
+good portrait gets flagged for nothing.
 """
 import numpy as np
 
@@ -32,43 +32,25 @@ def _canvas(texture=40):
     return rgb
 
 
-def test_default_thresholds_warn_small_face():
+def test_small_face_warns():
     rgb = _canvas()
     out = assess(rgb, _landmarks(w=110))
     assert any("脸部" in w and "宽度" in w for w in out)
 
 
-def test_widening_min_face_width_silences_small_face():
-    rgb = _canvas()
-    pts = _landmarks(w=110)
-    # Default warns; with the threshold pushed below the detected face width, the
-    # warning goes away (the threshold itself is included in the message).
-    out = assess(rgb, pts, thresholds={"min_face_width_px": 50.0})
-    assert not any("宽度" in w for w in out)
-
-
-def test_widening_min_nose_ratio_silences_pose_warning():
+def test_turned_nose_warns():
     # A clearly turned nose with the default threshold: warns.
     pts = _landmarks(w=200, nose_x=360 + 80)
     assert any("正脸" in w for w in assess(_canvas(), pts))
 
-    # With the ratio threshold pushed below the measured value, no warning.
-    out = assess(_canvas(), pts, thresholds={"min_nose_ratio": 0.0})
-    assert not any("正脸" in w for w in out)
 
-
-def test_widening_min_sharpness_silences_blur_warning():
+def test_blurry_face_warns():
     rgb = _canvas(texture=0)  # uniform face region -> low Laplacian variance
-    pts = _landmarks()
-    assert any("清晰" in w for w in assess(rgb, pts))
-
-    out = assess(rgb, pts, thresholds={"min_sharpness": 0.0})
-    assert not any("清晰" in w for w in out)
+    assert any("清晰" in w for w in assess(rgb, _landmarks()))
 
 
-def test_unknown_threshold_key_ignored():
-    # Operators gain knobs over time; an unknown key is a config typo, not a
-    # crash -- the unknown is silently dropped and the rest still apply.
-    rgb = _canvas()
-    out = assess(rgb, _landmarks(w=110), thresholds={"min_face_width_px": 50.0, "future_knob": 999.0})
-    assert not any("宽度" in w for w in out)
+def test_a_good_portrait_is_not_flagged():
+    # The point of the thresholds: a normal portrait produces no warnings
+    # at all, so the ones that do appear mean something.
+    out = assess(_canvas(), _landmarks())
+    assert out == []

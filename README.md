@@ -12,7 +12,7 @@
 | `live2d` | 客户端（WebGL） | Cubism SDK；服务端只托管模型文件，**不产出任何像素** |
 
 Live2D 的口型在客户端由**正在播放的那个 AudioBuffer** 离线预算出的包络驱动，因此嘴与声音
-天然零漂移。管理台的三个页面都能选择 Live2D 形象；另有 Electron 桌面宠物（透明置顶窗口）。
+天然零漂移。管理台的三个页面都能选择 Live2D 形象。
 
 生产路径是**真实 MuseTalk 1.5**：上传一张照片，服务端跑人脸检测 → 对齐裁剪 → 解析遮罩 →
 VAE 编码，产出一份形象包；会话中每个 100ms 音频块驱动一次 UNet，解出下半脸再融合回原图。
@@ -21,13 +21,12 @@ VAE 编码，产出一份形象包；会话中每个 100ms 音频块驱动一次
 
 ## 工程结构
 
-仓库里有**三个独立工程**，互相之间只有 HTTP API 调用，不共享源码：
+仓库里有**两个独立工程**，互相之间只有 HTTP API 调用，不共享源码：
 
 ```
 digital-human/
 ├── dh-server/      服务端（Python）—— 含 dh_server/ 包、tests/、run.py、scripts/、vendor/
 ├── dh-admin-ui/    管理台（React + Vite）—— 构建产物由服务端挂在 /admin
-├── dh-pet/         桌面宠物（Electron + React + Vite）—— 独立应用
 ├── data/           运行时数据（形象包、权重、SQLite）+ Cubism SDK
 └── docs/
 ```
@@ -35,11 +34,9 @@ digital-human/
 - **dh-server**：FastAPI 服务、数字人引擎与模型注册表、SQLite 与形象资产。
 - **dh-admin-ui**：管理台 SPA。开发时 Vite 把 `/api` 代理到 `127.0.0.1:8000`；
   生产时构建产物由服务端挂载在 `/admin`。
-- **dh-pet**：桌面宠物。透明置顶窗口，自带一份 Live2D 渲染层，**渲染在本地，
-  服务端只托管模型文件**。
 
-三个工程各自 `npm install` / `pip install`，互不依赖对方的源码。唯一的共享目录是
-`data/`：Cubism SDK 的 Framework 源码要进两个前端的打包产物，属于第三方资源，不是代码耦合。
+两个工程各自 `npm install` / `pip install`，互不依赖对方的源码。唯一的共享目录是
+`data/`：Cubism SDK 的 Framework 源码要进前端的打包产物，属于第三方资源，不是代码耦合。
 
 ## 架构
 
@@ -53,10 +50,9 @@ flowchart LR
     RS --> ENG["DriveEngine<br/>MuseTalk"]
     RS --> SINK["StreamSink<br/>WebRTC video track"]
     ADM["后台调试台 (React)"] -- "REST / WS" --> ADMIN["Admin API / AvatarStore<br/>SQLite + 磁盘资产"]
-    PET["桌面宠物 (Electron)"] -- "REST" --> ADMIN
 ```
 
-- **API 层**：形象 CRUD、会话生命周期、API Key 鉴权（`/api/v1/*`）。
+- **API 层**：会话生命周期（`/api/v1/*`）与 Live2D 模型托管。
 - **SessionManager / RenderSession**：会话编排与状态机（`idle → listening → speaking → closed`）。
   空闲时按帧率推静态保活帧，避免视频轨因无帧可发而冻住。
 - **DriveEngine**：口型驱动抽象，`drive(avatar_pack, audio_chunk) -> frames`；实现 `musetalk`
@@ -91,7 +87,7 @@ npm run build
 cd ..
 
 # 3. 配置环境变量
-cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR / DH_V1_API_TOKEN
+cp .env.example .env                    # 按需修改 DH_LIVE2D_SDK_DIR
 ```
 
 要跑真实模型，先按「[MuseTalk 环境准备](#musetalk-环境准备)」建好 `.venv-musetalk`
@@ -136,48 +132,6 @@ curl http://127.0.0.1:8000/healthz
 
 单测：`cd dh-server && pytest`（或 `python -m pytest`）。
 管理台开发模式：`cd dh-admin-ui && npm run dev`（Vite 已把 `/api` 代理到 `127.0.0.1:8000`）。
-
-## 桌面宠物（Live2D）
-
-桌宠是**独立工程** `dh-pet/`：Electron 应用，透明置顶窗口 + 鼠标穿透 + 托盘，
-自带一份 Live2D 渲染层（与管理台那份各管各的，不共享源码），**渲染在本地，
-服务端只托管模型文件**。
-
-```bash
-# 1. 先把后端跑起来（桌宠连的是它）
-cd E:/project/digital-human
-.venv/Scripts/python.exe dh-server/run.py
-
-# 2. 再起桌宠
-cd dh-pet
-npm install
-npm start          # = npm run build && electron .
-```
-
-`npm start` 会先打包再启动（打包用相对路径，file:// 下才认得 assets），
-所以**改了前端代码要重跑一次**。桌宠默认连 `http://127.0.0.1:8000`。
-
-**托盘菜单**：显示 / 隐藏宠物、服务地址、打开配置文件、查看服务端状态、退出。
-服务地址与令牌改在配置文件里（托盘的「打开配置文件…」就是打开它）：
-`%APPDATA%\dh-pet\pet.json`，形如
-
-```json
-{ "serverUrl": "http://127.0.0.1:8000", "token": "" }
-```
-
-（桌宠以前是管理台里的一个路由，配置落在 `%APPDATA%\admin-ui\pet.json`；
-新配置不存在时会自动把旧的那份搬过来。）
-
-服务端配了 `DH_V1_API_TOKEN` 时，桌宠也要带同一个令牌，否则模型请求 401，窗口里
-是空的。令牌留空 = 不校验（本地开发不用配）。
-
-**透明背景**：窗口是透明的，页面底色（`html` / `body` / `#root`）也是透明的，
-所以桌宠直接浮在桌面上，底下就是你的壁纸。输入框和错误提示保留面板底色。
-
-**鼠标穿透的代价**：窗口默认不吃鼠标事件（免得挡住下面的程序）。光标移到窗口上时
-穿透自动关掉，移开再打开 —— 所以**输入框要先把光标移上去才能点**。眼球跟随光标不
-受影响：主进程在轮询光标位置（窗口穿透时收不到 move 事件）。
-
 
 ## Wav2Lip 引擎（wav2lip）
 
@@ -235,7 +189,7 @@ pip install -e ".[wav2lip]"
 | `DH_AVATAR_MAX_UPLOAD_BYTES` | `300000000` | 上传字节上限，超出返回 413 |
 | `DH_DATA_DIR` | `data` | 运行时数据目录（SQLite、形象资产、模型权重） |
 | `DH_DATABASE_URL` | `sqlite:///data/digital-human.db` | SQLAlchemy 数据库 URL |
-| `DH_V1_API_TOKEN` | 空 | Live2D 模型托管端点的可选令牌（请求头 `X-V1-Token`）。留空 = 不校验，供桌面宠物连远程部署 |
+| `DH_ADMIN_UI_DIR` | 空 | 管理台构建产物所在目录。空 = 同级的 `dh-admin-ui/dist` |
 | `DH_LIVE2D_ENABLED` | `true` | **仅上报，不生效** —— 该值只出现在 Live2D 健康检查的 JSON 里（管理台系统页据此显示「启用：否」），服务端没有任何端点按它分支。设为 `false` **不会**关掉 Live2D 功能：上传端点与创建形象页的 Live2D 选项照常可用 |
 | `DH_LIVE2D_SDK_DIR` | `data/CubismSdkForWeb-5-r.5` | Cubism SDK 所在目录。服务端**只**从这里读 `Core/`（core）与 `Framework/Shaders/`（GLSL）下发给浏览器，不渲染任何 Live2D |
 | `DH_LIVE2D_MAX_ARCHIVE_ENTRIES` | `512` | 上传的 Live2D 压缩包条目数上限。zip 是外部输入，一个几百 KB 的包可以声明上百万个条目 |
@@ -265,7 +219,8 @@ pip install -e ".[wav2lip]"
 > 搬进 `settings` 表：`python scripts/migrate_minimax_env_to_db.py`。
 
 > **已移除的变量**：`DH_ADMIN_PASSWORD`、`DH_ADMIN_TOKEN`（登录鉴权随多租户重构删除）、
-> `DH_MINIMAX_*`（改由 Models 页配置）与 `DH_DRIVE_ENGINE` / `DH_AVATAR_PIPELINE`
+> `DH_MINIMAX_*`（改由 Models 页配置）、`DH_V1_API_TOKEN`（只为桌宠的模型托管而设，
+> 桌宠独立出去后就没有需要凭据的客户端了）与 `DH_DRIVE_ENGINE` / `DH_AVATAR_PIPELINE`
 > （改由每个形象自带模型）都已不再是 `Settings` 字段。旧 `.env` 里留着
 > 它们不会报错 —— 服务端对未知 `DH_*` 变量一律忽略 —— 但也不会有任何作用，可以直接删掉。
 
@@ -277,19 +232,16 @@ pip install -e ".[wav2lip]"
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/v1/avatars` | multipart `name` + `file` 上传照片或短视频（≤15s）创建形象，返回 `{avatar_id, status:"pending"}`，异步预处理。视频形象以动态驱动方式渲染：头部/身体沿用视频运动，嘴部由音频驱动；空闲时循环播放源视频画面，录制时请保持闭嘴、不说话 |
-| GET | `/api/v1/avatars` | 形象列表。可选 `?drive_model=live2d` 只列 Live2D 形象 |
-| GET | `/api/v1/live2d/avatars/{id}/model/{path}` | 模型目录内的单个文件。`DH_V1_API_TOKEN` 非空时需 `X-V1-Token` |
-| GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。URL 命名空间固定，服务端负责把 `Shaders/` 映射到 SDK 里的 `Framework/Shaders/`（5-r.5 的 GLSL 不与 `Core/` 并列）。**不鉴权**：core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两棵子树内，`..` 无法越界 |
-| GET | `/api/v1/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
-| DELETE | `/api/v1/avatars/{avatar_id}` | 删除形象及资产（204） |
 | POST | `/api/v1/sessions` | JSON `{"avatar_id"}` 创建会话，返回 `{session_id, status, signal_url, audio_url}`（形象须为 `ready`） |
-| GET | `/api/v1/sessions` | 会话列表 |
 | GET | `/api/v1/sessions/{session_id}` | 会话详情（含实时 `metrics`，见下） |
 | DELETE | `/api/v1/sessions/{session_id}` | 结束会话并落库最终指标（204） |
-| WS | `/api/v1/ws/signal/{session_id}?api_key=` | WebRTC 信令（SDP offer/answer、ICE） |
-| WS | `/api/v1/ws/audio/{session_id}?api_key=` | 备用驱动通道：二进制帧为 s16le 单声道 48kHz PCM；文本帧 `{"type":"flush"}` 排空残留分块 |
+| WS | `/api/v1/ws/signal/{session_id}` | WebRTC 信令（SDP offer/answer、ICE）。会话 id 即凭据 |
+| WS | `/api/v1/ws/audio/{session_id}` | 备用驱动通道：二进制帧为 s16le 单声道 48kHz PCM；文本帧 `{"type":"flush"}` 排空残留分块 |
+| GET | `/api/v1/live2d/avatars/{id}/model/{path}` | 模型目录内的单个文件。**只下发模型格式**（json/moc3/图片），其余上传内容只能从 artifact 端点取 |
+| GET | `/api/v1/live2d/runtime/{path}` | Cubism SDK 的 `Core/` 与 `Shaders/`。URL 命名空间固定，服务端负责把 `Shaders/` 映射到 SDK 里的 `Framework/Shaders/`（5-r.5 的 GLSL 不与 `Core/` 并列）。core 经 `<script>` 标签加载（无法带请求头），shader 由 framework 自行 fetch（同样无法配置请求头）。路径限定在这两棵子树内，`..` 无法越界 |
 
+> 形象本身走管理面 `/api/admin/avatars`：业务面只管**驱动**已经做好的形象。
+>
 > 健康检查 `GET /healthz`（无需鉴权）。
 
 #### 会话指标 `metrics`
@@ -332,34 +284,43 @@ pip install -e ".[wav2lip]"
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/admin/login` | JSON `{"password"}` → `{"token"}`。**已失效**，登录鉴权随多租户重构删除，保留仅为不打断旧调用 |
-| POST | `/api/admin/live2d/avatars` | **已移除** —— Live2D 现在是一个数字人模型，上传走统一的 `POST /api/admin/avatars`（带 `model=live2d`） |
-| DELETE | `/api/admin/live2d/avatars/{id}` | **已移除** —— 删除走统一的 `DELETE /api/admin/avatars/{id}` |
-| GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
-| GET | `/api/admin/avatars/{id}/live2d/model` | 该模型自己声明的表情清单与动作分组（从工程目录读，不从 `config_json` 读）。表情映射是按**模型表情列表里的位置**写的，所以控制台要靠这个端点给出可选项 |
-| PATCH | `/api/admin/avatars/{id}/live2d` | 改 Live2D 形象的表情映射（`{"expressions": {"smile": 4}}`，可选 `entry`）。落库前用工程目录重新校验：模型没有的下标当场 422，且不影响已存的映射 |
 | GET | `/api/admin/system` | 各运行时状态（`runtimes`）/ GPU / 版本 / 数据目录 |
 | GET | `/api/admin/models` | Models 页的轮询载荷：每个数字人模型一行（外加形象动画器）、服务行、GPU 快照 |
 | GET | `/api/admin/drive-models` | 已注册的数字人模型清单：`name` / `label_zh` / `source_kind` / `client_rendered` / `max_video_seconds`（该模型的源素材时长上限，覆盖全局设置时才有值）。形象创建表单与选择器共用 |
-| POST | `/api/admin/models/{model}/load` / `unload` | 按**模型名**加载 / 卸载该模型的权重。`animator:<name>` 行仍走各自的派发 |
-| GET | `/api/admin/tenants` | 租户列表 |
-| POST | `/api/admin/tenants` | JSON `{"name"}` → `{tenant_id, name, api_key}`（`api_key` 仅此一次返回） |
-| POST | `/api/admin/tenants/{tenant_id}/api-key` | 轮换并返回新 API Key（旧 key 立即失效） |
+| POST | `/api/admin/models/{model_id}/load` / `unload` | 按**模型名**加载 / 卸载该模型的权重 |
+| POST | `/api/admin/services/{service_id}/load` / `unload` | 按 Models 页的**服务行 id** 加载 / 卸载该服务（`animator:<name>` 走各自的派发） |
+| GET | `/api/admin/backends` | 图生视频可选的后端 |
+| POST | `/api/admin/i2v` | 提交一次图生视频（202），返回 `task_id` |
+| GET | `/api/admin/tasks` | 生成任务列表（新到旧），管理台靠它轮询进度 |
+| DELETE | `/api/admin/tasks/{task_id}` | 删除任务行与它的落盘临时目录（204） |
+| GET | `/api/admin/tasks/{task_id}/result.mp4` | 任务产出的 mp4 字节 |
+| GET | `/api/admin/liveportrait-drivers` | 可用的 LivePortrait 动作模板 |
+| POST | `/api/admin/liveportrait-drivers/extract` | 从素材里抽取一个新的动作模板 |
+| GET | `/api/admin/liveportrait-drivers/{name}/preview` | 模板预览图 |
+| DELETE | `/api/admin/liveportrait-drivers/{name}` | 删除模板（204） |
 | GET | `/api/admin/avatars` | 形象列表（可选 `?drive_model=` 过滤） |
-| POST | `/api/admin/avatars` | multipart `name` + `model`（数字人模型名）+ `file` 创建形象。`model=live2d` 时 `file` 是整个 Cubism 工程的 zip，另可带 `entry`(可选) 与 `expressions`(可选 JSON)；`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到），校验失败 422 且不留行、不留文件。`model=wav2lip` 时 `file` 是一段人脸清晰的口播视频（或一张照片），构建时逐帧检测人脸并烘焙闭嘴空闲轨 |
-| GET | `/api/admin/avatars/{avatar_id}` | 形象详情 |
-| DELETE | `/api/admin/avatars/{avatar_id}` | 删除形象（204） |
+| POST | `/api/admin/avatars` | multipart `name` + `model`（数字人模型名）+ `file` 创建形象。`model=live2d` 时 `file` 是整个 Cubism 工程的 zip，另可带 `entry`(可选) 与 `expressions`(可选 JSON)；`entry` 留空则自动探测 `*.model3.json`（工程压缩在子目录里也能找到），校验失败 422 且不留行、不留文件。`model=wav2lip` 时 `file` 是一段人脸清晰的口播视频（或一张照片），构建时逐帧检测人脸并烘焙闭嘴空闲轨。另可带 `idle_crf` / `idle_preset` —— 这两个是**每个形象自己的**空闲视频质量旋钮 |
+| GET | `/api/admin/avatars/{avatar_id}` | 形象详情（`status` 供轮询制作完成：`pending`/`processing`/`ready`/`failed`） |
+| DELETE | `/api/admin/avatars/{avatar_id}` | 删除形象及资产（204） |
 | POST | `/api/admin/avatars/{avatar_id}/retry` | 重试制作（202） |
-| PATCH | `/api/admin/avatars/{avatar_id}/config` | 调优 `mouth_scale` / `expression_intensity` |
 | GET | `/api/admin/avatars/{avatar_id}/idle.mp4` | 空闲循环视频（视频形象；首次请求时生成，支持 Range） |
 | GET | `/api/admin/avatars/{avatar_id}/normalized.png` | 静态画面（照片形象与回退） |
+| GET | `/api/admin/avatars/{avatar_id}/artifacts` | 形象目录里的产物清单 |
+| GET | `/api/admin/avatars/{avatar_id}/timeline` | 产物的拍摄时间线 |
+| GET | `/api/admin/avatars/{avatar_id}/artifact/{path}` | 单个产物文件 |
+| GET | `/api/admin/avatars/{id}/live2d/model` | 该模型自己声明的表情清单与动作分组（从工程目录读，不从 `config_json` 读）。表情映射是按**模型表情列表里的位置**写的，所以控制台要靠这个端点给出可选项 |
+| PATCH | `/api/admin/avatars/{id}/live2d` | 改 Live2D 形象的表情映射（`{"expressions": {"smile": 4}}`，可选 `entry`）。落库前用工程目录重新校验：模型没有的下标当场 422，且不影响已存的映射 |
+| GET | `/api/admin/live2d/health` | SDK 是否就绪。**从不抛错** —— SDK 缺失是要在系统页展示的状态，不是异常 |
 | POST | `/api/admin/tts` | JSON `{"text", "voice_id"}` → `audio/wav`。调试页用；`text` 为空 400，`voice_id` 缺失 400，未配置 API Key 503，MiniMax 报错 502 |
 | GET | `/api/admin/tts/config` | MiniMax TTS 配置；返回 `api_key_masked`（`****<末4位>`，未配置时为 `(未设置)`） |
 | PUT | `/api/admin/tts/config` | 同上，写入到 `settings` 表；保存后下一次合成请求即刻生效 |
 | GET | `/api/admin/llm/config` | 大模型（OpenAI 兼容）配置；返回 `api_key_masked` 与 `configured` 标志 |
 | PUT | `/api/admin/llm/config` | 同上，写入到 `settings` 表 |
-| POST | `/api/admin/llm/chat` | JSON `{messages}` → `{content}`。非流式；用作同步回退 |
 | POST | `/api/admin/llm/chat/stream` | JSON `{messages}` → `text/event-stream`。每帧 `{"delta": "..."}` / `{"done": true}` / `{"error": ...}`。调试页大模型对话的入口 |
 | GET | `/api/admin/jobs` | 制作任务（AvatarJob）列表 |
 | GET | `/api/admin/sessions` | 会话列表（含实时指标） |
 | POST | `/api/admin/sessions/sweep` | 手动触发空闲会话回收 |
+| DELETE | `/api/admin/sessions/{session_id}` | 结束会话（204） |
+
+> **关于鉴权**：两个面都没有鉴权。这台服务默认跑在操作者自己的机器上，管理台与它
+> 同源，业务面只暴露会话驱动。放到可达网络上之前，请自己加一层网关。

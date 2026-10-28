@@ -30,11 +30,10 @@ class Avatar(Base):
     #: (``live2d``) registers a pipeline but no engine.
     drive_model: Mapped[str] = mapped_column(String(32), default="musetalk", nullable=False)
     source_image_path: Mapped[str] = mapped_column(String(512))
-    pack_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)
     # Per-avatar tunable overrides captured by the create form (idle_crf,
     # idle_preset). The pipeline and the idle-video rebuild path both read
-    # this dict through ``tunables.effective(db, overrides=...)`` so a
+    # this dict through ``tunables.effective(overrides=...)`` so a
     # per-avatar choice survives the build and a later re-encode. Empty
     # by default; the column is NOT NULL so the pipeline can pass the
     # value through without a None-check.
@@ -70,19 +69,17 @@ class StreamSession(Base):
 
 
 class Setting(Base):
-    """Admin-controlled tunables stored as key/value JSON.
+    """Service credentials stored as key/value JSON.
 
-    The admin console writes via ``PATCH /api/admin/settings``; the avatar
-    pipeline and idle-video encoder read through
-    ``dh_server.avatar.tunables.effective(db)`` on every call so a runtime change
-    takes effect on the next avatar without a server restart.
+    The MiniMax TTS and the OpenAI-compatible LLM are configured from the
+    console's Models tab and read from here on every call, so a change
+    takes effect on the next request without a server restart.
     """
 
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(String(1024))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class GenerationTask(Base):

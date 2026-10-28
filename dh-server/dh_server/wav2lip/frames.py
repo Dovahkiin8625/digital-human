@@ -17,9 +17,11 @@ from pathlib import Path
 
 import numpy as np
 
-#: The letterbox colour, in BGR. The MuseTalk pipeline uses RGB (16, 16, 24);
-#: same colour, opposite order.
-CANVAS_BG = (24, 16, 16)
+from dh_server.avatar import video
+
+#: The letterbox colour, in BGR: the same colour the other pipelines use in
+#: RGB, with the channels the other way round.
+CANVAS_BG = tuple(reversed(video.CANVAS_BG))
 
 
 def _cv2():

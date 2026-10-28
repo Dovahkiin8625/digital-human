@@ -2,9 +2,8 @@
 
 One surface:
 
-* ``/api/v1/live2d/*`` -- read-only hosting for whichever client renders
-  it (today the Electron pet), gated by ``X-V1-Token`` when one is
-  configured.
+* ``/api/v1/live2d/*`` -- read-only hosting of the Cubism project, for
+  whichever client renders it.
 
 Registering a Live2D avatar is not here any more: Live2D is a
 digital-human *model* like any other (see ``dh_server/model_registry``), so
@@ -23,10 +22,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from dh_server.api.avatars import _require_uuid_hex
+from dh_server.core.validation import require_uuid_hex
 from dh_server.avatar.store import AvatarStore
 from dh_server.config import get_settings
-from dh_server.core.auth import require_v1_token
 from dh_server.core.errors import AppError
 from dh_server.db.models import Avatar
 from dh_server.db.session import get_db
@@ -127,9 +125,8 @@ def get_model_file(
     avatar_id: str,
     path: str,
     db=Depends(get_db),
-    _token=Depends(require_v1_token),
 ):
-    _require_uuid_hex(avatar_id)
+    require_uuid_hex(avatar_id)
     row = db.execute(select(Avatar).where(Avatar.id == avatar_id)).scalar_one_or_none()
     # An avatar the server drives has no model directory to serve. Same
     # 404 as a missing avatar, so this cannot be used to probe which ids

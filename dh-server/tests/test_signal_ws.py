@@ -67,8 +67,8 @@ def _seed(client):
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
     resp = client.post(
-        "/api/v1/avatars",
-        data={"name": "a"},
+        "/api/admin/avatars",
+        data={"name": "a", "model": "musetalk"},
         files={"file": ("a.png", buf.getvalue(), "image/png")},
     )
     return resp.json()["avatar_id"]

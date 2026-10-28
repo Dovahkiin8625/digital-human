@@ -9,6 +9,7 @@ from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
+from dh_server import __version__
 from dh_server.config import get_settings
 from dh_server.db.session import get_engine, init_db
 from dh_server.engine.base import gpu_available
@@ -119,7 +120,7 @@ def create_app() -> FastAPI:
             # warmup on its own worker thread before releasing the GPU.
             await app.state.session_manager.shutdown()
 
-    app = FastAPI(title="digital-human", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="digital-human", version=__version__, lifespan=lifespan)
     init_db(get_engine())
     # Probe once at startup rather than on every /healthz: importing torch is
     # the expensive part, and the answer cannot change without a restart.
@@ -154,7 +155,6 @@ def create_app() -> FastAPI:
         }
 
     from dh_server.api.admin import router as admin_router
-    from dh_server.api.avatars import router as avatars_router
     from dh_server.api.live2d import router as live2d_router
     from dh_server.api.sessions import router as sessions_router
     from dh_server.avatar.store import AvatarStore
@@ -164,7 +164,6 @@ def create_app() -> FastAPI:
 
     register_handlers(app)
     app.include_router(admin_router)
-    app.include_router(avatars_router)
     app.include_router(sessions_router)
     app.include_router(live2d_router)
 

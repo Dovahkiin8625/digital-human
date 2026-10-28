@@ -6,11 +6,8 @@ scratch/
 __pycache__/
 *.egg-info/
 data/
-admin-ui/node_modules/
-admin-ui/dist/
 node_modules/
 dh-admin-ui/dist/
-dh-pet/dist/
 .pytest_cache/
 .env
 .playwright-mcp/*

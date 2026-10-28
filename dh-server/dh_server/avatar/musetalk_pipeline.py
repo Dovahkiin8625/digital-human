@@ -35,7 +35,7 @@ from PIL import Image
 from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 from dh_server.avatar.pipeline import AvatarPipeline, PipelineError
 from dh_server.avatar.quality import assess as assess_quality
-from dh_server.avatar.video import is_video_suffix
+from dh_server.avatar.video import fit_to_canvas, is_video_suffix
 from dh_server.config import get_settings
 
 SUBDIR = "musetalk"
@@ -101,20 +101,6 @@ def _save_latents(parts, path: Path) -> None:
 
 def default_models_dir() -> Path:
     return Path(get_settings().data_dir) / "models" / "musetalk"
-
-
-def fit_to_canvas(img: Image.Image, width: int, height: int) -> Image.Image:
-    """Letterbox `img` into a width x height canvas, preserving aspect ratio.
-
-    The pipeline must produce a 720x1280 `normalized.png` because
-    `RenderSession` assumes the media contract's frame size.
-    """
-    canvas = Image.new("RGB", (width, height), (16, 16, 24))
-    scale = min(width / img.width, height / img.height)
-    new = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
-    resized = img.resize(new, Image.LANCZOS)
-    canvas.paste(resized, ((width - new[0]) // 2, (height - new[1]) // 2))
-    return canvas
 
 
 class MuseTalkPreparer:

@@ -132,7 +132,7 @@ def test_an_index_the_model_does_not_declare_is_refused(client):
     """The map is validated against the project on disk. An index the
     model does not have would become an expressionIndex the client cannot
     use, and the symptom -- a face that never changes -- would only show
-    up minutes later, in the desktop pet."""
+    up minutes later, in the browser."""
     avatar_id = _upload(client, expressions='{"smile": 2}').json()["avatar_id"]
 
     resp = client.patch(

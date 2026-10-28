@@ -10,7 +10,7 @@ import { CubismMotion } from "@framework/motion/cubismmotion";
 
 import { idlePose } from "../render/idle";
 import { applyFrame, type FrameInputs } from "../render/frame";
-import { authFetch, SHADER_PATH } from "./core";
+import { fetchAsset, SHADER_PATH } from "./core";
 import type { FrameState, ParameterReport } from "./types";
 
 /** The motion group the pet idles in. Cubism projects name their groups
@@ -99,7 +99,7 @@ export class StageModel extends CubismUserModel {
     CubismFramework.initialize();
 
     const home = dir.endsWith("/") ? dir : `${dir}/`;
-    const settingBuffer = await authFetch(`${home}${fileName}`).then((r) => {
+    const settingBuffer = await fetchAsset(`${home}${fileName}`).then((r) => {
       if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
       return r.arrayBuffer()
     });
@@ -108,7 +108,7 @@ export class StageModel extends CubismUserModel {
       settingBuffer.byteLength,
     );
 
-    const moc = await authFetch(`${home}${setting.getModelFileName()}`).then((r) => {
+    const moc = await fetchAsset(`${home}${setting.getModelFileName()}`).then((r) => {
       if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
       return r.arrayBuffer()
     });
@@ -121,7 +121,7 @@ export class StageModel extends CubismUserModel {
     this.getRenderer().loadShaders(SHADER_PATH());
 
     if (setting.getPhysicsFileName() !== "") {
-      const p = await authFetch(`${home}${setting.getPhysicsFileName()}`).then((r) => {
+      const p = await fetchAsset(`${home}${setting.getPhysicsFileName()}`).then((r) => {
       if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
       return r.arrayBuffer()
     });
@@ -129,7 +129,7 @@ export class StageModel extends CubismUserModel {
       this.physics = new CubismPhysicsUpdater(this._physics);
     }
     if (setting.getPoseFileName() !== "") {
-      const p = await authFetch(`${home}${setting.getPoseFileName()}`).then((r) => {
+      const p = await fetchAsset(`${home}${setting.getPoseFileName()}`).then((r) => {
       if (!r.ok) throw new Error(`model file ${r.status}: ${r.statusText}`)
       return r.arrayBuffer()
     });
@@ -140,7 +140,7 @@ export class StageModel extends CubismUserModel {
     for (let i = 0; i < setting.getTextureCount(); i++) {
       const name = setting.getTextureFileName(i);
       if (name === "") continue;
-      const blob = await authFetch(`${home}${name}`).then((r) => r.blob());
+      const blob = await fetchAsset(`${home}${name}`).then((r) => r.blob());
       this.getRenderer().bindTexture(i, createTexture(gl, await createImageBitmap(blob)));
     }
 
@@ -160,7 +160,7 @@ export class StageModel extends CubismUserModel {
       this.expressionNames.push(name);
       if (!file) continue;
       try {
-        const buffer = await authFetch(`${home}${file}`).then((r) => {
+        const buffer = await fetchAsset(`${home}${file}`).then((r) => {
           if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
           return r.arrayBuffer();
         });
@@ -183,7 +183,7 @@ export class StageModel extends CubismUserModel {
         const file = setting.getMotionFileName(group, j);
         if (!file) continue;
         try {
-          const buffer = await authFetch(`${home}${file}`).then((r) => {
+          const buffer = await fetchAsset(`${home}${file}`).then((r) => {
             if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
             return r.arrayBuffer();
           });

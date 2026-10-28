@@ -15,14 +15,14 @@ def test_full_flow_with_ws_audio(client):
     buf = io.BytesIO()
     Image.new("RGB", (800, 900), (90, 70, 60)).save(buf, format="PNG")
     avatar = client.post(
-        "/api/v1/avatars",
-        data={"name": "Alice"},
+        "/api/admin/avatars",
+        data={"name": "Alice", "model": "musetalk"},
         files={"file": ("alice.png", buf.getvalue(), "image/png")},
     ).json()
     # The preprocessing job is a FastAPI BackgroundTask; TestClient runs it
     # synchronously before the response is returned, so the avatar is already
     # ready by the next request.
-    assert client.get(f"/api/v1/avatars/{avatar['avatar_id']}").json()["status"] == "ready"
+    assert client.get(f"/api/admin/avatars/{avatar['avatar_id']}").json()["status"] == "ready"
 
     session = client.post(
         "/api/v1/sessions", json={"avatar_id": avatar["avatar_id"]}

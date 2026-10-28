@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from dh_server.avatar import video
 from dh_server.avatar.landmarks import CHIN, LEFT_CHEEK, NOSE_TIP, RIGHT_CHEEK
 
 #: Cheek-to-cheek face width on the 720-wide canvas below which the 256x256
@@ -29,7 +30,7 @@ MIN_NOSE_RATIO = 0.55
 #: face reads as blurry or heavily compressed.
 MIN_SHARPNESS = 60.0
 #: fit_to_canvas letterbox fill; bars in exactly this colour are ours.
-CANVAS_BG = np.array([16, 16, 24], dtype=np.int16)
+CANVAS_BG = np.array(video.CANVAS_BG, dtype=np.int16)
 #: Per-channel tolerance for a pixel counting as letterbox background.
 BG_TOL = 10
 #: A border line at least this fraction background counts as a bar.
@@ -96,19 +97,16 @@ def _bar_inset(mask: np.ndarray) -> tuple[int, int, int, int]:
     return left, right, top, bottom
 
 
-def assess(rgb: np.ndarray, pts: np.ndarray, thresholds: dict | None = None) -> list[str]:
+def assess(rgb: np.ndarray, pts: np.ndarray) -> list[str]:
     """Return human-readable quality warnings for one prepared canvas frame.
 
     Empty list means nothing worth flagging. Order is fixed (size, pose,
     sharpness, composition) so warnings read identically across runs.
-
-    ``thresholds`` is a dict of admin tunables; missing keys fall back to the
-    module constants, so existing call sites keep working untouched.
     """
-    min_w = (thresholds or {}).get("min_face_width_px", MIN_FACE_WIDTH_PX)
-    min_r = (thresholds or {}).get("min_nose_ratio", MIN_NOSE_RATIO)
-    min_s = (thresholds or {}).get("min_sharpness", MIN_SHARPNESS)
-    min_o = (thresholds or {}).get("min_occupancy", MIN_OCCUPANCY)
+    min_w = MIN_FACE_WIDTH_PX
+    min_r = MIN_NOSE_RATIO
+    min_s = MIN_SHARPNESS
+    min_o = MIN_OCCUPANCY
 
     h, w = rgb.shape[:2]
     warnings: list[str] = []

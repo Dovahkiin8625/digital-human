@@ -27,12 +27,12 @@ def _png_bytes(w=640, h=800):
 
 def test_drive_model_defaults_to_musetalk(client):
     resp = client.post(
-        "/api/v1/avatars",
-        data={"name": "a"},
+        "/api/admin/avatars",
+        data={"name": "a", "model": "musetalk"},
         files={"file": ("a.png", _png_bytes(), "image/png")},
     )
     avatar_id = resp.json()["avatar_id"]
-    assert client.get(f"/api/v1/avatars/{avatar_id}").json()["drive_model"] == "musetalk"
+    assert client.get(f"/api/admin/avatars/{avatar_id}").json()["drive_model"] == "musetalk"
 
 
 def test_migration_is_idempotent():
@@ -66,9 +66,9 @@ def test_drive_model_filter_partitions_the_listing(client):
     finally:
         db.close()
 
-    everything = client.get("/api/v1/avatars").json()
-    live2d = client.get("/api/v1/avatars", params={"drive_model": "live2d"}).json()
-    photoreal = client.get("/api/v1/avatars", params={"drive_model": "musetalk"}).json()
+    everything = client.get("/api/admin/avatars").json()
+    live2d = client.get("/api/admin/avatars", params={"drive_model": "live2d"}).json()
+    photoreal = client.get("/api/admin/avatars", params={"drive_model": "musetalk"}).json()
 
     assert len(everything) == 2
     assert [a["name"] for a in live2d] == ["l2d"]
@@ -89,10 +89,10 @@ def test_the_kind_column_is_gone_and_its_values_moved(client):
             "ALTER TABLE avatars ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'photoreal'"
         )
         conn.exec_driver_sql(
-            "INSERT INTO avatars (id, name, status, source_image_path, pack_path, "
+            "INSERT INTO avatars (id, name, status, source_image_path, "
             "config_json, tunable_overrides, build_options, drive_model, created_at, kind) "
             "VALUES ('b' || substr(hex(randomblob(16)), 1, 31), 'old', 'ready', '', "
-            "NULL, '{}', '{}', '{}', 'musetalk', '2026-01-01 00:00:00', 'live2d')"
+            "'{}', '{}', '{}', 'musetalk', '2026-01-01 00:00:00', 'live2d')"
         )
 
     init_db(engine)

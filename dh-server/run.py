@@ -31,8 +31,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 
 #: The repository root: the parent of the project directory. ``data/`` and
-#: ``.env`` live here, and so do the sibling projects -- the console
-#: (``dh-admin-ui``) and the desktop pet (``dh-pet``).
+#: ``.env`` live here, and so does the sibling project -- the console
+#: (``dh-admin-ui``).
 ROOT = PROJECT_ROOT.parent
 
 #: The venv that carries the GPU runtime, and the torch-free one for tests.

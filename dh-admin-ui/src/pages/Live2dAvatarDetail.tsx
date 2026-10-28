@@ -32,7 +32,7 @@ import type {
  * Everything here is a different *kind* of the same thing, not a
  * different feature: the model files come from the same artifact listing
  * a photoreal avatar uses, and the preview is the same <Live2DStage>
- * component the debug page, the chat page and the desktop pet mount.
+ * component the debug page and the chat page mount.
  * What a Live2D avatar does not have is a build pipeline -- so there is
  * no idle clip to fetch, no timeline, and nothing to retry.
  */

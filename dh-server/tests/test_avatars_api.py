@@ -13,46 +13,46 @@ def _png_bytes(w=640, h=800):
 
 def test_avatar_lifecycle(client):
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Alice"},
+        "/api/admin/avatars",
+            data={"name": "Alice", "model": "musetalk"},
         files={"file": ("alice.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 201
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
+    detail = client.get(f"/api/admin/avatars/{avatar_id}").json()
     assert detail["status"] == "ready"
     # The audit row is keyed separately; the original config block is preserved.
     assert {"crop", "_effective_params"} <= set(detail["config"])
     assert detail["config"]["crop"] == {"mode": "center"}
 
-    listing = client.get("/api/v1/avatars").json()
+    listing = client.get("/api/admin/avatars").json()
     assert [a["avatar_id"] for a in listing] == [avatar_id]
 
-    assert client.delete(f"/api/v1/avatars/{avatar_id}").status_code == 204
-    assert client.get(f"/api/v1/avatars/{avatar_id}").status_code == 404
+    assert client.delete(f"/api/admin/avatars/{avatar_id}").status_code == 204
+    assert client.get(f"/api/admin/avatars/{avatar_id}").status_code == 404
 
 
 def test_avatar_tiny_image_becomes_failed(client):
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "bad"},
+        "/api/admin/avatars",
+            data={"name": "bad", "model": "musetalk"},
         files={"file": ("bad.png", _png_bytes(50, 50), "image/png")},
     )
     avatar_id = resp.json()["avatar_id"]
-    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
+    detail = client.get(f"/api/admin/avatars/{avatar_id}").json()
     assert detail["status"] == "failed"
     assert detail["error"]
 
 
 def test_avatar_not_found(client):
-    assert client.get("/api/v1/avatars/nope").status_code == 404
+    assert client.get("/api/admin/avatars/nope").status_code == 404
 
 
 def test_upload_rejects_path_separator_in_suffix(client):
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "evil"},
+        "/api/admin/avatars",
+            data={"name": "evil", "model": "musetalk"},
         files={"file": ("x.foo/bar", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 400
@@ -67,55 +67,55 @@ def test_upload_rejects_path_separator_in_suffix(client):
 
 def test_upload_rejects_backslash_dotdot_in_suffix(client):
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "evil"},
+        "/api/admin/avatars",
+            data={"name": "evil", "model": "musetalk"},
         files={"file": ("x.foo\\..\\bar", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "invalid_filename"
 
 
-def test_validate_suffix_rejects_traversal_segments():
-    from dh_server.api.avatars import _validate_suffix
+def test_derive_suffix_rejects_traversal_segments():
     from dh_server.core.errors import AppError
+    from dh_server.core.validation import derive_suffix
 
-    assert _validate_suffix(".png") == ".png"
-    for bad in (".a/../b", ".a\\..\\b", "..", ".x/evil", ".x\\evil"):
+    assert derive_suffix("a.png") == ".png"
+    for bad in ("x.png/../../evil", "x.png\\..\\..\\evil", "x.png/evil", "x.png\\evil"):
         with pytest.raises(AppError) as ei:
-            _validate_suffix(bad)
+            derive_suffix(bad)
         assert ei.value.status == 400
         assert ei.value.code == "invalid_filename"
 
 
 def test_derive_suffix_uses_last_extension_or_png():
-    from dh_server.api.avatars import _derive_suffix
+    from dh_server.core.validation import derive_suffix
 
-    assert _derive_suffix("alice.png") == ".png"
-    assert _derive_suffix(None) == ".png"
-    assert _derive_suffix("noext") == ".png"
-    assert _derive_suffix("x.y.JPEG") == ".JPEG"
+    assert derive_suffix("alice.png") == ".png"
+    assert derive_suffix(None) == ".png"
+    assert derive_suffix("noext") == ".png"
+    assert derive_suffix("x.y.JPEG") == ".JPEG"
 
 
 def test_derive_suffix_rejects_traversal_filename():
-    from dh_server.api.avatars import _derive_suffix
+    from dh_server.core.validation import derive_suffix
     from dh_server.core.errors import AppError
 
     with pytest.raises(AppError) as ei:
-        _derive_suffix("x.png/../../evil")
+        derive_suffix("x.png/../../evil")
     assert ei.value.status == 400
     assert ei.value.code == "invalid_filename"
 
 
 def test_require_uuid_hex_rejects_non_hex():
-    from dh_server.api.avatars import _require_uuid_hex
+    from dh_server.core.validation import require_uuid_hex
     from dh_server.core.errors import AppError
 
-    assert _require_uuid_hex("a" * 32) == "a" * 32
+    assert require_uuid_hex("a" * 32) == "a" * 32
     good = "0123456789abcdef0123456789abcdef"
-    assert _require_uuid_hex(good) == good
+    assert require_uuid_hex(good) == good
     for bad in ("nope", "../evil", "..\\evil", "a" * 31, "a" * 33, "A" * 32, good + "0"):
         with pytest.raises(AppError) as ei:
-            _require_uuid_hex(bad)
+            require_uuid_hex(bad)
         assert ei.value.status == 404
         assert ei.value.code == "not_found"
 
@@ -128,8 +128,8 @@ def test_avatar_job_id_fits_pk_column_contract(client):
     from dh_server.db.session import get_engine
 
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Alice"},
+        "/api/admin/avatars",
+            data={"name": "Alice", "model": "musetalk"},
         files={"file": ("alice.png", _png_bytes(), "image/png")},
     )
     assert resp.status_code == 201
@@ -151,7 +151,7 @@ def test_delete_non_hex_avatar_id_is_404_and_skips_store(client, monkeypatch):
         called.append(avatar_id)
 
     monkeypatch.setattr("dh_server.avatar.store.AvatarStore.delete_assets", fake_delete)
-    resp = client.delete("/api/v1/avatars/not-a-uuid")
+    resp = client.delete("/api/admin/avatars/not-a-uuid")
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "not_found"
     assert called == []
@@ -179,14 +179,14 @@ def _stub_video(monkeypatch, duration=2.0, fps=25.0):
 def test_avatar_video_lifecycle(client, monkeypatch):
     _stub_video(monkeypatch)
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Video Alice"},
+        "/api/admin/avatars",
+            data={"name": "Video Alice", "model": "musetalk"},
         files={"file": ("alice.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
+    detail = client.get(f"/api/admin/avatars/{avatar_id}").json()
     assert detail["status"] == "ready"
 
 
@@ -197,8 +197,8 @@ def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeyp
     # case, capping on `info["frame_count"]` passes every other test.
     _stub_video(monkeypatch, duration=15.0, fps=30.0)
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "30fps"},
+        "/api/admin/avatars",
+            data={"name": "30fps", "model": "musetalk"},
         files={"file": ("clip.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
@@ -207,8 +207,8 @@ def test_avatar_video_cap_counts_output_frames_not_source_frames(client, monkeyp
 def test_avatar_video_too_long_is_422(client, monkeypatch):
     _stub_video(monkeypatch, duration=20.0)
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Too long"},
+        "/api/admin/avatars",
+            data={"name": "Too long", "model": "musetalk"},
         files={"file": ("long.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 422
@@ -224,8 +224,8 @@ def test_avatar_oversized_upload_is_413_and_creates_no_rows(client, monkeypatch)
 
     get_settings.cache_clear()
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Big"},
+        "/api/admin/avatars",
+            data={"name": "Big", "model": "musetalk"},
         files={"file": ("big.png", b"\x00" * 2048, "image/png")},
     )
     assert resp.status_code == 413
@@ -259,14 +259,14 @@ def test_avatar_video_with_zero_frames_fails_with_typed_error(client, monkeypatc
 
     monkeypatch.setattr("dh_server.avatar.video.decode_frames", zero_decode)
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Empty"},
+        "/api/admin/avatars",
+            data={"name": "Empty", "model": "musetalk"},
         files={"file": ("empty.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 201, resp.text
     avatar_id = resp.json()["avatar_id"]
 
-    detail = client.get(f"/api/v1/avatars/{avatar_id}").json()
+    detail = client.get(f"/api/admin/avatars/{avatar_id}").json()
     assert detail["status"] == "failed"
     assert detail["error"] == "video has no decodable frames"
 
@@ -279,8 +279,8 @@ def test_avatar_undecodable_video_is_422(client, monkeypatch):
 
     monkeypatch.setattr("dh_server.avatar.video.probe_video", boom)
     resp = client.post(
-        "/api/v1/avatars",
-            data={"name": "Bad"},
+        "/api/admin/avatars",
+            data={"name": "Bad", "model": "musetalk"},
         files={"file": ("bad.mp4", b"\x00" * 64, "video/mp4")},
     )
     assert resp.status_code == 422

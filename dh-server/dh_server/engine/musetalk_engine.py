@@ -309,11 +309,6 @@ def _decode_gpu(rt, pred):
     return (image * 255).round().to(torch.uint8)
 
 
-def _decode_frames(rt, pred):
-    """`_decode_gpu` as HWC numpy -- the host-side view the probes compare against."""
-    return _decode_gpu(rt, pred).permute(0, 2, 3, 1).contiguous().cpu().numpy()
-
-
 def _blend_face_gpu(base, face, bbox, mask, crop_box):
     """`blend_face`, with the canvas resident on the device.
 

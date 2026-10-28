@@ -48,7 +48,7 @@ def test_pipeline_produces_pack(tmp_path, db):
     db.refresh(avatar)
     assert avatar.status == "ready"
     pack_dir = store.avatar_dir(avatar.id)
-    assert avatar.pack_path == str(pack_dir / "pack.json")
+    assert (pack_dir / "pack.json").exists()
     assert (pack_dir / "normalized.png").exists()
     cfg = json.loads((pack_dir / "pack.json").read_text())
     assert cfg == {"crop": {"mode": "center"}}

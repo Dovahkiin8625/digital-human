@@ -28,7 +28,7 @@ import {
   PlayCircleOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { api, downloadWithToken } from "../api";
+import { api, downloadFile } from "../api";
 import StatusTag from "../components/StatusTag";
 import DriveModelTag from "../avatars/DriveModelTag";
 import { useDriveModels } from "../avatars/driveModels";
@@ -320,7 +320,7 @@ export default function AvatarDetail() {
           icon={<DownloadOutlined />}
           onClick={() => {
             if (!id) return;
-            void downloadWithToken(`/api/admin/avatars/${id}/artifact/${a.path}`).catch((err) =>
+            void downloadFile(`/api/admin/avatars/${id}/artifact/${a.path}`).catch((err) =>
               message.error((err as Error).message)
             );
           }}

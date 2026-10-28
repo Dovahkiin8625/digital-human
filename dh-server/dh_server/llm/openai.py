@@ -6,10 +6,8 @@ Speaks the ``/v1/chat/completions`` shape every major provider supports:
 * Ollama: ``http://localhost:11434/v1``
 * 阿里云 DashScope: ``https://dashscope.aliyuncs.com/compatible-mode/v1``
 
-Two surfaces:
+One surface:
 
-* :func:`chat` -- one POST, full reply string back. Used by the
-  non-streaming chat endpoint.
 * :func:`stream_chat` -- async iterator yielding reply deltas. Used by
   the streaming endpoint. The caller can break out of the loop on the
   first ``StopAsyncIteration`` or by closing the underlying stream.
@@ -21,7 +19,7 @@ itself doesn't need to know about this prompt -- it's part of the
 "basic LLM" the user asked for. A future revision can move the prompt
 into the UI for the operator to tweak; for now the brief is fixed.
 
-Both surfaces share the same error mapping:
+The error mapping is:
 
 * ``llm_not_configured`` (503) -- api_key or base_url missing.
 * ``empty_messages`` (400) -- caller passed an empty list.
@@ -105,81 +103,6 @@ def _require_configured(cfg: dict[str, Any]) -> None:
             "LLM is not configured: save the base URL in the Models tab",
             503,
         )
-
-
-def _extract_content(data: dict[str, Any]) -> str:
-    """Pull ``choices[0].message.content`` from a non-streaming reply."""
-    try:
-        choices = data.get("choices") or []
-        if not choices:
-            raise AppError("llm_failed", "LLM returned no choices", 502)
-        message = choices[0].get("message") or {}
-        content = message.get("content") or ""
-    except (AttributeError, IndexError, KeyError, TypeError) as exc:
-        raise AppError("llm_failed", f"LLM reply shape not recognised: {exc}", 502) from exc
-    if not content:
-        raise AppError("llm_failed", "LLM returned empty content", 502)
-    return content
-
-
-async def chat(
-    messages: list[dict[str, str]],
-    *,
-    client: httpx.AsyncClient | None = None,
-    db=None,
-) -> str:
-    """Send ``messages`` to the configured upstream and return the reply text.
-
-    ``client`` is injectable so tests can drive the real parse path through
-    an ``httpx.MockTransport`` instead of the network. ``db`` is the FastAPI
-    request session; passed through so the effective LLM config (DB rows
-    layered over the built-in defaults) is read fresh on every call.
-    """
-    if not messages:
-        raise AppError("empty_messages", "messages must not be empty", 400)
-
-    cfg = _read_cfg(db)
-    _require_configured(cfg)
-    payload = _build_request(messages, cfg, stream=False)
-    url = f"{cfg['base_url'].rstrip('/')}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {cfg['api_key']}",
-        "Content-Type": "application/json",
-    }
-
-    owns_client = client is None
-    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
-    try:
-        try:
-            resp = await client.post(url, headers=headers, json=payload)
-        except httpx.HTTPError as exc:
-            raise AppError("llm_failed", f"LLM request failed: {exc}", 502) from exc
-        if resp.status_code != 200:
-            # Surface upstream HTTP errors verbatim. Some providers put a
-            # JSON body with an ``error`` block; we don't try to be clever
-            # about it -- just include the text the operator can read.
-            raise AppError(
-                "llm_failed",
-                f"LLM returned HTTP {resp.status_code}: {resp.text[:200]!r}",
-                502,
-            )
-        try:
-            data = resp.json()
-        except ValueError as exc:
-            raise AppError(
-                "llm_failed",
-                f"LLM returned a non-JSON response (HTTP {resp.status_code})",
-                502,
-            ) from exc
-    finally:
-        if owns_client:
-            await client.aclose()
-
-    # Some providers echo an ``error`` block on HTTP 200; treat it like
-    # any other upstream failure so the UI sees one consistent error shape.
-    if isinstance(data, dict) and data.get("error"):
-        raise AppError("llm_failed", f"LLM error: {data['error']}", 502)
-    return _extract_content(data)
 
 
 def _parse_sse_delta(line: str) -> str | None:

@@ -1,45 +1,30 @@
-"""Tunables schema: defaults, validation, DB-backed ``effective()`` lookup.
+"""Tunables schema: defaults, validation, and the per-avatar overrides.
 
 These tiny tests pin down the contract the rest of the codebase relies on:
 every default is finite, every range rejects values outside it, and any new
 entry in ``TUNABLES`` is automatically exposed via ``defaults()`` /
 ``validate()`` without callers having to special-case it.
+
+The tunables are per-avatar: the create form captures them and they are
+stored on the avatar row, so there is no global layer to look up.
 """
 from __future__ import annotations
-
-import pytest
 
 from dh_server.avatar import tunables
 
 
-@pytest.fixture()
-def db(tmp_path, monkeypatch):
-    monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
-    monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
-    from sqlalchemy.orm import sessionmaker
-
-    from dh_server.config import get_settings
-    from dh_server.db.session import get_engine, init_db, reset_engine
-
-    get_settings.cache_clear()
-    reset_engine()
-    init_db(get_engine())
-    session = sessionmaker(bind=get_engine())()
-    try:
-        yield session
-    finally:
-        session.close()
-        reset_engine()
-        get_settings.cache_clear()
-
-
 def test_defaults_includes_idle_video_keys():
-    # These two knobs still live as global tunables because every avatar
-    # build reaches the idle encoder; the operator tunes them once and the
-    # pipeline picks them up.
+    # These two knobs live as tunables because every avatar build reaches
+    # the idle encoder; the create form captures them per avatar.
     defaults = tunables.defaults()
     assert defaults["idle_crf"] == 18
     assert defaults["idle_preset"] == "veryfast"
+
+
+def test_the_tunables_are_exactly_the_two_that_are_honoured():
+    # Every entry in TUNABLES is read by something. A knob nothing reads
+    # looks like a setting and is not one.
+    assert {p.name for p in tunables.TUNABLES} == {"idle_crf", "idle_preset"}
 
 
 def test_idle_preset_enum_is_enforced():
@@ -57,52 +42,19 @@ def test_idle_crf_bounds_enforced():
     assert "idle_crf" in tunables.validate({"idle_crf": 100})
 
 
-def test_settings_endpoint_round_trips_idle_keys(client):
-    # PATCH then GET must reflect the stored overrides; the response shape
-    # matches GET's flat dict so the admin form can rehydrate cleanly.
-    admin = {"X-Admin-Token": "dev-admin-token"}
-    body = client.patch(
-        "/api/admin/settings",
-        headers=admin,
-        json={"idle_crf": 22, "idle_preset": "fast"},
-    ).json()
-    assert body["idle_crf"] == 22
-    assert body["idle_preset"] == "fast"
-
-    fetched = client.get("/api/admin/settings", headers=admin).json()
-    assert fetched["idle_crf"] == 22
-    assert fetched["idle_preset"] == "fast"
-
-
-def test_settings_endpoint_rejects_out_of_range_value(client):
-    admin = {"X-Admin-Token": "dev-admin-token"}
-    resp = client.patch("/api/admin/settings", headers=admin, json={"idle_crf": 999})
-    assert resp.status_code == 400
-
-
-def test_effective_accepts_overrides_that_beat_db_rows(db):
-    # Per-avatar overrides (used by the create form's idle_crf/idle_preset
-    # fields) must win over both the module defaults and any operator-pushed
-    # Setting rows. Missing keys in the override dict keep falling through.
-    from dh_server.avatar.tunables import dump_json
-    from dh_server.db.models import Setting
-
-    db.add(Setting(key="idle_crf", value=dump_json(22)))
-    db.commit()
-
-    out = tunables.effective(db, overrides={"idle_crf": 12, "idle_preset": "slow"})
-    # Override wins over the DB row.
+def test_effective_applies_the_per_avatar_overrides():
+    # The create form's idle_crf/idle_preset land on the avatar row and
+    # beat the module defaults. Keys the form left out keep the default.
+    out = tunables.effective(overrides={"idle_crf": 12, "idle_preset": "slow"})
     assert out["idle_crf"] == 12
-    # Override applies even when no DB row exists for that key.
     assert out["idle_preset"] == "slow"
-    # Untouched keys keep the default.
-    assert out["bbox_shift"] == 0
+    assert set(out) == {"idle_crf", "idle_preset"}
 
 
-def test_effective_overrides_none_matches_the_default_call(db):
+def test_effective_overrides_none_matches_the_default_call():
     # Passing overrides=None is identical to the no-overrides call; the
     # pipeline calls it that way.
-    assert tunables.effective(db, overrides=None) == tunables.effective(db)
+    assert tunables.effective(overrides=None) == tunables.effective()
 
 
 def test_init_db_adds_tunable_overrides_to_existing_avatars_table(tmp_path, monkeypatch):
@@ -113,7 +65,7 @@ def test_init_db_adds_tunable_overrides_to_existing_avatars_table(tmp_path, monk
     # column, then call init_db and expect the column to be present + usable.
     monkeypatch.setenv("DH_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("DH_DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
-    from sqlalchemy import Column, MetaData, String, Table, create_engine
+    from sqlalchemy import Column, MetaData, String, Table, create_engine, inspect
 
     from dh_server.config import get_settings
     from dh_server.db.session import init_db
@@ -140,7 +92,12 @@ def test_init_db_adds_tunable_overrides_to_existing_avatars_table(tmp_path, monk
 
     init_db(engine)
 
-    # The migration must add the new column to an already-present table.
+    # The migration must add the new column to an already-present table,
+    # and drop the columns the current model no longer carries.
+    cols = {c["name"] for c in inspect(engine).get_columns("avatars")}
+    assert "tunable_overrides" in cols
+    assert "pack_path" not in cols
+
     # Round-trip an Avatar through the ORM to confirm the schema is usable.
     from dh_server.db.models import Avatar
     from sqlalchemy.orm import sessionmaker

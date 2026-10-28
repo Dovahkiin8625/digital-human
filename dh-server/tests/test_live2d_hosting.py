@@ -150,11 +150,6 @@ def _seed_live2d(client):
         db.close()
 
 
-def _token(monkeypatch, value):
-    monkeypatch.setenv("DH_V1_API_TOKEN", value)
-    get_settings.cache_clear()
-
-
 def _assert_refused(resp):
     """A 404 from OUR handler, not FastAPI's unknown-route 404.
 
@@ -273,7 +268,7 @@ def test_delete_removes_row_and_assets(client):
     _seed_live2d(client)
     store = client.app.state.session_manager.store
     assert client.delete(f"/api/admin/avatars/{LIVE2D_ID}").status_code == 204
-    assert client.get(f"/api/v1/avatars/{LIVE2D_ID}").status_code == 404
+    assert client.get(f"/api/admin/avatars/{LIVE2D_ID}").status_code == 404
     assert not store.avatar_dir(LIVE2D_ID).exists()
 
 
@@ -287,11 +282,11 @@ def test_one_delete_endpoint_handles_every_model(client):
     _seed_live2d(client)
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
-    created = client.post("/api/v1/avatars", data={"name": "p"},
+    created = client.post("/api/admin/avatars", data={"name": "p", "model": "musetalk"},
                           files={"file": ("p.png", buf.getvalue(), "image/png")})
     photo_id = created.json()["avatar_id"]
     assert client.delete(f"/api/admin/avatars/{photo_id}").status_code == 204
-    assert client.get(f"/api/v1/avatars/{photo_id}").status_code == 404
+    assert client.get(f"/api/admin/avatars/{photo_id}").status_code == 404
 
 
 def test_delete_refuses_an_unknown_avatar(client):
@@ -323,33 +318,21 @@ def test_model_file_is_served_with_nosniff(client):
     assert resp.headers.get("x-content-type-options") == "nosniff"
 
 
-def test_model_file_is_open_when_no_token_configured(client):
+def test_model_file_is_served(client):
     _seed_live2d(client)
     resp = client.get(f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/model.model3.json")
     assert resp.status_code == 200
     assert resp.json()["Version"] == 3
 
 
-def test_model_file_requires_the_token_when_configured(client, monkeypatch):
+def test_model_file_served_with_its_bytes(client):
     _seed_live2d(client)
-    _token(monkeypatch, "s3cret")
-    resp = client.get(f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/model.model3.json")
-    assert resp.status_code == 401
-    assert resp.json()["error"]["code"] == "unauthorized"
-
-
-def test_model_file_served_with_the_token(client, monkeypatch):
-    _seed_live2d(client)
-    _token(monkeypatch, "s3cret")
-    resp = client.get(
-        f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/model.moc3",
-        headers={"X-V1-Token": "s3cret"},
-    )
+    resp = client.get(f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/model.moc3")
     assert resp.status_code == 200
     assert resp.content == b"\x00" * 16
 
 
-def test_model_path_traversal_refused(client, monkeypatch):
+def test_model_path_traversal_refused(client):
     # Review Focus: {path:path} is the most dangerous parameter in the app.
     #
     # Percent-encoded, because that is the form that actually reaches a
@@ -357,10 +340,8 @@ def test_model_path_traversal_refused(client, monkeypatch):
     # before it is sent, so the naive spelling never exercises the check.
     # Starlette decodes the escapes back into ".." for the path param.
     _seed_live2d(client)
-    _token(monkeypatch, "s3cret")
     resp = client.get(
-        f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/%2e%2e%2f%2e%2e%2f%2e%2e%2f.env",
-        headers={"X-V1-Token": "s3cret"},
+        f"/api/v1/live2d/avatars/{LIVE2D_ID}/model/%2e%2e%2f%2e%2e%2f%2e%2e%2f.env"
     )
     _assert_refused(resp)
 
@@ -372,7 +353,7 @@ def test_model_route_refuses_a_photoreal_avatar(client):
 
     buf = io.BytesIO()
     Image.new("RGB", (640, 800), (10, 20, 30)).save(buf, format="PNG")
-    created = client.post("/api/v1/avatars", data={"name": "p"},
+    created = client.post("/api/admin/avatars", data={"name": "p", "model": "musetalk"},
                           files={"file": ("p.png", buf.getvalue(), "image/png")})
     avatar_id = created.json()["avatar_id"]
     store = client.app.state.session_manager.store
@@ -432,20 +413,18 @@ def test_runtime_serves_shaders_from_a_root_level_shaders_dir(client, monkeypatc
     assert client.get("/api/v1/live2d/runtime/Shaders/WebGL/a.vert").text == "vert"
 
 
-def test_runtime_is_served_without_a_token_even_when_one_is_configured(client, monkeypatch, tmp_path):
-    """The SDK runtime is deliberately not token-gated.
+def test_runtime_is_served(client, monkeypatch, tmp_path):
+    """The SDK runtime is served from the Core and Shaders trees.
 
     The core loads via a <script> tag, which cannot carry a custom header,
     and the framework fetches its own GLSL with a fetch the caller cannot
-    configure. Requiring a token would make the runtime unloadable rather
-    than protected. Model files -- the operator-supplied content -- are
-    gated separately, and that is the boundary this pins.
+    configure -- so the runtime has to be reachable without a credential.
     """
     sdk = tmp_path / "sdk"
     (sdk / "Core").mkdir(parents=True)
     (sdk / "Core" / "live2dcubismcore.js").write_text("core", encoding="utf-8")
     monkeypatch.setenv("DH_LIVE2D_SDK_DIR", str(sdk))
-    _token(monkeypatch, "s3cret")
+    get_settings.cache_clear()
     assert client.get("/api/v1/live2d/runtime/Core/live2dcubismcore.js").text == "core"
 
 

@@ -14,6 +14,10 @@ import numpy as np
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
 
+#: The letterbox fill, in RGB. Every pipeline pads to the canvas with this
+#: colour, and the quality check recognises the bars it produced by it.
+CANVAS_BG = (16, 16, 24)
+
 
 class VideoError(Exception):
     pass
@@ -45,44 +49,27 @@ def probe_video(path: Path) -> dict:
     return {"fps": fps, "frame_count": frame_count, "duration": frame_count / fps}
 
 
-def _letterbox(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
+def fit_to_canvas(img, width: int, height: int):
+    """Letterbox a PIL image into a width x height canvas, keeping the aspect.
+
+    The pipeline must produce a 720x1280 ``normalized.png`` because
+    ``RenderSession`` assumes the media contract's frame size.
+    """
     from PIL import Image
 
-    # Lazily imported: musetalk_pipeline imports this module (lazily) too, and a
-    # module-level import here would close the cycle.
-    from dh_server.avatar.musetalk_pipeline import fit_to_canvas
+    canvas = Image.new("RGB", (width, height), CANVAS_BG)
+    scale = min(width / img.width, height / img.height)
+    new = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
+    resized = img.resize(new, Image.LANCZOS)
+    canvas.paste(resized, ((width - new[0]) // 2, (height - new[1]) // 2))
+    return canvas
+
+
+def letterbox(rgb: np.ndarray, width: int, height: int) -> np.ndarray:
+    """Letterbox an RGB frame into the canvas, as numpy."""
+    from PIL import Image
 
     return np.asarray(fit_to_canvas(Image.fromarray(rgb), width, height))
-
-
-def decode_native(
-    path: Path, max_frames: int, canvas: tuple[int, int]
-) -> tuple[np.ndarray, float]:
-    """Decode every source frame in storage order, capped at `max_frames`.
-
-    Used by the RIFE path: the interpolator -- not the decoder -- places frames
-    onto the 25 fps timeline, so the source must arrive at its native fps
-    without nearest-frame repeats. Frames are letterboxed to `canvas` exactly
-    like `decode_frames`, so both paths hand the pipeline identical geometry.
-    """
-    cv2 = _cv2()
-    info = probe_video(path)
-    width, height = canvas
-    collected = np.zeros((min(max_frames, info["frame_count"]), height, width, 3), dtype=np.uint8)
-    n = 0
-    cap = cv2.VideoCapture(str(path))
-    try:
-        if not cap.isOpened():
-            raise VideoError("cannot open video")
-        while n < max_frames:
-            ok, frame = cap.read()
-            if not ok:
-                break
-            collected[n] = _letterbox(np.ascontiguousarray(frame[:, :, ::-1]), width, height)
-            n += 1
-    finally:
-        cap.release()
-    return collected[:n].copy(), info["fps"]
 
 
 def decode_frames(
@@ -123,7 +110,7 @@ def decode_frames(
             if not ok:
                 break
             for k in wanted.get(src_i, ()):
-                frames[k] = _letterbox(np.ascontiguousarray(frame[:, :, ::-1]), width, height)
+                frames[k] = letterbox(np.ascontiguousarray(frame[:, :, ::-1]), width, height)
                 filled += 1
             src_i += 1
     finally:
